@@ -1,39 +1,51 @@
 import { useState, useRef } from 'react'
 
 // Parser de Excel usando SheetJS (cargado via CDN en index.html)
+// El formato real: Cod Sede | Sede | Objetivo | % Objetivo | [año pasado misma fecha] | [fecha de hoy, ESTA es la columna de totales]
 function parseExcelData(arrayBuffer) {
   const XLSX = window.XLSX
   if (!XLSX) throw new Error('SheetJS no disponible')
-  
+
   const wb = XLSX.read(arrayBuffer, { type: 'array' })
   const ws = wb.Sheets[wb.SheetNames[0]]
   const rows = XLSX.utils.sheet_to_json(ws, { header: 1 })
-  
-  // Detectar columnas — buscar cod_sede/sede/total
+
   if (!rows.length) throw new Error('El archivo está vacío')
-  
+
   const header = rows[0].map(h => String(h || '').toLowerCase().trim())
-  
-  // Índices flexibles
-  const iCod  = header.findIndex(h => h.includes('cod') || h.includes('código') || h === 'id')
+
+  const iCod  = header.findIndex(h => h.includes('cod'))
   const iSede = header.findIndex(h => h.includes('sede') || h.includes('nombre'))
-  const iTotal = header.findIndex(h => h.includes('total') || h.includes('ingresado') || h.includes('acumulado') || h.includes('cantidad'))
-  
-  if (iTotal === -1) throw new Error('No se encontró columna de totales. Verificá que el Excel tenga una columna "Total" o "Ingresados".')
-  
+
+  // La columna de totales del corte actual es SIEMPRE la última con datos —
+  // su header es una fecha (ej "19/6/26"), no contiene la palabra "total"
+  let iTotal = header.findIndex(h => h.includes('total') || h.includes('ingresado') || h.includes('acumulado'))
+  if (iTotal === -1) {
+    // Tomamos la última columna no vacía del header como la del corte actual
+    for (let i = header.length - 1; i >= 0; i--) {
+      if (header[i]) { iTotal = i; break }
+    }
+  }
+
+  if (iCod === -1 || iTotal === -1) {
+    throw new Error('No se encontraron las columnas esperadas (Cod Sede / columna de totales). Verificá el formato del Excel.')
+  }
+
   const sedes = []
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i]
-    if (!row || row.every(c => !c)) continue
+    if (!row || row.every(c => c === undefined || c === '')) continue
+    const cod = String(row[iCod] ?? '').trim()
+    if (!cod) continue
     const total = Number(row[iTotal])
     if (isNaN(total)) continue
     sedes.push({
-      cod:   iCod  >= 0 ? String(row[iCod]  || '').trim() : String(i),
-      sede:  iSede >= 0 ? String(row[iSede] || '').trim() : `Sede ${i}`,
+      cod,
+      sede:  iSede >= 0 ? String(row[iSede] || '').trim() : `Sede ${cod}`,
       total,
     })
   }
-  
+
   if (!sedes.length) throw new Error('No se encontraron datos válidos en el archivo')
   return sedes
 }
