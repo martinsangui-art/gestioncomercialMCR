@@ -39,7 +39,7 @@ export default function Historial({ historial, data, onSeleccionChange }) {
         if (entry) {
           const obj = Number(entry.objetivo) || 0
           const tot = Number(entry.total) || 0
-          row[cod] = obj > 0 ? Math.round(tot / obj * 100) : 0
+          row[cod] = obj > 0 ? Math.ceil(tot / obj * 100) : 0
         }
       })
       return row
