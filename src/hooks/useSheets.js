@@ -222,15 +222,19 @@ export function useSheets() {
     if (matchFecha) fecha = matchFecha[1].replace(/_/g, '-')
 
     const sedesSheet = state.sedes || []
-    const sedesConCod = sedesData.map(s => {
-      let match = sedesSheet.find(sh => String(sh.cod_sede) === String(s.cod))
-      if (!match) match = sedesSheet.find(sh => sh.sede?.toLowerCase().includes(s.sede?.toLowerCase().slice(0,6)))
-      return {
-        cod: match ? match.cod_sede : s.cod,
-        sede: match ? match.sede : s.sede,
-        total: s.total,
-      }
-    }).filter(s => s.total !== undefined)
+    const sedesConCod = sedesData
+      .map(s => {
+        // Match por código exacto (prioritario) o por inicio del nombre
+        let match = sedesSheet.find(sh => String(sh.cod_sede) === String(s.cod))
+        if (!match) match = sedesSheet.find(sh => sh.sede?.toLowerCase().includes(s.sede?.toLowerCase().slice(0,6)))
+        if (!match) return null // sede fuera de Buenos Aires — se descarta
+        return { cod: match.cod_sede, sede: match.sede, total: s.total }
+      })
+      .filter(s => s !== null && s.total !== undefined)
+
+    if (!sedesConCod.length) {
+      throw new Error('Ninguna sede del Excel coincide con las sedes de Buenos Aires registradas en Sheets.')
+    }
 
     const camp = state.campanas?.find(c => c.id === state.campanaActiva)
     return await post({
