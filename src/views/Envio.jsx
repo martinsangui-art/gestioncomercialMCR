@@ -1,5 +1,5 @@
-import { useState, useRef } from 'react'
-import { enviarEmailViaScript } from '../hooks/useSheets'
+import { useState, useRef, useEffect } from 'react'
+import { enviarEmailViaScript, obtenerLogEnvios } from '../hooks/useSheets'
 
 const WEBHOOK = 'https://hook.us2.make.com/3xhcn02owq56c196s0j3anawf5zesxht'
 
@@ -156,6 +156,9 @@ export default function Envio({ data, copied, onCopied, campanas, campanaActiva,
   const [nuevaFecha, setNuevaFecha] = useState(new Date().toISOString().slice(0,10))
   const [valores, setValores] = useState({})
   const [guardando, setGuardando] = useState(false)
+  const [logEnvios, setLogEnvios] = useState([])
+  const [cargandoLog, setCargandoLog] = useState(false)
+  const [mostrarLog, setMostrarLog] = useState(false)
   const logRef = useRef(null)
 
   const camp = campanas?.find(c => c.id === campanaActiva)
@@ -190,6 +193,7 @@ export default function Envio({ data, copied, onCopied, campanas, campanaActiva,
       sede:    d.sede,
       cod:     String(d.cod_sede),
       fecha:   fecha,
+      campana: campNom,
     })
     onCopied(d.cod_sede)
   }
@@ -222,6 +226,30 @@ export default function Envio({ data, copied, onCopied, campanas, campanaActiva,
     setGuardando(false)
   }
 
+  const toggleLog = async () => {
+    const next = !mostrarLog
+    setMostrarLog(next)
+    if (next) {
+      setCargandoLog(true)
+      try {
+        const datos = await obtenerLogEnvios(300)
+        setLogEnvios(datos)
+      } catch (e) { /* silencioso */ }
+      setCargandoLog(false)
+    }
+  }
+
+  // Agrupar el log por fecha + hora exacta (cada tanda de envío comparte el mismo minuto/segundo de inicio)
+  const logAgrupado = (() => {
+    const grupos = {}
+    logEnvios.forEach(r => {
+      const key = `${r.fecha} ${r.hora?.slice(0,5)}` // agrupa por fecha + hora:minuto
+      if (!grupos[key]) grupos[key] = { fecha: r.fecha, hora: r.hora, campana: r.campana, items: [] }
+      grupos[key].items.push(r)
+    })
+    return Object.values(grupos).sort((a, b) => (b.fecha + b.hora).localeCompare(a.fecha + a.hora))
+  })()
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
@@ -242,8 +270,8 @@ export default function Envio({ data, copied, onCopied, campanas, campanaActiva,
           { l: 'Pendientes',   v: pendientes.length, c: pendientes.length > 0 ? '#d97706' : '#94a3b8' },
         ].map(s => (
           <div key={s.l} style={{
-            background: 'rgba(255,255,255,0.68)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
-            border: '1px solid rgba(255,255,255,0.9)', boxShadow: '0 1px 2px rgba(15,23,42,0.04), 0 8px 24px -8px rgba(15,23,42,0.06)',
+            background: 'rgba(255,255,255,0.55)', backdropFilter: 'blur(20px) saturate(180%)', WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+            border: '1px solid rgba(255,255,255,0.95)', boxShadow: '0 2px 4px rgba(15,23,42,0.06), 0 16px 40px -12px rgba(27,42,107,0.18)',
             borderRadius: 14, padding: '18px 24px', borderTop: `3px solid ${s.c}`,
           }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>{s.l}</div>
@@ -412,6 +440,70 @@ export default function Envio({ data, copied, onCopied, campanas, campanaActiva,
           )}
         </div>
       )}
+
+      {/* Historial de envíos (persistente en Sheets) */}
+      <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 16, overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', padding: '14px 24px', borderBottom: mostrarLog ? '1px solid #e2e8f0' : 'none' }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>📜 Historial de envíos</div>
+            <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>Registro de cuándo se enviaron los emails — se conserva entre sesiones</div>
+          </div>
+          <button onClick={toggleLog} style={{
+            padding: '7px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+            background: mostrarLog ? '#f1f5f9' : '#1B2A6B',
+            color: mostrarLog ? '#64748b' : '#fff', border: 'none', cursor: 'pointer',
+          }}>
+            {mostrarLog ? '▲ Cerrar' : '▼ Ver historial'}
+          </button>
+        </div>
+
+        {mostrarLog && (
+          <div className="animate-fadeIn" style={{ padding: '16px 24px' }}>
+            {cargandoLog ? (
+              <div style={{ textAlign: 'center', padding: '24px', color: '#94a3b8', fontSize: 13 }}>Cargando…</div>
+            ) : logAgrupado.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '24px', color: '#94a3b8', fontSize: 13 }}>Todavía no hay envíos registrados</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 420, overflowY: 'auto' }}>
+                {logAgrupado.map((g, i) => {
+                  const ok = g.items.filter(it => it.estado === 'enviado').length
+                  const err = g.items.filter(it => it.estado !== 'enviado').length
+                  return (
+                    <div key={i} style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
+                      <div style={{
+                        display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
+                        background: '#f8fafc',
+                      }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>
+                          {fmtFecha(g.fecha)} · {g.hora?.slice(0,5)}hs
+                        </span>
+                        {g.campana && (
+                          <span style={{ fontSize: 11, color: '#1B2A6B', background: '#eef0f8', padding: '2px 8px', borderRadius: 20, fontWeight: 600 }}>
+                            {g.campana}
+                          </span>
+                        )}
+                        <span style={{ fontSize: 12, color: '#059669', fontWeight: 700, marginLeft: 'auto' }}>✓ {ok} enviados</span>
+                        {err > 0 && <span style={{ fontSize: 12, color: '#e11d48', fontWeight: 700 }}>✗ {err} con error</span>}
+                      </div>
+                      <div style={{ padding: '8px 14px', display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                        {g.items.map((it, j) => (
+                          <span key={j} style={{
+                            fontSize: 11, padding: '2px 9px', borderRadius: 20, fontWeight: 600,
+                            background: it.estado === 'enviado' ? '#ecfdf5' : '#fff1f2',
+                            color: it.estado === 'enviado' ? '#059669' : '#e11d48',
+                          }}>
+                            {it.estado === 'enviado' ? '✓' : '✗'} {it.sede}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Modal confirmación masiva */}
       {modalConfirm && (
