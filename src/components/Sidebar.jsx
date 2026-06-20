@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { LOGO_SIDEBAR_B64 } from '../assets/logo_sidebar'
+import { ISOTIPO_B64 } from '../assets/isotipo'
 
 const NAV = [
   { id: 'dashboard', icon: '◎', label: 'Dashboard' },
@@ -18,32 +18,27 @@ export default function Sidebar({ view, onView, campanaActiva, campanas, onCampa
       style={{
         width: expanded ? 220 : 64,
         background: 'linear-gradient(180deg, #0B1730 0%, #0f1d4a 100%)',
+        boxShadow: '4px 0 24px -4px rgba(11,23,48,0.35)',
         borderRight: '1px solid rgba(255,255,255,0.06)',
         flexShrink: 0,
       }}
     >
       {/* Logo + toggle */}
       <div
-        className="flex items-center px-4 py-5 border-b border-white/5 cursor-pointer select-none"
+        className="flex items-center gap-3 px-4 py-5 border-b border-white/5 cursor-pointer select-none"
         onClick={() => setExpanded(e => !e)}
         title={expanded ? 'Colapsar' : 'Expandir'}
         style={{ minHeight: 64 }}
       >
-        {expanded ? (
-          <div className="animate-fadeIn" style={{ width: '100%' }}>
-            <img
-              src={LOGO_SIDEBAR_B64}
-              alt="UCASAL Educación Digital"
-              style={{ width: '100%', maxWidth: 168, display: 'block', filter: 'brightness(0) invert(1)', opacity: 0.92 }}
-            />
-            <div className="text-white/40 text-xs mt-1.5">Gestión Comercial</div>
-          </div>
-        ) : (
-          <div
-            className="w-9 h-9 rounded-xl flex items-center justify-center font-bold text-white text-sm flex-shrink-0"
-            style={{ background: '#C8102E', letterSpacing: '-0.5px' }}
-          >
-            U
+        <img
+          src={ISOTIPO_B64}
+          alt="UCASAL"
+          style={{ width: 34, height: 'auto', display: 'block', flexShrink: 0 }}
+        />
+        {expanded && (
+          <div className="animate-fadeIn overflow-hidden">
+            <div className="text-white font-bold text-sm leading-tight" style={{ letterSpacing: '0.02em' }}>UCASAL</div>
+            <div className="text-white/40 text-xs">Gestión Comercial</div>
           </div>
         )}
       </div>

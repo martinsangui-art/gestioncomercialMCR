@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { LOGO_SIDEBAR_B64 } from '../assets/logo_sidebar'
+import { ISOTIPO_B64 } from '../assets/isotipo'
 
 export default function Login({ onLogin, error, loading }) {
   const [password, setPassword] = useState('')
@@ -16,14 +16,15 @@ export default function Login({ onLogin, error, loading }) {
       padding: 20,
     }}>
       <img
-        src={LOGO_SIDEBAR_B64}
-        alt="UCASAL Educación Digital"
-        style={{ width: 220, filter: 'brightness(0) invert(1)', opacity: 0.95 }}
+        src={ISOTIPO_B64}
+        alt="UCASAL"
+        style={{ width: 90, height: 'auto' }}
       />
 
       <div style={{ textAlign: 'center', marginTop: -10 }}>
-        <div style={{ color: '#fff', fontWeight: 600, fontSize: 18, marginBottom: 4 }}>Gestión Comercial</div>
-        <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13 }}>Dirección Operativa SEAD · Buenos Aires</div>
+        <div style={{ color: '#fff', fontWeight: 700, fontSize: 20, marginBottom: 4, letterSpacing: '0.02em' }}>UCASAL</div>
+        <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13, marginBottom: 6 }}>Gestión Comercial</div>
+        <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12 }}>Dirección Operativa SEAD · Buenos Aires</div>
       </div>
 
       <form onSubmit={handleSubmit} style={{
