@@ -24,7 +24,8 @@ export function enviarEmailViaScript(payload) {
       '&html='     + encodeURIComponent(payload.html) +
       '&sede='     + encodeURIComponent(payload.sede) +
       '&cod='      + encodeURIComponent(payload.cod) +
-      '&fecha='    + encodeURIComponent(payload.fecha)
+      '&fecha='    + encodeURIComponent(payload.fecha) +
+      '&campana='  + encodeURIComponent(payload.campana || '')
 
     const timeout = setTimeout(() => { cleanup(); resolve({ ok: true }) }, 10000)
     window[cb] = (data) => {
@@ -260,6 +261,11 @@ export function useSheets() {
     subirExcel,
     WEBHOOK,
   }
+}
+
+// Obtener historial de envíos registrado en Sheets
+export function obtenerLogEnvios(limite = 200) {
+  return jsonp('log_envios', { limite })
 }
 
 export { post, jsonp }
