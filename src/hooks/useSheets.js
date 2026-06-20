@@ -210,7 +210,7 @@ export function useSheets() {
     })
     return {
       total: data.length, enObj, enProg, sinIng, sinAv,
-      pctGlobal: totalObj > 0 ? Math.ceil(totalIng / totalObj * 100) : 0,
+      pctGlobal: totalObj > 0 ? Math.round(totalIng / totalObj * 100) : 0,
       totalIng, totalObj,
     }
   })()
