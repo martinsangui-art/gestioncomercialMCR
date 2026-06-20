@@ -48,11 +48,19 @@ function PageHeader({ title, sub, campana, fecha, sedes, children }) {
   return (
     <div style={{
       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      paddingBottom: 20, borderBottom: '1px solid #e2e8f0', marginBottom: 24,
+      paddingBottom: 20, marginBottom: 24, position: 'relative',
     }}>
-      <div>
-        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#0f172a', letterSpacing: '-0.02em' }}>{title}</h1>
-        {sub && <p style={{ margin: '2px 0 0', fontSize: 13, color: '#94a3b8' }}>{sub}</p>}
+      <div style={{
+        position: 'absolute', bottom: 0, left: 0, right: 0, height: 2,
+        background: 'linear-gradient(90deg, #1B2A6B 0%, #1B2A6B 60%, #C8102E 100%)',
+        opacity: 0.7,
+      }} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ width: 4, height: 28, borderRadius: 2, background: '#C8102E', flexShrink: 0 }} />
+        <div>
+          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#0f172a', letterSpacing: '-0.02em' }}>{title}</h1>
+          {sub && <p style={{ margin: '2px 0 0', fontSize: 13, color: '#94a3b8' }}>{sub}</p>}
+        </div>
       </div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         {campana && (
@@ -66,17 +74,17 @@ function PageHeader({ title, sub, campana, fecha, sedes, children }) {
         )}
         {fecha && (
           <div style={{
-            padding: '5px 12px', borderRadius: 7, background: 'rgba(248,250,252,0.8)',
-            border: '1px solid #e2e8f0', fontSize: 11, color: '#64748b',
-            fontFamily: 'monospace', letterSpacing: '0.03em',
+            padding: '5px 12px', borderRadius: 7, background: 'rgba(27,42,107,0.06)',
+            border: '1px solid rgba(27,42,107,0.15)', fontSize: 11, color: '#1B2A6B',
+            fontFamily: 'monospace', letterSpacing: '0.03em', fontWeight: 600,
           }}>
             CORTE · {fecha}
           </div>
         )}
         {sedes !== undefined && (
           <div style={{
-            padding: '5px 12px', borderRadius: 7, background: 'rgba(238,240,248,0.8)',
-            border: '1px solid #b8c0e0', fontSize: 11, fontWeight: 700, color: '#1B2A6B',
+            padding: '5px 12px', borderRadius: 7, background: '#1B2A6B',
+            border: '1px solid #1B2A6B', fontSize: 11, fontWeight: 700, color: '#fff',
             fontFamily: 'monospace', letterSpacing: '0.03em',
           }}>
             {sedes} SEDES
@@ -114,7 +122,7 @@ function AppShell({ onLogout }) {
   return (
     <div style={{
       display: 'flex', minHeight: '100vh',
-      background: 'radial-gradient(ellipse 1200px 800px at 20% 0%, #eef0f8 0%, #f5f6fc 45%, #f8fafc 100%)',
+      background: 'radial-gradient(ellipse 1400px 1000px at 10% -10%, rgba(27,42,107,0.12) 0%, rgba(27,42,107,0.04) 40%, #f8fafc 75%), radial-gradient(ellipse 900px 700px at 100% 100%, rgba(200,16,46,0.05) 0%, transparent 60%)',
     }}>
       <Sidebar
         view={view} onView={setView}
