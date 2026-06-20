@@ -268,4 +268,13 @@ export function obtenerLogEnvios(limite = 200) {
   return jsonp('log_envios', { limite })
 }
 
+// Manda a Cele un resumen consolidado de una tanda de envíos (individual o masiva)
+export function enviarResumenCele(campana, fecha, items) {
+  return jsonp('resumen_cele', {
+    campana,
+    fecha,
+    items: JSON.stringify(items),
+  })
+}
+
 export { post, jsonp }
