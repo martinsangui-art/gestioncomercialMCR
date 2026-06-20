@@ -8,7 +8,8 @@ import Dashboard from './views/Dashboard'
 import Sedes from './views/Sedes'
 import Historial from './views/Historial'
 import Envio from './views/Envio'
-import { LOGO_SIDEBAR_B64 } from './assets/logo_sidebar'
+import { ISOTIPO_B64 } from './assets/isotipo'
+import { ISOTIPO_WATERMARK_B64 } from './assets/isotipo_watermark'
 
 function LoadingScreen({ error }) {
   return (
@@ -17,12 +18,12 @@ function LoadingScreen({ error }) {
       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 20,
     }}>
       <img
-        src={LOGO_SIDEBAR_B64}
-        alt="UCASAL Educación Digital"
-        style={{ width: 220, filter: 'brightness(0) invert(1)', opacity: 0.95 }}
+        src={ISOTIPO_B64}
+        alt="UCASAL"
+        style={{ width: 100, height: 'auto' }}
       />
-      <div style={{ textAlign: 'center', marginTop: -8 }}>
-        <div style={{ color: '#fff', fontWeight: 600, fontSize: 18, marginBottom: 4 }}>Gestión Comercial</div>
+      <div style={{ textAlign: 'center', marginTop: -4 }}>
+        <div style={{ color: '#fff', fontWeight: 700, fontSize: 19, marginBottom: 4, letterSpacing: '0.02em' }}>UCASAL · Gestión Comercial</div>
         <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13 }}>Dirección Operativa SEAD · Buenos Aires</div>
       </div>
       {error ? (
@@ -122,7 +123,10 @@ function AppShell({ onLogout }) {
   return (
     <div style={{
       display: 'flex', minHeight: '100vh',
-      background: 'radial-gradient(ellipse 1400px 1000px at 10% -10%, rgba(27,42,107,0.12) 0%, rgba(27,42,107,0.04) 40%, #f8fafc 75%), radial-gradient(ellipse 900px 700px at 100% 100%, rgba(200,16,46,0.05) 0%, transparent 60%)',
+      backgroundColor: '#f8fafc',
+      backgroundImage: `radial-gradient(ellipse 1400px 1000px at 10% -10%, rgba(27,42,107,0.10) 0%, rgba(27,42,107,0.03) 40%, transparent 75%), radial-gradient(ellipse 900px 700px at 100% 100%, rgba(200,16,46,0.04) 0%, transparent 60%), url("${ISOTIPO_WATERMARK_B64}")`,
+      backgroundRepeat: 'no-repeat, no-repeat, repeat',
+      backgroundSize: 'auto, auto, 90px 96px',
     }}>
       <Sidebar
         view={view} onView={setView}
