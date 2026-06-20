@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { enviarEmailViaScript, obtenerLogEnvios } from '../hooks/useSheets'
+import { enviarEmailViaScript, obtenerLogEnvios, enviarResumenCele } from '../hooks/useSheets'
 
 const WEBHOOK = 'https://hook.us2.make.com/3xhcn02owq56c196s0j3anawf5zesxht'
 
@@ -196,23 +196,38 @@ export default function Envio({ data, copied, onCopied, campanas, campanaActiva,
       campana: campNom,
     })
     onCopied(d.cod_sede)
+    // Resumen a Cele de este envío individual
+    enviarResumenCele(campNom, fecha, [{ sede: d.sede, email: d.email, estado: 'enviado' }]).catch(() => {})
   }
 
   const enviarTodos = async () => {
     setEnviando(true); setLog([]); setProgreso(0)
     addLog(`Iniciando envío de ${aEnviar.length} emails…`, 'info')
+    const resumenItems = []
+    const campNom = camp?.nombre || ''
+    const fechaRef = aEnviar[0]?.fecha || new Date().toISOString().slice(0,10)
+
     for (let i = 0; i < aEnviar.length; i++) {
       const d = aEnviar[i]
       try {
-        await enviarUno(d)
+        const htmlRich = buildEmailHTML(d, campNom)
+        await enviarEmailViaScript({
+          to: d.email, subject: 'Como Vamos — ' + campNom + ' — ' + fmtFecha(d.fecha || fechaRef),
+          html: htmlRich, sede: d.sede, cod: String(d.cod_sede), fecha: d.fecha || fechaRef, campana: campNom,
+        })
+        onCopied(d.cod_sede)
         addLog(`✓ ${d.sede}`, 'ok')
+        resumenItems.push({ sede: d.sede, email: d.email, estado: 'enviado' })
       } catch {
         addLog(`✗ Error en ${d.sede}`, 'error')
+        resumenItems.push({ sede: d.sede, email: d.email, estado: 'error' })
       }
       setProgreso(Math.round((i + 1) / aEnviar.length * 100))
     }
     addLog(`Listo. ${aEnviar.length} emails procesados.`, 'ok')
     setEnviando(false); setSeleccion({})
+    // Un solo resumen consolidado a Cele con toda la tanda
+    enviarResumenCele(campNom, fechaRef, resumenItems).catch(() => {})
   }
 
   const handleGuardar = async () => {
