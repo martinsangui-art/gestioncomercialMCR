@@ -12,16 +12,25 @@ function parseExcelData(arrayBuffer) {
 
   if (!rows.length) throw new Error('El archivo está vacío')
 
-  const header = rows[0].map(h => String(h || '').toLowerCase().trim())
+  const headerRaw = rows[0]
+  const header = headerRaw.map(h => String(h || '').toLowerCase().trim())
 
   const iCod  = header.findIndex(h => h.includes('cod'))
   const iSede = header.findIndex(h => h.includes('sede') || h.includes('nombre'))
 
-  // La columna de totales del corte actual es SIEMPRE la última con datos —
-  // su header es una fecha (ej "19/6/26"), no contiene la palabra "total"
+  // Patrón de fecha tipo dd/mm/aa, dd-mm-aaaa, etc — la columna del corte actual
+  const fechaPattern = /^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/
   let iTotal = header.findIndex(h => h.includes('total') || h.includes('ingresado') || h.includes('acumulado'))
+  let detectadoPorFecha = false
+
   if (iTotal === -1) {
-    // Tomamos la última columna no vacía del header como la del corte actual
+    // Buscamos de derecha a izquierda la última columna cuyo header sea una fecha
+    for (let i = header.length - 1; i >= 0; i--) {
+      if (fechaPattern.test(header[i].trim())) { iTotal = i; detectadoPorFecha = true; break }
+    }
+  }
+  if (iTotal === -1) {
+    // Último recurso: última columna no vacía del header
     for (let i = header.length - 1; i >= 0; i--) {
       if (header[i]) { iTotal = i; break }
     }
@@ -47,7 +56,15 @@ function parseExcelData(arrayBuffer) {
   }
 
   if (!sedes.length) throw new Error('No se encontraron datos válidos en el archivo')
-  return sedes
+
+  return {
+    sedes,
+    meta: {
+      columnaTotal: headerRaw[iTotal],
+      detectadoPorFecha,
+      totalFilas: sedes.length,
+    },
+  }
 }
 
 export default function ExcelUploader({ data, onUpload, campanas, campanaActiva }) {
@@ -55,6 +72,8 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [minimized, setMinimized] = useState(false)
+  const [preview, setPreview] = useState(null) // { sedes, meta, fileName }
+  const [confirmando, setConfirmando] = useState(false)
   const inputRef = useRef(null)
 
   const camp = campanas?.find(c => c.id === campanaActiva)
@@ -74,13 +93,26 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva 
     setError(null)
     try {
       const buffer = await file.arrayBuffer()
-      const sedes = parseExcelData(buffer)
-      await onUpload(sedes, file.name)
-      setMinimized(true)
+      const { sedes, meta } = parseExcelData(buffer)
+      setPreview({ sedes, meta, fileName: file.name })
     } catch (e) {
       setError(e.message)
     }
     setLoading(false)
+  }
+
+  const confirmarCarga = async () => {
+    if (!preview) return
+    setConfirmando(true)
+    try {
+      await onUpload(preview.sedes, preview.fileName)
+      setPreview(null)
+      setMinimized(true)
+    } catch (e) {
+      setError(e.message)
+      setPreview(null)
+    }
+    setConfirmando(false)
   }
 
   const onDrop = (e) => {
@@ -88,6 +120,88 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva 
     setDragging(false)
     const file = e.dataTransfer.files[0]
     handleFile(file)
+  }
+
+  // Modal de previsualización antes de confirmar guardado
+  if (preview) {
+    const top5 = preview.sedes.slice(0, 5)
+    return (
+      <div style={{
+        background: '#fff', border: '1px solid #e2e8f0', borderTop: '3px solid #1B2A6B',
+        borderRadius: 14, overflow: 'hidden', marginBottom: 4,
+      }}>
+        <div style={{ padding: '14px 20px', borderBottom: '1px solid #f1f5f9' }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>👀 Confirmá antes de guardar</div>
+          <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 1 }}>
+            Archivo: {preview.fileName}
+          </div>
+        </div>
+
+        <div style={{ padding: '16px 20px' }}>
+          <div style={{
+            display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap',
+          }}>
+            <div style={{ background: '#eef0f8', border: '1px solid #b8c0e0', borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 700, color: '#1B2A6B' }}>
+              {preview.meta.totalFilas} sedes detectadas
+            </div>
+            <div style={{
+              background: preview.meta.detectadoPorFecha ? '#ecfdf5' : '#fffbeb',
+              border: `1px solid ${preview.meta.detectadoPorFecha ? '#6ee7b7' : '#fde68a'}`,
+              borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 600,
+              color: preview.meta.detectadoPorFecha ? '#059669' : '#92400e',
+            }}>
+              Columna de totales: "{preview.meta.columnaTotal}"
+              {!preview.meta.detectadoPorFecha && ' ⚠ verificá que sea correcta'}
+            </div>
+          </div>
+
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+            Primeras filas detectadas
+          </div>
+          <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', marginBottom: 16 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: '#f8fafc' }}>
+                  <th style={{ padding: '8px 14px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>Cod</th>
+                  <th style={{ padding: '8px 14px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>Sede</th>
+                  <th style={{ padding: '8px 14px', textAlign: 'center', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {top5.map(s => (
+                  <tr key={s.cod} style={{ borderTop: '1px solid #f1f5f9' }}>
+                    <td style={{ padding: '7px 14px', color: '#64748b' }}>{s.cod}</td>
+                    <td style={{ padding: '7px 14px', fontWeight: 600 }}>{s.sede}</td>
+                    <td style={{ padding: '7px 14px', textAlign: 'center', fontWeight: 700 }}>{s.total}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {preview.sedes.length > 5 && (
+              <div style={{ padding: '8px 14px', fontSize: 11, color: '#94a3b8', textAlign: 'center', borderTop: '1px solid #f1f5f9' }}>
+                + {preview.sedes.length - 5} sedes más
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button onClick={confirmarCarga} disabled={confirmando} style={{
+              padding: '10px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700,
+              background: '#1B2A6B', color: '#fff', border: 'none', cursor: 'pointer',
+              opacity: confirmando ? 0.6 : 1,
+            }}>
+              {confirmando ? 'Guardando…' : '✅ Confirmar y guardar en Sheets'}
+            </button>
+            <button onClick={() => setPreview(null)} disabled={confirmando} style={{
+              padding: '10px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+              background: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0', cursor: 'pointer',
+            }}>
+              Cancelar
+            </button>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   // Versión minimizada — solo un chip con info
