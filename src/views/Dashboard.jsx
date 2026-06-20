@@ -148,7 +148,7 @@ export default function Dashboard({ data, stats, historial, campanas, campanaAct
     })
     return Object.entries(byFecha).sort(([a],[b]) => a.localeCompare(b)).map(([fecha, v]) => ({
       fecha: fecha.slice(5),
-      pct: v.obj > 0 ? Math.ceil(v.total / v.obj * 100) : 0,
+      pct: v.obj > 0 ? Math.round(v.total / v.obj * 100) : 0,
     }))
   }, [historial])
 
