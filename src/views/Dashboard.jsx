@@ -92,14 +92,14 @@ function StatCard({ label, value, color, sub, delay = 0 }) {
   return (
     <div className="animate-fadeUp" style={{
       animationDelay: `${delay}ms`,
-      background: 'rgba(255,255,255,0.68)',
-      backdropFilter: 'blur(14px)',
-      WebkitBackdropFilter: 'blur(14px)',
-      border: '1px solid rgba(255,255,255,0.9)',
-      boxShadow: '0 1px 2px rgba(15,23,42,0.04), 0 8px 24px -8px rgba(15,23,42,0.06)',
+      background: 'rgba(255,255,255,0.55)',
+      backdropFilter: 'blur(20px) saturate(180%)',
+      WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+      border: '1px solid rgba(255,255,255,0.95)',
+      boxShadow: '0 2px 4px rgba(15,23,42,0.06), 0 16px 40px -12px rgba(27,42,107,0.18)',
       borderRadius: 14,
       padding: '16px 20px',
-      borderTop: `3px solid ${color}`,
+      borderTop: `4px solid ${color}`,
       position: 'relative',
       overflow: 'hidden',
     }}>
@@ -121,11 +121,11 @@ function GlassPanel({ children, delay = 0, style = {} }) {
   return (
     <div className="animate-fadeUp" style={{
       animationDelay: `${delay}ms`,
-      background: 'rgba(255,255,255,0.78)',
-      backdropFilter: 'blur(10px)',
-      WebkitBackdropFilter: 'blur(10px)',
-      border: '1px solid rgba(255,255,255,0.9)',
-      boxShadow: '0 1px 2px rgba(15,23,42,0.04), 0 12px 32px -12px rgba(15,23,42,0.08)',
+      background: 'rgba(255,255,255,0.62)',
+      backdropFilter: 'blur(18px) saturate(180%)',
+      WebkitBackdropFilter: 'blur(18px) saturate(180%)',
+      border: '1px solid rgba(255,255,255,0.95)',
+      boxShadow: '0 2px 4px rgba(15,23,42,0.06), 0 20px 48px -16px rgba(27,42,107,0.2)',
       borderRadius: 16,
       ...style,
     }}>
@@ -201,7 +201,7 @@ export default function Dashboard({ data, stats, historial, campanas, campanaAct
       )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 16, alignItems: 'start' }}>
-        <GlassPanel style={{ padding: '20px 12px 12px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+        <GlassPanel style={{ padding: '20px 12px 12px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, borderTop: '4px solid #1B2A6B' }}>
           <ArcGauge pct={stats.pctGlobal} />
           <div style={{ fontSize: 12, color: '#94a3b8', textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
             {stats.totalIng} de {stats.totalObj} inscriptos
@@ -227,7 +227,7 @@ export default function Dashboard({ data, stats, historial, campanas, campanaAct
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 260px', gap: 16 }}>
 
-        <GlassPanel delay={100} style={{ padding: '20px 24px' }}>
+        <GlassPanel delay={100} style={{ padding: '20px 24px', borderTop: '4px solid #1B2A6B' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 16 }}>
             <div>
               <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>Evolución semanal</div>
@@ -266,7 +266,7 @@ export default function Dashboard({ data, stats, historial, campanas, campanaAct
           )}
         </GlassPanel>
 
-        <GlassPanel delay={120} style={{ padding: '20px' }}>
+        <GlassPanel delay={120} style={{ padding: '20px', borderTop: '4px solid #C8102E' }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', marginBottom: 2 }}>Mayor crecimiento</div>
           <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 14 }}>vs semana anterior</div>
           {topCrecimiento.length === 0 ? (
@@ -294,7 +294,7 @@ export default function Dashboard({ data, stats, historial, campanas, campanaAct
         </GlassPanel>
       </div>
 
-      <GlassPanel delay={150} style={{ padding: '20px 24px' }}>
+      <GlassPanel delay={150} style={{ padding: '20px 24px', borderTop: '4px solid #1B2A6B' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div>
             <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>Cumplimiento por sede</div>
