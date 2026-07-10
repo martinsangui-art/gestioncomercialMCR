@@ -216,18 +216,30 @@ export function useSheets() {
     }
   })()
 
-  // Subir Excel — parsea y guarda como nueva semana
-  const subirExcel = useCallback(async (sedesData, fileName) => {
-    let fecha = new Date().toISOString().slice(0,10)
-    const matchFecha = fileName?.match(/(\d{4}[-_]\d{2}[-_]\d{2})/)
-    if (matchFecha) fecha = matchFecha[1].replace(/_/g, '-')
+  // Subir Excel — parsea y guarda como nueva semana. Acepta reemplazar (cuando
+  // ya existe un corte para esa fecha) y la fecha detectada por el parser del
+  // header (prioritaria sobre la extraída del nombre del archivo).
+  const subirExcel = useCallback(async (sedesData, fileName, reemplazar = false, fechaDesdeParser = null) => {
+    let fecha = new Date().toISOString().slice(0, 10)
+    if (fechaDesdeParser) {
+      fecha = fechaDesdeParser
+    } else {
+      const matchFecha = fileName?.match(/(\d{4}[-_]\d{2}[-_]\d{2})/)
+      if (matchFecha) fecha = matchFecha[1].replace(/_/g, '-')
+    }
 
     const sedesSheet = state.sedes || []
     const sedesConCod = sedesData
       .map(s => {
-        // Match por código exacto (prioritario) o por inicio del nombre
+        // Match por código exacto (prioritario), luego por nombre completo,
+        // luego por prefijo de 8 caracteres (más conservador que 6)
         let match = sedesSheet.find(sh => String(sh.cod_sede) === String(s.cod))
-        if (!match) match = sedesSheet.find(sh => sh.sede?.toLowerCase().includes(s.sede?.toLowerCase().slice(0,6)))
+        if (!match) match = sedesSheet.find(sh =>
+          sh.sede?.toLowerCase() === s.sede?.toLowerCase()
+        )
+        if (!match) match = sedesSheet.find(sh =>
+          sh.sede?.toLowerCase().includes(s.sede?.toLowerCase().slice(0, 8))
+        )
         if (!match) return null // sede fuera de Buenos Aires — se descarta
         return { cod: match.cod_sede, sede: match.sede, total: s.total }
       })
@@ -244,6 +256,7 @@ export function useSheets() {
       campana_nombre: camp?.nombre || '',
       fecha,
       sedes: sedesConCod,
+      reemplazar,
     }).then(res => {
       cargarCampana(state.campanaActiva)
       return res

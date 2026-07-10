@@ -1,14 +1,18 @@
 import { useState, useRef } from 'react'
 
 // Parser de Excel usando SheetJS (cargado via CDN en index.html)
-// El formato real: Cod Sede | Sede | Objetivo | % Objetivo | [año pasado misma fecha] | [fecha de hoy, ESTA es la columna de totales]
+// Formato esperado: Cod Sede | Sede | Objetivo | % Objetivo | [fecha del corte = columna de totales]
+// La columna de totales se detecta automáticamente:
+//   1. Por header con texto "total", "ingresado" o "acumulado"
+//   2. Por header que sea una fecha (texto dd/mm/aa, objeto Date, o número serial Excel)
+//   3. Último recurso: última columna no vacía
 function parseExcelData(arrayBuffer) {
   const XLSX = window.XLSX
   if (!XLSX) throw new Error('SheetJS no disponible')
 
-  const wb = XLSX.read(arrayBuffer, { type: 'array' })
+  const wb = XLSX.read(arrayBuffer, { type: 'array', cellDates: true })
   const ws = wb.Sheets[wb.SheetNames[0]]
-  const rows = XLSX.utils.sheet_to_json(ws, { header: 1 })
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, dateNF: 'dd/mm/yyyy' })
 
   if (!rows.length) throw new Error('El archivo está vacío')
 
@@ -18,19 +22,36 @@ function parseExcelData(arrayBuffer) {
   const iCod  = header.findIndex(h => h.includes('cod'))
   const iSede = header.findIndex(h => h.includes('sede') || h.includes('nombre'))
 
-  // Patrón de fecha tipo dd/mm/aa, dd-mm-aaaa, etc — la columna del corte actual
-  const fechaPattern = /^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/
+  // Detectar columna de totales — orden de prioridad:
+  // 1. Header explícito (total/ingresado/acumulado)
+  // 2. Header que sea una fecha en cualquier formato (texto o serializado)
+  // 3. Última columna no vacía
+  const esFecha = (h) => {
+    if (!h) return false
+    const s = String(h).trim()
+    // Patrones de texto: dd/mm/aa, dd-mm-aaaa, yyyy-mm-dd, etc.
+    if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/.test(s)) return true
+    if (/^\d{4}[\/\-]\d{2}[\/\-]\d{2}/.test(s)) return true
+    // SheetJS con dateNF convierte fechas a dd/mm/yyyy — ya cubierto arriba
+    // Número serial de Excel (fechas suelen ser > 40000)
+    if (/^\d{5}$/.test(s) && Number(s) > 40000) return true
+    return false
+  }
+
   let iTotal = header.findIndex(h => h.includes('total') || h.includes('ingresado') || h.includes('acumulado'))
   let detectadoPorFecha = false
+  let columnaLabel = ''
 
   if (iTotal === -1) {
-    // Buscamos de derecha a izquierda la última columna cuyo header sea una fecha
     for (let i = header.length - 1; i >= 0; i--) {
-      if (fechaPattern.test(header[i].trim())) { iTotal = i; detectadoPorFecha = true; break }
+      if (esFecha(headerRaw[i]) || esFecha(header[i])) {
+        iTotal = i
+        detectadoPorFecha = true
+        break
+      }
     }
   }
   if (iTotal === -1) {
-    // Último recurso: última columna no vacía del header
     for (let i = header.length - 1; i >= 0; i--) {
       if (header[i]) { iTotal = i; break }
     }
@@ -40,17 +61,47 @@ function parseExcelData(arrayBuffer) {
     throw new Error('No se encontraron las columnas esperadas (Cod Sede / columna de totales). Verificá el formato del Excel.')
   }
 
+  columnaLabel = String(headerRaw[iTotal] || '').trim() || `Columna ${iTotal + 1}`
+
+  // Intentar extraer fecha real del header de la columna de totales
+  let fechaCorte = null
+  const hRaw = headerRaw[iTotal]
+  if (hRaw instanceof Date) {
+    // SheetJS puede devolver Date objects con cellDates:true
+    const d = hRaw
+    const dd = String(d.getDate()).padStart(2, '0')
+    const mm = String(d.getMonth() + 1).padStart(2, '0')
+    const yyyy = d.getFullYear()
+    fechaCorte = `${yyyy}-${mm}-${dd}`
+    columnaLabel = `${dd}/${mm}/${yyyy}`
+  } else if (typeof hRaw === 'string') {
+    // Intentar parsear string de fecha
+    const m1 = hRaw.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/)
+    if (m1) {
+      const [, d, mo, y] = m1
+      const yyyy = y.length === 2 ? '20' + y : y
+      fechaCorte = `${yyyy}-${mo.padStart(2,'0')}-${d.padStart(2,'0')}`
+      columnaLabel = hRaw
+    }
+    const m2 = hRaw.match(/^(\d{4})[\/\-](\d{2})[\/\-](\d{2})/)
+    if (m2) {
+      fechaCorte = `${m2[1]}-${m2[2]}-${m2[3]}`
+      columnaLabel = hRaw
+    }
+  }
+
   const sedes = []
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i]
-    if (!row || row.every(c => c === undefined || c === '')) continue
-    const cod = String(row[iCod] ?? '').trim()
-    if (!cod) continue
-    const total = Number(row[iTotal])
+    if (!row || row.every(c => c === undefined || c === '' || c === null)) continue
+    const cod = String(row[iCod] ?? '').trim().replace(/\.0$/, '') // sacar ".0" si vino como número
+    if (!cod || cod === 'undefined') continue
+    const totalRaw = String(row[iTotal] ?? '').replace(',', '.')
+    const total = Number(totalRaw)
     if (isNaN(total)) continue
     sedes.push({
       cod,
-      sede:  iSede >= 0 ? String(row[iSede] || '').trim() : `Sede ${cod}`,
+      sede: iSede >= 0 ? String(row[iSede] || '').trim() : `Sede ${cod}`,
       total,
     })
   }
@@ -60,8 +111,9 @@ function parseExcelData(arrayBuffer) {
   return {
     sedes,
     meta: {
-      columnaTotal: headerRaw[iTotal],
+      columnaTotal: columnaLabel,
       detectadoPorFecha,
+      fechaCorte, // fecha extraída del header, null si no se pudo
       totalFilas: sedes.length,
     },
   }
@@ -74,13 +126,13 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva 
   const [minimized, setMinimized] = useState(false)
   const [preview, setPreview] = useState(null) // { sedes, meta, fileName }
   const [confirmando, setConfirmando] = useState(false)
+  const [modoReemplazar, setModoReemplazar] = useState(false) // cuando ya existe la fecha
   const inputRef = useRef(null)
 
   const camp = campanas?.find(c => c.id === campanaActiva)
   const tieneData = data.length > 0
   const fechaActual = data[0]?.fecha || null
 
-  // Auto-minimizar si ya hay datos
   const isMinimized = minimized || (tieneData && minimized !== false)
 
   const handleFile = async (file) => {
@@ -91,6 +143,7 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva 
     }
     setLoading(true)
     setError(null)
+    setModoReemplazar(false)
     try {
       const buffer = await file.arrayBuffer()
       const { sedes, meta } = parseExcelData(buffer)
@@ -101,16 +154,24 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva 
     setLoading(false)
   }
 
-  const confirmarCarga = async () => {
+  const confirmarCarga = async (reemplazar = false) => {
     if (!preview) return
     setConfirmando(true)
+    setError(null)
     try {
-      await onUpload(preview.sedes, preview.fileName)
+      await onUpload(preview.sedes, preview.fileName, reemplazar, preview.meta.fechaCorte)
       setPreview(null)
+      setModoReemplazar(false)
       setMinimized(true)
     } catch (e) {
-      setError(e.message)
-      setPreview(null)
+      // Si el error es "ya existe", ofrecer reemplazar
+      if (e.message && e.message.includes('Ya existe')) {
+        setModoReemplazar(true)
+        setError(null)
+      } else {
+        setError(e.message)
+        setPreview(null)
+      }
     }
     setConfirmando(false)
   }
@@ -122,9 +183,10 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva 
     handleFile(file)
   }
 
-  // Modal de previsualización antes de confirmar guardado
+  // Modal de previsualización
   if (preview) {
     const top5 = preview.sedes.slice(0, 5)
+
     return (
       <div style={{
         background: '#fff', border: '1px solid #e2e8f0', borderTop: '3px solid #1B2A6B',
@@ -132,15 +194,11 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva 
       }}>
         <div style={{ padding: '14px 20px', borderBottom: '1px solid #f1f5f9' }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>👀 Confirmá antes de guardar</div>
-          <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 1 }}>
-            Archivo: {preview.fileName}
-          </div>
+          <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 1 }}>Archivo: {preview.fileName}</div>
         </div>
 
         <div style={{ padding: '16px 20px' }}>
-          <div style={{
-            display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap',
-          }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
             <div style={{ background: '#eef0f8', border: '1px solid #b8c0e0', borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 700, color: '#1B2A6B' }}>
               {preview.meta.totalFilas} sedes detectadas
             </div>
@@ -153,7 +211,50 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva 
               Columna de totales: "{preview.meta.columnaTotal}"
               {!preview.meta.detectadoPorFecha && ' ⚠ verificá que sea correcta'}
             </div>
+            {preview.meta.fechaCorte && (
+              <div style={{ background: '#f0f9ff', border: '1px solid #7dd3fc', borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 600, color: '#0369a1' }}>
+                📅 Corte: {preview.meta.fechaCorte}
+              </div>
+            )}
           </div>
+
+          {/* Aviso de reemplazo */}
+          {modoReemplazar && (
+            <div style={{
+              background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10,
+              padding: '12px 16px', marginBottom: 16, fontSize: 13,
+            }}>
+              <div style={{ fontWeight: 700, color: '#92400e', marginBottom: 6 }}>
+                ⚠️ Ya existe un corte para esta fecha
+              </div>
+              <div style={{ color: '#78350f', marginBottom: 12 }}>
+                ¿Querés reemplazar los datos existentes con los del nuevo archivo? Esta acción no se puede deshacer.
+              </div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button
+                  onClick={() => confirmarCarga(true)}
+                  disabled={confirmando}
+                  style={{
+                    padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 700,
+                    background: '#b45309', color: '#fff', border: 'none', cursor: 'pointer',
+                    opacity: confirmando ? 0.6 : 1,
+                  }}
+                >
+                  {confirmando ? 'Reemplazando…' : '🔄 Sí, reemplazar'}
+                </button>
+                <button
+                  onClick={() => { setPreview(null); setModoReemplazar(false) }}
+                  disabled={confirmando}
+                  style={{
+                    padding: '8px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+                    background: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0', cursor: 'pointer',
+                  }}
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
 
           <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
             Primeras filas detectadas
@@ -184,27 +285,35 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva 
             )}
           </div>
 
-          <div style={{ display: 'flex', gap: 10 }}>
-            <button onClick={confirmarCarga} disabled={confirmando} style={{
-              padding: '10px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700,
-              background: '#1B2A6B', color: '#fff', border: 'none', cursor: 'pointer',
-              opacity: confirmando ? 0.6 : 1,
-            }}>
-              {confirmando ? 'Guardando…' : '✅ Confirmar y guardar en Sheets'}
-            </button>
-            <button onClick={() => setPreview(null)} disabled={confirmando} style={{
-              padding: '10px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600,
-              background: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0', cursor: 'pointer',
-            }}>
-              Cancelar
-            </button>
-          </div>
+          {!modoReemplazar && (
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => confirmarCarga(false)} disabled={confirmando} style={{
+                padding: '10px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700,
+                background: '#1B2A6B', color: '#fff', border: 'none', cursor: 'pointer',
+                opacity: confirmando ? 0.6 : 1,
+              }}>
+                {confirmando ? 'Guardando…' : '✅ Confirmar y guardar en Sheets'}
+              </button>
+              <button onClick={() => setPreview(null)} disabled={confirmando} style={{
+                padding: '10px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+                background: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0', cursor: 'pointer',
+              }}>
+                Cancelar
+              </button>
+            </div>
+          )}
+
+          {error && (
+            <div style={{ marginTop: 12, background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#be123c' }}>
+              ❌ {error}
+            </div>
+          )}
         </div>
       </div>
     )
   }
 
-  // Versión minimizada — solo un chip con info
+  // Versión minimizada
   if (isMinimized) {
     return (
       <div style={{
@@ -225,7 +334,7 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva 
           onClick={() => setMinimized(false)}
           style={{ fontSize: 12, color: '#059669', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}
         >
-          Cambiar archivo
+          Cambiar / corregir
         </button>
       </div>
     )
@@ -240,7 +349,6 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva 
       overflow: 'hidden',
       marginBottom: 4,
     }}>
-      {/* Header */}
       <div style={{
         padding: '14px 20px',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -262,7 +370,6 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva 
         )}
       </div>
 
-      {/* Drop zone */}
       <div
         onDragOver={e => { e.preventDefault(); setDragging(true) }}
         onDragLeave={() => setDragging(false)}
@@ -290,16 +397,15 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva 
           {loading ? '⏳' : dragging ? '📂' : '📊'}
         </div>
         <div style={{ fontSize: 14, fontWeight: 600, color: '#0f172a', marginBottom: 4 }}>
-          {loading ? 'Procesando y guardando en Sheets…' :
+          {loading ? 'Procesando archivo…' :
            dragging ? 'Soltá el archivo acá' :
            'Arrastrá el Excel acá o hacé click para seleccionar'}
         </div>
         <div style={{ fontSize: 12, color: '#94a3b8' }}>
-          Formatos aceptados: .xlsx · .xls
+          Formatos aceptados: .xlsx · .xls · La columna de totales se detecta automáticamente
         </div>
       </div>
 
-      {/* Error */}
       {error && (
         <div style={{
           margin: '0 16px 16px',
