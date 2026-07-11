@@ -10,6 +10,7 @@ const NAV = [
 
 export default function Sidebar({ view, onView, campanaActiva, campanas, onCampana, onLogout }) {
   const [expanded, setExpanded] = useState(true)
+  const [hovered, setHovered] = useState(null)
   const camp = campanas?.find(c => c.id === campanaActiva)
 
   return (
@@ -76,40 +77,56 @@ export default function Sidebar({ view, onView, campanaActiva, campanas, onCampa
         {NAV.map(item => {
           const active = view === item.id
           return (
-            <button
+            <div
               key={item.id}
-              onClick={() => onView(item.id)}
-              className="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-150 group w-full text-left"
-              style={{
-                background: active ? 'rgba(200,16,46,0.15)' : 'transparent',
-                border: active ? '1px solid rgba(200,16,46,0.25)' : '1px solid transparent',
-              }}
-              title={!expanded ? item.label : undefined}
+              style={{ position: 'relative' }}
+              onMouseEnter={() => setHovered(item.id)}
+              onMouseLeave={() => setHovered(null)}
             >
-              <span
-                className="text-base flex-shrink-0 transition-colors"
+              <button
+                onClick={() => onView(item.id)}
+                className="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-150 group w-full text-left"
                 style={{
-                  color: active ? '#f87171' : 'rgba(255,255,255,0.4)',
-                  width: 20, textAlign: 'center',
+                  background: active ? 'rgba(200,16,46,0.15)' : 'transparent',
+                  border: active ? '1px solid rgba(200,16,46,0.25)' : '1px solid transparent',
                 }}
               >
-                {item.icon}
-              </span>
-              {expanded && (
                 <span
-                  className="text-sm font-medium transition-colors animate-fadeIn"
-                  style={{ color: active ? '#fff' : 'rgba(255,255,255,0.5)' }}
+                  className="text-base flex-shrink-0 transition-colors"
+                  style={{
+                    color: active ? '#f87171' : 'rgba(255,255,255,0.4)',
+                    width: 20, textAlign: 'center',
+                  }}
                 >
-                  {item.label}
+                  {item.icon}
                 </span>
+                {expanded && (
+                  <span
+                    className="text-sm font-medium transition-colors animate-fadeIn"
+                    style={{ color: active ? '#fff' : 'rgba(255,255,255,0.5)' }}
+                  >
+                    {item.label}
+                  </span>
+                )}
+                {active && (
+                  <span
+                    className="ml-auto w-1 h-4 rounded-full flex-shrink-0"
+                    style={{ background: '#C8102E' }}
+                  />
+                )}
+              </button>
+              {/* Tooltip custom — reemplaza el title nativo, que aparece tarde e inconsistente */}
+              {!expanded && hovered === item.id && (
+                <div style={{
+                  position: 'absolute', left: '100%', top: '50%', transform: 'translateY(-50%)',
+                  marginLeft: 10, background: '#0f172a', color: '#fff', fontSize: 12, fontWeight: 600,
+                  padding: '6px 12px', borderRadius: 6, zIndex: 99, whiteSpace: 'nowrap',
+                  pointerEvents: 'none', boxShadow: '0 8px 24px rgba(0,0,0,.25)',
+                }}>
+                  {item.label}
+                </div>
               )}
-              {active && (
-                <span
-                  className="ml-auto w-1 h-4 rounded-full flex-shrink-0"
-                  style={{ background: '#C8102E' }}
-                />
-              )}
-            </button>
+            </div>
           )
         })}
       </nav>

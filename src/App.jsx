@@ -180,12 +180,41 @@ function AppShell({ onLogout }) {
   )
 }
 
+function SessionExpiredModal({ onDismiss }) {
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.6)',
+      zIndex: 20000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+    }}>
+      <div style={{
+        background: '#fff', borderRadius: 16, padding: '28px 26px', maxWidth: 380, width: '100%',
+        boxShadow: '0 24px 64px rgba(0,0,0,.3)', textAlign: 'center',
+      }}>
+        <div style={{ fontSize: 32, marginBottom: 12 }}>⏰</div>
+        <div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a', marginBottom: 6 }}>Tu sesión expiró</div>
+        <div style={{ fontSize: 13, color: '#64748b', marginBottom: 20, lineHeight: 1.5 }}>
+          Iniciá sesión de nuevo para continuar. Si estabas cargando una semana manualmente, tus valores quedaron guardados y se restauran al volver a entrar.
+        </div>
+        <button onClick={onDismiss} style={{
+          padding: '10px 24px', borderRadius: 8, fontSize: 13, fontWeight: 700,
+          background: '#1B2A6B', color: '#fff', border: 'none', cursor: 'pointer', width: '100%',
+        }}>
+          Iniciar sesión de nuevo
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function App() {
-  const { authed, loading, error, login, logout } = useAuth()
+  const { authed, loading, error, login, logout, sessionExpired, dismissSessionExpired } = useAuth()
 
-  if (!authed) {
-    return <Login onLogin={login} error={error} loading={loading} />
-  }
-
-  return <AppShell onLogout={logout} />
+  return (
+    <>
+      {!authed
+        ? <Login onLogin={login} error={error} loading={loading} />
+        : <AppShell onLogout={logout} />}
+      {sessionExpired && <SessionExpiredModal onDismiss={dismissSessionExpired} />}
+    </>
+  )
 }

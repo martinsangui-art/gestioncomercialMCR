@@ -82,13 +82,29 @@ function miniChartPDF(historialSede, totalActual, obj) {
   return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${bars}</svg>`
 }
 
+// Antes usaba window.open('', '_blank') + document.write, que varios browsers
+// bloquean como popup (sobre todo si hay algo async entre el click y el open).
+// Un <a> con blob: URL y target="_blank" es navegación normal, no popup — no
+// pide permisos y sigue abriendo la vista previa en una pestaña para Ctrl+P.
 function abrirVentanaPDF(html, onToast) {
-  const w = window.open('', '_blank')
-  if (!w) { onToast('⚠️ Permitir popups para generar el PDF. Buscá la notificación en la barra del navegador.'); return false }
-  w.document.write(html)
-  w.document.close()
-  onToast('📄 PDF listo — usá Ctrl+P (o Cmd+P en Mac) y elegí "Guardar como PDF"')
-  return true
+  try {
+    const blob = new Blob([html], { type: 'text/html' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.target = '_blank'
+    a.rel = 'noopener'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    // Se libera después de que la pestaña nueva tuvo tiempo de cargar el HTML
+    setTimeout(() => URL.revokeObjectURL(url), 60000)
+    onToast('📄 PDF listo — usá Ctrl+P (o Cmd+P en Mac) y elegí "Guardar como PDF"')
+    return true
+  } catch (e) {
+    onToast('⚠️ No se pudo generar el PDF: ' + e.message)
+    return false
+  }
 }
 
 // ── Generadores de informes ───────────────────────────────────────────────
@@ -137,7 +153,7 @@ function generarPDFSede(d, historial, campNombre, fecha, conHist, onToast) {
 
   // Historial de esta sede ordenado por fecha
   const fechas = Object.keys(historial).sort()
-  const histVals = fechas.map(f => historial[f][d.cod_sede]).filter(v => v !== undefined)
+  const histVals = fechas.map(f => historial[f][String(d.cod_sede)]).filter(v => v !== undefined)
   let tendTxt = ''
   if (histVals.length >= 2) {
     const delta = histVals[histVals.length - 1] - histVals[0]
@@ -145,7 +161,7 @@ function generarPDFSede(d, historial, campNombre, fecha, conHist, onToast) {
   }
   let histTabla = ''
   fechas.forEach(f => {
-    const v = historial[f][d.cod_sede]
+    const v = historial[f][String(d.cod_sede)]
     if (v !== undefined) {
       const tag = v === 0 ? 'Sin ingresos' : v >= d.objetivo ? 'Objetivo cumplido' : 'En progreso'
       histTabla += `<tr><td>${f}</td><td style="text-align:center;font-weight:700">${v}</td><td>${tag}</td></tr>`
@@ -212,7 +228,7 @@ function generarPDFComparacion(sedesSeleccionadas, campNombre, fecha, historial,
     const varTxt = d.var === null ? '—' : d.var > 0 ? '+' + d.var : d.var < 0 ? String(d.var) : 'Sin cambio'
 
     const fechas = Object.keys(historial).sort()
-    const histVals = fechas.map(f => historial[f][d.cod_sede]).filter(v => v !== undefined)
+    const histVals = fechas.map(f => historial[f][String(d.cod_sede)]).filter(v => v !== undefined)
     let tend = '—'
     if (histVals.length >= 2) {
       const delta = histVals[histVals.length - 1] - histVals[0]
@@ -272,7 +288,7 @@ export default function InformesPDF({ data, historial, campanas, campanaActiva, 
   const historialAgrupado = {}
   historial.forEach(r => {
     if (!historialAgrupado[r.fecha]) historialAgrupado[r.fecha] = {}
-    historialAgrupado[r.fecha][r.cod_sede] = Number(r.total) || 0
+    historialAgrupado[r.fecha][String(r.cod_sede)] = Number(r.total) || 0
   })
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3500) }

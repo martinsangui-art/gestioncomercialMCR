@@ -1,18 +1,18 @@
 // ═══════════════════════════════════════════════════════════════════════
 // UCASAL — Cómo Vamos · API + utilidades
+// Pegá TODO este archivo en Apps Script y hacé Deploy como Web App
 // ═══════════════════════════════════════════════════════════════════════
-//
-// Este archivo vive en el editor de Apps Script vinculado a la Google Sheet
-// (Extensiones → Apps Script), NO se compila con Vite. Se versiona acá solo
-// como referencia/backup — para que tome efecto hay que pegarlo manualmente
-// en el editor de Apps Script y volver a implementar (Deploy → Manage
-// deployments → Edit → New version).
 
 var SS = SpreadsheetApp.getActiveSpreadsheet();
 
-var AUTH_PASSWORD_HASH = '328e09d18b0a80fe385ef48196d5de1a90333579354eec250ce0f75925bed433';
+// ── Autenticación ──────────────────────────────────────────────────────────
+// Hash SHA-256 de (contraseña + salt) — nunca se guarda en texto plano.
+// El salt evita que un hash filtrado se pueda buscar en rainbow tables.
+var AUTH_PASSWORD_SALT = 'ucasal-salt-bsas-2026';
+var AUTH_PASSWORD_HASH = '202621cdca5e1b1351eeee51a2b490af54f1a6a2337088af399f971cd9926c0f';
+// Secreto del servidor para firmar tokens de sesión — no se expone al cliente
 var AUTH_SECRET = 'ucasal-comovamos-2026-bsas-sead-secreto-interno';
-var SESSION_HOURS = 12;
+var SESSION_HOURS = 4; // duración de la sesión — corta a propósito: el token viaja en URLs (JSONP) y queda en logs/historial
 
 function sha256(text) {
   var raw = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, text, Utilities.Charset.UTF_8);
@@ -22,6 +22,7 @@ function sha256(text) {
   }).join('');
 }
 
+// Genera un token: base64(expiry) + '.' + hash(expiry + secret)
 function generarToken() {
   var expiry = Date.now() + SESSION_HOURS * 60 * 60 * 1000;
   var expiryStr = String(expiry);
@@ -29,6 +30,7 @@ function generarToken() {
   return Utilities.base64EncodeWebSafe(expiryStr) + '.' + firma;
 }
 
+// Valida que el token no esté vencido ni manipulado
 function validarToken(token) {
   if (!token || token.indexOf('.') === -1) return false;
   var partes = token.split('.');
@@ -37,19 +39,20 @@ function validarToken(token) {
   try { expiryStr = Utilities.newBlob(Utilities.base64DecodeWebSafe(partes[0])).getDataAsString(); }
   catch(e) { return false; }
   var firmaEsperada = sha256(expiryStr + AUTH_SECRET);
-  if (firmaEsperada !== partes[1]) return false;
+  if (firmaEsperada !== partes[1]) return false; // token manipulado
   var expiry = Number(expiryStr);
-  if (isNaN(expiry) || Date.now() > expiry) return false;
+  if (isNaN(expiry) || Date.now() > expiry) return false; // vencido
   return true;
 }
 
 function login(password) {
   if (!password) throw new Error('Falta la contraseña');
-  var hash = sha256(password);
+  var hash = sha256(password + AUTH_PASSWORD_SALT);
   if (hash !== AUTH_PASSWORD_HASH) throw new Error('Contraseña incorrecta');
   return { token: generarToken(), expiraEnHoras: SESSION_HOURS };
 }
 
+// Apps Script no soporta addHeader — se usa JSONP para GET, texto plano para POST
 function ok(data) {
   return ContentService
     .createTextOutput(JSON.stringify({ ok: true, data: data }))
@@ -62,15 +65,26 @@ function err(msg) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
+// ════════════════════════════════════════════════════════════════════════
+// doGet — Router de lectura
+// Parámetros: ?action=...
+//   campanas            → todas las campañas
+//   sedes               → todas las sedes con email y saludo
+//   objetivos&campana=C2 → objetivos filtrados por campaña
+//   historial&campana=C2 → historial filtrado (todas las fechas)
+//   semana_actual&campana=C2 → solo la semana más reciente
+//   semanas&campana=C2  → lista de fechas disponibles
+// ════════════════════════════════════════════════════════════════════════
 function doGet(e) {
   try {
     var action   = e.parameter.action;
     var campana  = e.parameter.campana || null;
-    var callback = e.parameter.callback || null;
+    var callback = e.parameter.callback || null;  // JSONP support
     var token    = e.parameter.token || null;
 
     var result;
 
+    // Login es la única acción pública — no requiere token
     if (action === 'login') {
       result = okData(login(e.parameter.password));
     }
@@ -78,11 +92,11 @@ function doGet(e) {
       result = { ok: false, error: 'AUTH_REQUIRED' };
     }
     else if (action === 'campanas')      result = okData(getCampanas());
-    else if (action === 'sedes')         result = okData(getSedes());
-    else if (action === 'objetivos')     result = okData(getObjetivos(campana));
-    else if (action === 'historial')     result = okData(getHistorial(campana));
+    else if (action === 'sedes')    result = okData(getSedes());
+    else if (action === 'objetivos') result = okData(getObjetivos(campana));
+    else if (action === 'historial') result = okData(getHistorial(campana));
     else if (action === 'semana_actual') result = okData(getSemanaActual(campana));
-    else if (action === 'semanas')       result = okData(getSemanas(campana));
+    else if (action === 'semanas')  result = okData(getSemanas(campana));
     else if (action === 'enviar_email') {
       result = okData(enviarEmailMake({
         to:      e.parameter.to,
@@ -109,6 +123,7 @@ function doGet(e) {
 
     var json = JSON.stringify(result);
     if (callback) {
+      // JSONP — envolver en la función callback
       return ContentService
         .createTextOutput(callback + '(' + json + ')')
         .setMimeType(ContentService.MimeType.JAVASCRIPT);
@@ -132,6 +147,12 @@ function doGet(e) {
 
 function okData(data) { return { ok: true, data: data }; }
 
+// ════════════════════════════════════════════════════════════════════════
+// doPost — Router de escritura
+// Body JSON: { action, ...params }
+//   agregar_semana   → agrega una semana nueva al historial
+//     { campana_id, campana_nombre, fecha, sedes: [{cod, sede, total}] }
+// ════════════════════════════════════════════════════════════════════════
 function doPost(e) {
   try {
     var body = JSON.parse(e.postData.contents);
@@ -148,7 +169,7 @@ function doPost(e) {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// EMAIL VIA MAKE
+// ENVÍO DE EMAIL VIA MAKE (llamado desde el browser via JSONP)
 // ════════════════════════════════════════════════════════════════════════
 var MAKE_WEBHOOK = 'https://hook.us2.make.com/89qke1tmwlaa6nq2b9ald1ioawcris35';
 
@@ -191,19 +212,18 @@ function enviarEmailMake(params) {
   return { status: status };
 }
 
-// ── Resumen a Cele — DESACTIVADO (20/06/2026) ────────────────────────────
-// MailApp siempre manda desde la cuenta dueña del script (martinsangui@gmail.com)
-// no desde mcrossi@ucasal.edu.ar. Cele ve el resumen en "Historial de envíos" en la web.
-// Reactivar configurando un escenario de Make con el módulo Gmail de Cele.
+// ── Resumen ejecutivo a Cele tras cada tanda de envío ────────────────────
+// DESACTIVADO TEMPORALMENTE (20/06/2026): Cele ya ve el resumen directo
+// en "Historial de envíos" dentro de la web app. El envío por mail se
+// reactivará cuando se configure el escenario de Make correspondiente
+// (MailApp.sendEmail no sirve porque siempre manda desde la cuenta
+// dueña del Apps Script, no desde mcrossi@ucasal.edu.ar).
 var EMAIL_CELE = 'mcrossi@ucasal.edu.ar';
 
 function enviarResumenCele(payload) {
   return { enviado: true, nota: 'Envío de resumen por mail desactivado — ver Historial de envíos en la web' };
 }
 
-// ════════════════════════════════════════════════════════════════════════
-// LOG DE ENVÍOS
-// ════════════════════════════════════════════════════════════════════════
 function getLogSheet() {
   var h = SS.getSheetByName('log_envios');
   if (!h) {
@@ -231,7 +251,7 @@ function getLogEnvios(limite) {
   if (rows.length <= 1) return [];
   var keys = rows[0];
   var data = rows.slice(1).map(function(r) { return rowToObj(keys, r); });
-  data.reverse();
+  data.reverse(); // más reciente primero
   if (limite) data = data.slice(0, limite);
   return data;
 }
@@ -239,13 +259,17 @@ function getLogEnvios(limite) {
 // ════════════════════════════════════════════════════════════════════════
 // LECTURAS
 // ════════════════════════════════════════════════════════════════════════
+
 function getCampanas() {
   var h = SS.getSheetByName('campanas');
   var rows = h.getDataRange().getValues();
   var keys = rows[0];
-  return rows.slice(1).map(function(r) { return rowToObj(keys, r); });
+  return rows.slice(1).map(function(r) {
+    return rowToObj(keys, r);
+  });
 }
 
+// Sedes desvinculadas — se excluyen de toda vista y envío, pero su historial pasado queda intacto
 var SEDES_EXCLUIDAS = ['57']; // 57 = MORÓN (desvinculada)
 
 function getSedes() {
@@ -272,12 +296,14 @@ function getHistorial(campanaId) {
   var keys = rows[0];
   var data = rows.slice(1).map(function(r) { return rowToObj(keys, r); });
   if (campanaId) {
+    // Buscar por campana_id en hoja objetivos para obtener nombre exacto
     var campanas = getCampanas();
     var campObj = campanas.filter(function(c){ return c.id === campanaId; })[0];
     var nombreExacto = campObj ? campObj.nombre : null;
     data = data.filter(function(r) {
       var val = String(r['campaña'] || r['campana'] || r[3] || '');
       if (nombreExacto) return val === nombreExacto || val.indexOf(nombreExacto) >= 0;
+      // fallback
       var patron = campanaId === 'C1' ? '1er Ingreso' : '2do Ingreso';
       return val.indexOf(patron) >= 0;
     });
@@ -295,25 +321,30 @@ function getSemanas(campanaId) {
 function getSemanaActual(campanaId) {
   var hist = getHistorial(campanaId);
   if (!hist.length) return [];
+  // Fecha más reciente
   var fechas = {};
   hist.forEach(function(r) { fechas[r.fecha] = true; });
   var sorted = Object.keys(fechas).sort();
   var ultima = sorted[sorted.length - 1];
   var anterior = sorted.length > 1 ? sorted[sorted.length - 2] : null;
 
+  // Datos semana actual
   var actual = hist.filter(function(r) { return r.fecha === ultima; });
 
+  // Mapa semana anterior para calcular variación
   var prevMap = {};
   if (anterior) {
     hist.filter(function(r) { return r.fecha === anterior; })
         .forEach(function(r) { prevMap[String(r.cod_sede)] = r.total; });
   }
 
+  // Objetivos
   var objMap = {};
   getObjetivos(campanaId).forEach(function(o) {
     objMap[String(o.cod_sede)] = Number(o.objetivo);
   });
 
+  // Sedes
   var sedesMap = {};
   getSedes().forEach(function(s) {
     sedesMap[String(s.cod_sede)] = { sede: s.sede, email: s.email, saludo: s.saludo };
@@ -347,11 +378,11 @@ function getSemanaActual(campanaId) {
 // ════════════════════════════════════════════════════════════════════════
 function agregarSemana(body) {
   var hHist = SS.getSheetByName('historial');
-  var campanaId     = body.campana_id;
+  var campanaId   = body.campana_id;
   var campanaNombre = body.campana_nombre;
-  var fecha         = body.fecha;
-  var sedes         = body.sedes;
-  var reemplazar    = body.reemplazar === true;
+  var fecha       = body.fecha;       // "2026-06-19"
+  var sedes       = body.sedes;       // [{cod, sede, total}]
+  var reemplazar  = body.reemplazar === true;
 
   if (!fecha || !sedes || !sedes.length) throw new Error('Faltan datos: fecha y sedes son requeridos');
 
@@ -391,6 +422,7 @@ function agregarSemana(body) {
     objMap[String(o.cod_sede)] = Number(o.objetivo);
   });
 
+  // Armar filas
   var filas = sedes.map(function(s) {
     var cod   = String(s.cod);
     var total = Number(s.total) || 0;
@@ -412,6 +444,7 @@ function rowToObj(keys, row) {
   var obj = {};
   keys.forEach(function(k, i) {
     var val = row[i];
+    // Normalizar fechas a string YYYY-MM-DD
     if (val instanceof Date) {
       val = Utilities.formatDate(val, Session.getScriptTimeZone(), 'yyyy-MM-dd');
     }

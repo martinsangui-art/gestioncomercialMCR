@@ -13,6 +13,19 @@ function setToken(token) {
   else localStorage.removeItem(TOKEN_KEY)
 }
 
+// ── Aviso de sesión expirada ────────────────────────────────────────────────
+// jsonp/post/enviarEmailViaScript viven fuera de React (no son hooks), así que
+// usamos un mini pub-sub para avisarle a la app (sin window.location.reload,
+// que tira trabajo no guardado) que el token venció y hay que re-loguearse.
+const authExpiredListeners = new Set()
+function notifyAuthExpired() {
+  authExpiredListeners.forEach(fn => fn())
+}
+export function onAuthExpired(fn) {
+  authExpiredListeners.add(fn)
+  return () => authExpiredListeners.delete(fn)
+}
+
 // Enviar email via Apps Script (evita CORS del browser con Make)
 export function enviarEmailViaScript(payload) {
   return new Promise((resolve, reject) => {
@@ -30,7 +43,7 @@ export function enviarEmailViaScript(payload) {
     const timeout = setTimeout(() => { cleanup(); resolve({ ok: true }) }, 10000)
     window[cb] = (data) => {
       cleanup()
-      if (data?.error === 'AUTH_REQUIRED') { setToken(''); window.location.reload(); return }
+      if (data?.error === 'AUTH_REQUIRED') { setToken(''); notifyAuthExpired(); return }
       resolve(data)
     }
     function cleanup() { clearTimeout(timeout); delete window[cb]; if (el?.parentNode) el.parentNode.removeChild(el) }
@@ -60,6 +73,7 @@ function jsonp(action, params = {}) {
       if (data?.ok) resolve(data.data)
       else if (data?.error === 'AUTH_REQUIRED') {
         setToken('')
+        notifyAuthExpired()
         reject(new Error('AUTH_REQUIRED'))
       }
       else reject(new Error(data?.error || 'Error en la API'))
@@ -84,7 +98,7 @@ function post(body) {
     .then(t => {
       const r = JSON.parse(t)
       if (!r.ok) {
-        if (r.error === 'AUTH_REQUIRED') setToken('')
+        if (r.error === 'AUTH_REQUIRED') { setToken(''); notifyAuthExpired() }
         throw new Error(r.error)
       }
       return r.data
@@ -96,6 +110,16 @@ export function useAuth() {
   const [authed, setAuthed] = useState(!!getToken())
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [sessionExpired, setSessionExpired] = useState(false)
+
+  // Cuando el token vence en cualquier llamada (jsonp/post/enviarEmailViaScript),
+  // volvemos al login vía estado de React — sin window.location.reload().
+  useEffect(() => {
+    return onAuthExpired(() => {
+      setAuthed(false)
+      setSessionExpired(true)
+    })
+  }, [])
 
   const login = useCallback(async (password) => {
     setLoading(true)
@@ -104,6 +128,7 @@ export function useAuth() {
       const data = await jsonp('login', { password })
       setToken(data.token)
       setAuthed(true)
+      setSessionExpired(false)
     } catch (e) {
       setError(e.message === 'Contraseña incorrecta' ? 'Contraseña incorrecta' : 'Error al conectar. Intentá de nuevo.')
     }
@@ -115,7 +140,9 @@ export function useAuth() {
     setAuthed(false)
   }, [])
 
-  return { authed, loading, error, login, logout }
+  const dismissSessionExpired = useCallback(() => setSessionExpired(false), [])
+
+  return { authed, loading, error, login, logout, sessionExpired, dismissSessionExpired }
 }
 
 export function useSheets() {
@@ -139,7 +166,9 @@ export function useSheets() {
         setState(s => ({ ...s, campanas, sedes, campanaActiva: activa?.id || null, loading: false }))
       })
       .catch(err => {
-        if (err.message === 'AUTH_REQUIRED') { window.location.reload(); return }
+        // El modal de "sesión expirada" ya se dispara desde jsonp() vía notifyAuthExpired();
+        // acá solo evitamos mostrar un error genérico encima de ese modal.
+        if (err.message === 'AUTH_REQUIRED') return
         setState(s => ({ ...s, loading: false, error: err.message }))
       })
   }, [])
@@ -154,11 +183,28 @@ export function useSheets() {
       jsonp('historial', { campana: campanaId }),
     ]).then(([data, historial]) => {
       setState(s => ({ ...s, loading: false, data, historial }))
+
+      // Sincronizar "enviadas" con el log real de envíos — si Cele recarga la
+      // página a mitad de una tanda, al volver a entrar ya ve qué se mandó
+      // (en vez de perder el track y tener que adivinar o reenviar de más).
+      const fecha = data[0]?.fecha
+      const camp = state.campanas.find(c => c.id === campanaId)
+      if (fecha && camp) {
+        jsonp('log_envios', { limite: 500 })
+          .then(log => {
+            const enviados = log
+              .filter(r => r.fecha === fecha && r.estado === 'enviado' && String(r.campana || '').indexOf(camp.nombre) >= 0)
+              .map(r => String(r.cod_sede))
+            if (enviados.length) markAllCopied(enviados)
+          })
+          .catch(() => {}) // no crítico — si falla, simplemente no se pre-marca nada
+      }
     }).catch(err => {
-      if (err.message === 'AUTH_REQUIRED') { window.location.reload(); return }
+      // El modal de "sesión expirada" ya se dispara desde jsonp() vía notifyAuthExpired()
+      if (err.message === 'AUTH_REQUIRED') return
       setState(s => ({ ...s, loading: false, error: err.message }))
     })
-  }, [])
+  }, [state.campanas]) // eslint-disable-line
 
   useEffect(() => {
     if (state.campanaActiva) cargarCampana(state.campanaActiva)
@@ -182,8 +228,8 @@ export function useSheets() {
     }
   }, [])
 
-  // Guardar semana nueva en Sheets
-  const guardarSemana = useCallback(async (fecha, sedesData) => {
+  // Guardar semana nueva en Sheets (o reemplazar si ya existe el corte — misma lógica que subirExcel)
+  const guardarSemana = useCallback(async (fecha, sedesData, reemplazar = false) => {
     const camp = state.campanas.find(c => c.id === state.campanaActiva)
     const result = await post({
       action: 'agregar_semana',
@@ -191,6 +237,7 @@ export function useSheets() {
       campana_nombre: camp?.nombre || '',
       fecha,
       sedes: sedesData,
+      reemplazar,
     })
     cargarCampana(state.campanaActiva)
     return result

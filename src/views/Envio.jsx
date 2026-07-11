@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
-import { enviarEmailViaScript, obtenerLogEnvios, enviarResumenCele } from '../hooks/useSheets'
+import { enviarEmailViaScript, obtenerLogEnvios, enviarResumenCele, onAuthExpired } from '../hooks/useSheets'
 
-const WEBHOOK = 'https://hook.us2.make.com/3xhcn02owq56c196s0j3anawf5zesxht'
+const BORRADOR_KEY = 'ucasal_borrador_semana'
 
 function getEstado(d) {
   if (d.total === 0) return 'red'
@@ -16,6 +16,14 @@ function fmtFecha(iso) {
   return `${p[2]}/${p[1]}/${p[0]}`
 }
 
+// Escapa texto que viene de Sheets (editable por varias personas) antes de
+// insertarlo en el HTML que se renderiza con dangerouslySetInnerHTML.
+const esc = (s) => String(s ?? '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+
 function buildEmailHTML(d, campNombre) {
   const color = { green: '#059669', amber: '#d97706', red: '#e11d48' }[getEstado(d)]
   const varTxt = d.var !== null
@@ -23,7 +31,7 @@ function buildEmailHTML(d, campNombre) {
       : d.var < 0 ? ` (${d.var} vs semana anterior)`
       : ' (sin variación)')
     : ''
-  return `<p>${d.saludo}:</p>
+  return `<p>${esc(d.saludo)}:</p>
 <p style="margin-top:6px">Enviamos el resultado del <strong>cómo vamos</strong> al ${fmtFecha(d.fecha)}</p>
 <table style="width:100%;border-collapse:collapse;margin:10px 0;font-size:12px">
   <tr style="background:#1a1a2e;color:#fff">
@@ -35,7 +43,7 @@ function buildEmailHTML(d, campNombre) {
   </tr>
   <tr>
     <td style="padding:7px 10px;text-align:center;border:1px solid #e5e7eb">${d.cod_sede}</td>
-    <td style="padding:7px 10px;text-align:center;border:1px solid #e5e7eb">${d.sede}</td>
+    <td style="padding:7px 10px;text-align:center;border:1px solid #e5e7eb">${esc(d.sede)}</td>
     <td style="padding:7px 10px;text-align:center;border:1px solid #e5e7eb">${d.objetivo}</td>
     <td style="padding:7px 10px;text-align:center;border:1px solid #e5e7eb">${d.total}${varTxt}</td>
     <td style="padding:7px 10px;text-align:center;border:1px solid #e5e7eb;color:${color};font-weight:700">${d.pct}%</td>
@@ -156,10 +164,38 @@ export default function Envio({ data, copied, onCopied, campanas, campanaActiva,
   const [nuevaFecha, setNuevaFecha] = useState(new Date().toISOString().slice(0,10))
   const [valores, setValores] = useState({})
   const [guardando, setGuardando] = useState(false)
+  const [errorGuardar, setErrorGuardar] = useState(null)
+  const [modoReemplazarSemana, setModoReemplazarSemana] = useState(false)
   const [logEnvios, setLogEnvios] = useState([])
   const [cargandoLog, setCargandoLog] = useState(false)
   const [mostrarLog, setMostrarLog] = useState(false)
   const logRef = useRef(null)
+
+  // Restaurar el borrador de "Registrar nueva semana" si quedó guardado de
+  // una sesión que expiró a mitad de la carga manual (ver useEffect de abajo).
+  useEffect(() => {
+    const raw = sessionStorage.getItem(BORRADOR_KEY)
+    if (!raw) return
+    sessionStorage.removeItem(BORRADOR_KEY)
+    try {
+      const borrador = JSON.parse(raw)
+      if (borrador?.campanaActiva === campanaActiva) {
+        setNuevaFecha(borrador.nuevaFecha)
+        setValores(borrador.valores || {})
+        setMostrarNueva(true)
+      }
+    } catch { /* borrador corrupto — se descarta */ }
+  }, []) // eslint-disable-line
+
+  // Si la sesión expira mientras el formulario de "Nueva semana" está abierto,
+  // guardamos lo que Cele ya tenía cargado para no perder el trabajo al re-loguearse.
+  useEffect(() => {
+    return onAuthExpired(() => {
+      if (mostrarNueva) {
+        sessionStorage.setItem(BORRADOR_KEY, JSON.stringify({ campanaActiva, nuevaFecha, valores }))
+      }
+    })
+  }, [mostrarNueva, campanaActiva, nuevaFecha, valores])
 
   const camp = campanas?.find(c => c.id === campanaActiva)
   const cerrada = camp?.estado === 'cerrada'
@@ -230,14 +266,22 @@ export default function Envio({ data, copied, onCopied, campanas, campanaActiva,
     enviarResumenCele(campNom, fechaRef, resumenItems).catch(() => {})
   }
 
-  const handleGuardar = async () => {
+  const handleGuardar = async (reemplazar = false) => {
     if (!nuevaFecha) return
     setGuardando(true)
+    setErrorGuardar(null)
     try {
       const sedes = data.map(d => ({ cod: d.cod_sede, sede: d.sede, total: Number(valores[d.cod_sede] ?? d.total) || 0 }))
-      await guardarSemana(nuevaFecha, sedes)
-      setMostrarNueva(false); setValores({})
-    } catch (e) { alert('Error: ' + e.message) }
+      await guardarSemana(nuevaFecha, sedes, reemplazar)
+      setMostrarNueva(false); setValores({}); setModoReemplazarSemana(false)
+    } catch (e) {
+      // Si el error es "ya existe", ofrecer reemplazar (misma lógica que ExcelUploader)
+      if (e.message && e.message.includes('Ya existe')) {
+        setModoReemplazarSemana(true)
+      } else {
+        setErrorGuardar(e.message)
+      }
+    }
     setGuardando(false)
   }
 
@@ -412,7 +456,7 @@ export default function Envio({ data, copied, onCopied, campanas, campanaActiva,
             </div>
             <TooltipHelp text="Alternativa a subir el Excel: ingresás los totales manualmente por sede y se guarda en el historial de Google Sheets." />
             <div style={{ width: 12 }} />
-            <button onClick={() => setMostrarNueva(v => !v)} style={{
+            <button onClick={() => { setMostrarNueva(v => !v); setErrorGuardar(null); setModoReemplazarSemana(false) }} style={{
               padding: '7px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600,
               background: mostrarNueva ? '#f1f5f9' : '#1B2A6B',
               color: mostrarNueva ? '#64748b' : '#fff', border: 'none', cursor: 'pointer',
@@ -445,12 +489,58 @@ export default function Envio({ data, copied, onCopied, campanas, campanaActiva,
                   </div>
                 ))}
               </div>
-              <div style={{ display: 'flex', gap: 10 }}>
-                <button onClick={handleGuardar} disabled={guardando} style={{ padding: '9px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700, background: '#1B2A6B', color: '#fff', border: 'none', cursor: 'pointer', opacity: guardando ? 0.6 : 1 }}>
-                  {guardando ? 'Guardando…' : '💾 Guardar en Sheets'}
-                </button>
-                <button onClick={() => setMostrarNueva(false)} style={{ padding: '9px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, background: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0', cursor: 'pointer' }}>Cancelar</button>
-              </div>
+              {/* Aviso de reemplazo — ya existe un corte para esta fecha */}
+              {modoReemplazarSemana && (
+                <div style={{
+                  background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10,
+                  padding: '12px 16px', marginBottom: 16, fontSize: 13,
+                }}>
+                  <div style={{ fontWeight: 700, color: '#92400e', marginBottom: 6 }}>
+                    ⚠️ Ya existe un corte para esta fecha
+                  </div>
+                  <div style={{ color: '#78350f', marginBottom: 12 }}>
+                    ¿Querés reemplazar los datos existentes con los nuevos valores? Esta acción no se puede deshacer.
+                  </div>
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    <button
+                      onClick={() => handleGuardar(true)}
+                      disabled={guardando}
+                      style={{
+                        padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 700,
+                        background: '#b45309', color: '#fff', border: 'none', cursor: 'pointer',
+                        opacity: guardando ? 0.6 : 1,
+                      }}
+                    >
+                      {guardando ? 'Reemplazando…' : '🔄 Sí, reemplazar'}
+                    </button>
+                    <button
+                      onClick={() => setModoReemplazarSemana(false)}
+                      disabled={guardando}
+                      style={{
+                        padding: '8px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+                        background: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0', cursor: 'pointer',
+                      }}
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {!modoReemplazarSemana && (
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button onClick={() => handleGuardar(false)} disabled={guardando} style={{ padding: '9px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700, background: '#1B2A6B', color: '#fff', border: 'none', cursor: 'pointer', opacity: guardando ? 0.6 : 1 }}>
+                    {guardando ? 'Guardando…' : '💾 Guardar en Sheets'}
+                  </button>
+                  <button onClick={() => { setMostrarNueva(false); setErrorGuardar(null) }} style={{ padding: '9px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, background: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0', cursor: 'pointer' }}>Cancelar</button>
+                </div>
+              )}
+
+              {errorGuardar && (
+                <div style={{ marginTop: 12, background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#be123c' }}>
+                  ❌ {errorGuardar}
+                </div>
+              )}
             </div>
           )}
         </div>

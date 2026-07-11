@@ -10,6 +10,7 @@ function ArcGauge({ pct }) {
   const circ = 2 * Math.PI * r
   const arc = circ * 0.75
   const filled = (Math.min(pct, 110) / 100) * arc
+  const gradId = `arcGrad_${Math.random().toString(36).slice(2)}`
 
   useEffect(() => {
     const el = ref.current
@@ -25,14 +26,14 @@ function ArcGauge({ pct }) {
   return (
     <svg viewBox="0 0 200 160" width="200" height="160" style={{ overflow: 'visible' }}>
       <defs>
-        <linearGradient id="arcGrad" x1="0" y1="0" x2="1" y2="1">
+        <linearGradient id={gradId} x1="0" y1="0" x2="1" y2="1">
           <stop offset="0%" stopColor={color} stopOpacity="0.7" />
           <stop offset="100%" stopColor={color} stopOpacity="1" />
         </linearGradient>
       </defs>
       <circle cx={cx} cy={cy} r={r} fill="none" stroke="#e2e8f0" strokeWidth="11"
         strokeDasharray={`${arc} ${circ}`} strokeDashoffset={circ * 0.125} strokeLinecap="round" />
-      <circle ref={ref} cx={cx} cy={cy} r={r} fill="none" stroke="url(#arcGrad)" strokeWidth="11"
+      <circle ref={ref} cx={cx} cy={cy} r={r} fill="none" stroke={`url(#${gradId})`} strokeWidth="11"
         strokeDasharray={`${filled} ${circ}`} strokeDashoffset={circ * 0.125} strokeLinecap="round" />
       <text x={cx} y={cy + 4} textAnchor="middle" fill={color}
         style={{ fontSize: 38, fontWeight: 800, fontFamily: 'Inter', fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.03em' }}>

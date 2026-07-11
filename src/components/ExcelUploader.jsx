@@ -331,7 +331,7 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva 
           </span>
         </div>
         <button
-          onClick={() => setMinimized(false)}
+          onClick={() => { if (inputRef.current) inputRef.current.value = ''; setMinimized(false) }}
           style={{ fontSize: 12, color: '#059669', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}
         >
           Cambiar / corregir
