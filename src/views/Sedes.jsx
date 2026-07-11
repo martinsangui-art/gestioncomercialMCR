@@ -15,7 +15,7 @@ const E = {
 function SedeRow({ d }) {
   const est = getEstado(d)
   const e = E[est]
-  const noav = d.var === 0
+  const noav = d.var !== null && d.var === 0
   const varColor = d.var > 0 ? '#059669' : d.var < 0 ? '#e11d48' : '#94a3b8'
   const varTxt = d.var === null ? '—' : d.var > 0 ? `+${d.var}` : String(d.var)
 
