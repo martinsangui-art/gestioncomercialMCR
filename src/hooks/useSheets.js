@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 
 const API = 'https://script.google.com/macros/s/AKfycbyqeOBpxtYxavx-Uc8mTVRhsqb6HhY6N1RETcvNNVorRuuHMb111XLh_pVYhbSBry4/exec'
-const WEBHOOK = 'https://hook.us2.make.com/3xhcn02owq56c196s0j3anawf5zesxht'
 const TOKEN_KEY = 'ucasal_session_token'
 
 // ── Manejo de sesión ────────────────────────────────────────────────────────
@@ -319,7 +318,6 @@ export function useSheets() {
     markAllCopied,
     guardarSemana,
     subirExcel,
-    WEBHOOK,
   }
 }
 

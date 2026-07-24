@@ -6,12 +6,11 @@
 var SS = SpreadsheetApp.getActiveSpreadsheet();
 
 // ── Autenticación ──────────────────────────────────────────────────────────
-// Hash SHA-256 de (contraseña + salt) — nunca se guarda en texto plano.
-// El salt evita que un hash filtrado se pueda buscar en rainbow tables.
-var AUTH_PASSWORD_SALT = 'ucasal-salt-bsas-2026';
-var AUTH_PASSWORD_HASH = '202621cdca5e1b1351eeee51a2b490af54f1a6a2337088af399f971cd9926c0f';
-// Secreto del servidor para firmar tokens de sesión — no se expone al cliente
-var AUTH_SECRET = 'ucasal-comovamos-2026-bsas-sead-secreto-interno';
+// Los secretos viven en PropertiesService (fuera del código fuente, no se
+// sube a GitHub) en vez de hardcodeados — el repo es público.
+var AUTH_PASSWORD_SALT = PropertiesService.getScriptProperties().getProperty('AUTH_PASSWORD_SALT');
+var AUTH_PASSWORD_HASH = PropertiesService.getScriptProperties().getProperty('AUTH_PASSWORD_HASH');
+var AUTH_SECRET = PropertiesService.getScriptProperties().getProperty('AUTH_SECRET');
 var SESSION_HOURS = 4; // duración de la sesión — corta a propósito: el token viaja en URLs (JSONP) y queda en logs/historial
 
 function sha256(text) {
@@ -165,11 +164,23 @@ function doPost(e) {
 
     if (action === 'agregar_semana') return ok(agregarSemana(body));
     if (action === 'eliminar_corte') return ok(eliminarCorte(body));
+    if (action === 'set_password') return ok(setPassword(body));
 
     return err('action no reconocida: ' + action);
   } catch(ex) {
     return err(ex.message);
   }
+}
+
+// Cambia la contraseña de acceso (autenticado — requiere una sesión ya
+// válida). Recibe el salt+hash ya calculados, nunca la contraseña en claro.
+function setPassword(body) {
+  if (!body.salt || !body.hash) throw new Error('Falta salt o hash');
+  PropertiesService.getScriptProperties().setProperties({
+    AUTH_PASSWORD_SALT: body.salt,
+    AUTH_PASSWORD_HASH: body.hash,
+  });
+  return { ok: true };
 }
 
 // Borra del historial todas las filas que matcheen exactamente una fecha
@@ -202,7 +213,7 @@ function eliminarCorte(body) {
 // ════════════════════════════════════════════════════════════════════════
 // ENVÍO DE EMAIL VIA MAKE (llamado desde el browser via JSONP)
 // ════════════════════════════════════════════════════════════════════════
-var MAKE_WEBHOOK = 'https://hook.us2.make.com/89qke1tmwlaa6nq2b9ald1ioawcris35';
+var MAKE_WEBHOOK = PropertiesService.getScriptProperties().getProperty('MAKE_WEBHOOK');
 
 function enviarEmailMake(params) {
   var status = 0;
