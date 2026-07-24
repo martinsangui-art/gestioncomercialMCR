@@ -152,6 +152,9 @@ function okData(data) { return { ok: true, data: data }; }
 // Body JSON: { action, ...params }
 //   agregar_semana   → agrega una semana nueva al historial
 //     { campana_id, campana_nombre, fecha, sedes: [{cod, sede, total}] }
+//   eliminar_corte   → borra del historial las filas de una fecha exacta
+//     (uso puntual para corregir cortes cargados con fecha corrupta)
+//     { fecha, campana_nombre }
 // ════════════════════════════════════════════════════════════════════════
 function doPost(e) {
   try {
@@ -161,11 +164,39 @@ function doPost(e) {
     if (!validarToken(body.token)) return err('AUTH_REQUIRED');
 
     if (action === 'agregar_semana') return ok(agregarSemana(body));
+    if (action === 'eliminar_corte') return ok(eliminarCorte(body));
 
     return err('action no reconocida: ' + action);
   } catch(ex) {
     return err(ex.message);
   }
+}
+
+// Borra del historial todas las filas que matcheen exactamente una fecha
+// (y opcionalmente una campaña). Uso puntual para limpiar cortes cargados
+// con una fecha corrupta antes de volver a insertarlos bien.
+function eliminarCorte(body) {
+  var fecha = body.fecha;
+  var campanaNombre = body.campana_nombre || null;
+  if (!fecha) throw new Error('Falta fecha');
+
+  var hHist = SS.getSheetByName('historial');
+  var allRows = hHist.getDataRange().getValues();
+  var rowsToDelete = [];
+  for (var i = allRows.length - 1; i >= 1; i--) {
+    var rowFecha = allRows[i][0];
+    if (rowFecha instanceof Date) {
+      rowFecha = Utilities.formatDate(rowFecha, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    }
+    rowFecha = String(rowFecha);
+    var rowCampana = String(allRows[i][3] || '');
+    if (rowFecha === fecha && (!campanaNombre || rowCampana.indexOf(campanaNombre) >= 0)) {
+      rowsToDelete.push(i + 1);
+    }
+  }
+  rowsToDelete.forEach(function(rowNum) { hHist.deleteRow(rowNum); });
+  if (rowsToDelete.length) SpreadsheetApp.flush();
+  return { eliminadas: rowsToDelete.length, fecha: fecha };
 }
 
 // ════════════════════════════════════════════════════════════════════════
