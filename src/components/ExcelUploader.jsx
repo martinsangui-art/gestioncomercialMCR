@@ -78,10 +78,14 @@ function parseExcelData(arrayBuffer) {
     // Intentar parsear string de fecha
     const m1 = hRaw.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/)
     if (m1) {
-      const [, d, mo, y] = m1
+      let [, d, mo, y] = m1
       const yyyy = y.length === 2 ? '20' + y : y
+      // Se espera DD/MM/AAAA, pero si el segundo valor no puede ser un mes
+      // válido (>12) y el primero sí, el Excel viene en MM/DD/AAAA (formato
+      // en inglés) — se invierten para no guardar una fecha corrupta.
+      if (Number(mo) > 12 && Number(d) <= 12) { [d, mo] = [mo, d] }
       fechaCorte = `${yyyy}-${mo.padStart(2,'0')}-${d.padStart(2,'0')}`
-      columnaLabel = hRaw
+      columnaLabel = `${d.padStart(2,'0')}/${mo.padStart(2,'0')}/${yyyy}`
     }
     const m2 = hRaw.match(/^(\d{4})[\/\-](\d{2})[\/\-](\d{2})/)
     if (m2) {
