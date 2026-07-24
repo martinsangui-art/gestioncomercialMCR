@@ -213,15 +213,66 @@ function enviarEmailMake(params) {
 }
 
 // ── Resumen ejecutivo a Cele tras cada tanda de envío ────────────────────
-// DESACTIVADO TEMPORALMENTE (20/06/2026): Cele ya ve el resumen directo
-// en "Historial de envíos" dentro de la web app. El envío por mail se
-// reactivará cuando se configure el escenario de Make correspondiente
-// (MailApp.sendEmail no sirve porque siempre manda desde la cuenta
-// dueña del Apps Script, no desde mcrossi@ucasal.edu.ar).
+// Reactivado (24/07/2026): se envía por el mismo webhook de Make que ya
+// usa enviarEmailMake para las sedes (no se usa MailApp.sendEmail porque
+// siempre manda desde la cuenta dueña del Apps Script, no desde
+// mcrossi@ucasal.edu.ar).
 var EMAIL_CELE = 'mcrossi@ucasal.edu.ar';
 
+function fmtFechaDDMMAAAA(iso) {
+  var p = String(iso || '').slice(0, 10).split('-');
+  if (p.length !== 3) return String(iso || '');
+  return p[2] + '/' + p[1] + '/' + p[0];
+}
+
 function enviarResumenCele(payload) {
-  return { enviado: true, nota: 'Envío de resumen por mail desactivado — ver Historial de envíos en la web' };
+  var items    = payload.items || [];
+  var fecha    = payload.fecha || '';
+  var campana  = payload.campana || '';
+  var ok       = items.filter(function(it) { return it.estado === 'enviado'; }).length;
+  var conError = items.length - ok;
+
+  var filas = items.map(function(it) {
+    var color = it.estado === 'enviado' ? '#059669' : '#e11d48';
+    var texto = it.estado === 'enviado' ? '✓ Enviado' : '✗ Error';
+    return '<tr><td style="padding:6px 10px;border:1px solid #e5e7eb">' + it.sede + '</td>' +
+      '<td style="padding:6px 10px;border:1px solid #e5e7eb">' + (it.email || '') + '</td>' +
+      '<td style="padding:6px 10px;border:1px solid #e5e7eb;color:' + color + ';font-weight:700">' + texto + '</td></tr>';
+  }).join('');
+
+  var html = '<p>Resumen del envío — <strong>' + campana + '</strong> al ' + fmtFechaDDMMAAAA(fecha) + '</p>' +
+    '<table style="width:100%;border-collapse:collapse;margin:10px 0;font-size:12px">' +
+    '<tr style="background:#1a1a2e;color:#fff"><th style="padding:7px 10px;text-align:left;font-size:11px">SEDE</th>' +
+    '<th style="padding:7px 10px;text-align:left;font-size:11px">EMAIL</th>' +
+    '<th style="padding:7px 10px;text-align:left;font-size:11px">ESTADO</th></tr>' +
+    filas + '</table>' +
+    '<p>' + ok + ' enviados' + (conError > 0 ? ', ' + conError + ' con error' : '') + '.</p>';
+
+  var status = 0;
+  try {
+    var response = UrlFetchApp.fetch(MAKE_WEBHOOK, {
+      method: 'post',
+      headers: { 'Content-Type': 'application/json' },
+      payload: JSON.stringify({
+        to:      EMAIL_CELE,
+        subject: 'Resumen de envío — Cómo vamos — ' + campana + ' — ' + fmtFechaDDMMAAAA(fecha),
+        html:    html,
+        sede:    '',
+        cod:     '',
+        fecha:   fecha,
+        tipo:    'email'
+      }),
+      muteHttpExceptions: true
+    });
+    status = response.getResponseCode();
+  } catch (exFetch) {
+    registrarEnvio({ sede: '[RESUMEN]', cod: '', email: EMAIL_CELE, campana: campana + ' [ERROR FETCH: ' + exFetch.message + ']', ok: false });
+    return { enviado: false, error: exFetch.message };
+  }
+
+  var enviado = status >= 200 && status < 300;
+  registrarEnvio({ sede: '[RESUMEN]', cod: '', email: EMAIL_CELE, campana: campana, ok: enviado });
+  return { enviado: enviado, status: status };
 }
 
 function getLogSheet() {
@@ -270,7 +321,7 @@ function getCampanas() {
 }
 
 // Sedes desvinculadas — se excluyen de toda vista y envío, pero su historial pasado queda intacto
-var SEDES_EXCLUIDAS = ['57']; // 57 = MORÓN (desvinculada)
+var SEDES_EXCLUIDAS = []; // 57 = MORÓN (reactivada)
 
 function getSedes() {
   var h = SS.getSheetByName('sedes');

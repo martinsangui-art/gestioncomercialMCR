@@ -11,6 +11,13 @@ import Envio from './views/Envio'
 import { ISOTIPO_B64 } from './assets/isotipo'
 import { ISOTIPO_WATERMARK_B64 } from './assets/isotipo_watermark'
 
+function fmtFecha(iso) {
+  if (!iso) return ''
+  const p = String(iso).slice(0, 10).split('-')
+  if (p.length !== 3) return iso
+  return `${p[2]}/${p[1]}/${p[0]}`
+}
+
 function LoadingScreen({ error }) {
   return (
     <div style={{
@@ -79,7 +86,7 @@ function PageHeader({ title, sub, campana, fecha, sedes, children }) {
             border: '1px solid rgba(27,42,107,0.15)', fontSize: 11, color: '#1B2A6B',
             fontFamily: 'monospace', letterSpacing: '0.03em', fontWeight: 600,
           }}>
-            CORTE · {fecha}
+            CORTE · {fmtFecha(fecha)}
           </div>
         )}
         {sedes !== undefined && (

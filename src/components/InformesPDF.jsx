@@ -2,6 +2,13 @@ import { useState } from 'react'
 import { LOGO_B64 } from '../assets/logo'
 import { FIRMA_B64 } from '../assets/firma'
 
+function fmtFecha(iso) {
+  if (!iso) return ''
+  const p = String(iso).slice(0, 10).split('-')
+  if (p.length !== 3) return iso
+  return `${p[2]}/${p[1]}/${p[0]}`
+}
+
 // ── Estilos compartidos del documento ──────────────────────────────────────
 function estilosPDF() {
   return `<style>
@@ -44,7 +51,7 @@ function headerPDF(fecha, campNombre) {
         <h1>UCASAL – Informe de Cumplimiento de Ingreso</h1>
         <p>Coordinación Nacional de Sedes · Coordinadora Zonal Bs. As. · Dirección Operativa SEAD | Vicerrectorado Académico</p>
       </div>
-      <div class="fecha-badge"><div class="n">${fecha}</div><div class="l">Fecha del reporte</div></div>
+      <div class="fecha-badge"><div class="n">${fmtFecha(fecha)}</div><div class="l">Fecha del reporte</div></div>
     </div>`
 }
 
@@ -53,7 +60,7 @@ function footerPDF(fecha) {
       <img src="${FIRMA_B64}" alt="Firma Ing. Maria Celeste Rossi" style="max-width:520px;width:100%;display:block;margin-bottom:10px">
       <div style="display:flex;justify-content:space-between;font-size:9px;color:#9ca3af;margin-top:6px">
         <span>Documento generado por el sistema de seguimiento UCASAL · Zona Buenos Aires</span>
-        <span>${fecha}</span>
+        <span>${fmtFecha(fecha)}</span>
       </div>
     </div>
     <scr` + `ipt>window.onload=function(){setTimeout(function(){window.print();},400);}</scr` + `ipt>
@@ -164,7 +171,7 @@ function generarPDFSede(d, historial, campNombre, fecha, conHist, onToast) {
     const v = historial[f][String(d.cod_sede)]
     if (v !== undefined) {
       const tag = v === 0 ? 'Sin ingresos' : v >= d.objetivo ? 'Objetivo cumplido' : 'En progreso'
-      histTabla += `<tr><td>${f}</td><td style="text-align:center;font-weight:700">${v}</td><td>${tag}</td></tr>`
+      histTabla += `<tr><td>${fmtFecha(f)}</td><td style="text-align:center;font-weight:700">${v}</td><td>${tag}</td></tr>`
     }
   })
 
@@ -248,7 +255,7 @@ function generarPDFComparacion(sedesSeleccionadas, campNombre, fecha, historial,
   const parts = []
   parts.push(headerPDF(fecha, campNombre))
   parts.push(`<h2 style="font-size:16px;font-weight:700;color:#1B2A6B;margin-bottom:4px">Comparación de sedes seleccionadas</h2>`)
-  parts.push(`<p style="font-size:11px;color:#6b7280;margin-bottom:18px">${sedes.length} sedes analizadas al ${fecha}</p>`)
+  parts.push(`<p style="font-size:11px;color:#6b7280;margin-bottom:18px">${sedes.length} sedes analizadas al ${fmtFecha(fecha)}</p>`)
   parts.push('<h3>Cumplimiento comparado</h3>')
   parts.push(svgChart)
   parts.push('<h3 style="margin-top:18px">Tabla comparativa</h3>')

@@ -2,6 +2,13 @@ import { useMemo, useEffect, useRef } from 'react'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from 'recharts'
 import { useCountUp } from '../hooks/useCountUp'
 
+function fmtFecha(iso) {
+  if (!iso) return ''
+  const p = String(iso).slice(0, 10).split('-')
+  if (p.length !== 3) return iso
+  return `${p[2]}/${p[1]}/${p[0]}`
+}
+
 function ArcGauge({ pct }) {
   const ref = useRef(null)
   const color = pct >= 50 ? '#059669' : pct > 0 ? '#d97706' : '#e11d48'
@@ -213,7 +220,7 @@ export default function Dashboard({ data, stats, historial, campanas, campanaAct
               fontFamily: 'monospace', letterSpacing: '0.02em',
               background: '#f1f5f9', padding: '2px 8px', borderRadius: 20,
             }}>
-              CORTE · {data[0].fecha}
+              CORTE · {fmtFecha(data[0].fecha)}
             </div>
           )}
         </GlassPanel>
