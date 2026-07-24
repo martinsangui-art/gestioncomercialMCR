@@ -31,7 +31,9 @@ function buildEmailHTML(d, campNombre) {
       : d.var < 0 ? ` (${d.var} vs semana anterior)`
       : ' (sin variación)')
     : ''
-  return `<p>${esc(d.saludo)}:</p>
+  // Morón (cod 57) no tiene contacto personalizado — saludo genérico sin nombre
+  const saludo = String(d.cod_sede) === '57' ? 'Estimados' : d.saludo
+  return `<p>${esc(saludo)}:</p>
 <p style="margin-top:6px">Enviamos el resultado del <strong>cómo vamos</strong> al ${fmtFecha(d.fecha)}</p>
 <table style="width:100%;border-collapse:collapse;margin:10px 0;font-size:12px">
   <tr style="background:#1a1a2e;color:#fff">
