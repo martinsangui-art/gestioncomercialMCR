@@ -4,8 +4,20 @@
 
 @layer base {
   * { box-sizing: border-box; }
-  html { font-family: 'Inter', system-ui, sans-serif; }
-  body { margin: 0; background: #F8FAFC; color: #0f172a; }
+  html { font-family: 'IBM Plex Sans', system-ui, sans-serif; }
+  body {
+    margin: 0;
+    background: #F3EFE3;
+    color: #17233F;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 @layer utilities {

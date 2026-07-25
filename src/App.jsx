@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useIsMobile } from './hooks/useIsMobile'
 import { useSheets, useAuth } from './hooks/useSheets'
+import { C, F } from './lib/theme'
 import Sidebar from './components/Sidebar'
 import ExcelUploader from './components/ExcelUploader'
 import InformesPDF from './components/InformesPDF'
@@ -10,7 +11,6 @@ import Sedes from './views/Sedes'
 import Historial from './views/Historial'
 import Envio from './views/Envio'
 import { ISOTIPO_B64 } from './assets/isotipo'
-import { ISOTIPO_WATERMARK_B64 } from './assets/isotipo_watermark'
 
 function fmtFecha(iso) {
   if (!iso) return ''
@@ -22,33 +22,47 @@ function fmtFecha(iso) {
 function LoadingScreen({ error }) {
   return (
     <div style={{
-      position: 'fixed', inset: 0, background: '#0B1730',
+      position: 'fixed', inset: 0, background: C.ink,
       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 20,
     }}>
-      <img
-        src={ISOTIPO_B64}
-        alt="UCASAL"
-        style={{ width: 100, height: 'auto' }}
-      />
+      <img src={ISOTIPO_B64} alt="UCASAL" style={{ width: 90, height: 'auto' }} />
       <div style={{ textAlign: 'center', marginTop: -4 }}>
-        <div style={{ color: '#fff', fontWeight: 700, fontSize: 19, marginBottom: 4, letterSpacing: '0.02em' }}>UCASAL · Gestión Comercial</div>
-        <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13 }}>Dirección Operativa SEAD · Buenos Aires</div>
+        <div style={{ fontFamily: F.display, color: '#fff', fontWeight: 600, fontSize: 19, marginBottom: 5 }}>UCASAL · Gestión Comercial</div>
+        <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12.5, fontFamily: F.mono }}>Dirección Operativa SEAD · Buenos Aires</div>
       </div>
       {error ? (
-        <div style={{ background: 'rgba(200,16,46,0.15)', border: '1px solid rgba(200,16,46,0.3)', borderRadius: 10, padding: '12px 20px', maxWidth: 400, textAlign: 'center' }}>
-          <div style={{ color: '#f87171', fontSize: 13, lineHeight: 1.5 }}>❌ {error}</div>
+        <div style={{ background: 'rgba(156,43,52,0.15)', border: `1px solid rgba(156,43,52,0.35)`, borderRadius: 3, padding: '12px 20px', maxWidth: 400, textAlign: 'center' }}>
+          <div style={{ color: '#e8828a', fontSize: 13, lineHeight: 1.5, fontFamily: F.body }}>❌ {error}</div>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
           <div style={{
-            width: 36, height: 36, borderRadius: '50%',
-            border: '3px solid rgba(255,255,255,0.1)', borderTopColor: '#C8102E',
+            width: 34, height: 34, borderRadius: '50%',
+            border: `3px solid rgba(169,129,46,0.2)`, borderTopColor: C.brass,
             animation: 'spin 0.8s linear infinite',
           }} />
-          <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13 }}>Conectando con Google Sheets…</div>
+          <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12.5, fontFamily: F.mono }}>Conectando con Google Sheets…</div>
         </div>
       )}
       <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+    </div>
+  )
+}
+
+function Tag({ children, tone = 'ink' }) {
+  const tones = {
+    ink:    { border: 'rgba(23,35,63,0.25)', color: C.ink,     bg: 'transparent' },
+    ok:     { border: 'rgba(47,109,79,0.35)', color: C.ok,      bg: 'rgba(47,109,79,0.06)' },
+    solid:  { border: C.ink,                  color: '#fff',    bg: C.ink },
+  }
+  const t = tones[tone]
+  return (
+    <div style={{
+      padding: '5px 11px', borderRadius: 2, background: t.bg,
+      border: `1px solid ${t.border}`, fontSize: 10.5, fontWeight: 600, color: t.color,
+      fontFamily: F.mono, letterSpacing: '0.05em', textTransform: 'uppercase',
+    }}>
+      {children}
     </div>
   )
 }
@@ -57,53 +71,26 @@ function PageHeader({ title, sub, campana, fecha, sedes, children }) {
   return (
     <div style={{
       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      paddingBottom: 20, marginBottom: 24, position: 'relative',
+      paddingBottom: 18, marginBottom: 26, position: 'relative',
       flexWrap: 'wrap', gap: 12,
     }}>
-      <div style={{
-        position: 'absolute', bottom: 0, left: 0, right: 0, height: 2,
-        background: 'linear-gradient(90deg, #1B2A6B 0%, #1B2A6B 60%, #C8102E 100%)',
-        opacity: 0.7,
-      }} />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <div style={{ width: 4, height: 28, borderRadius: 2, background: '#C8102E', flexShrink: 0 }} />
-        <div>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#0f172a', letterSpacing: '-0.02em' }}>{title}</h1>
-          {sub && <p style={{ margin: '2px 0 0', fontSize: 13, color: '#94a3b8' }}>{sub}</p>}
-        </div>
+      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, ...ledgerRuleStyle() }} />
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
+        <h1 style={{ margin: 0, fontFamily: F.display, fontSize: 25, fontWeight: 600, color: C.ink, letterSpacing: '0.001em' }}>{title}</h1>
+        {sub && <p style={{ margin: 0, fontSize: 12.5, color: C.inkSoft, fontFamily: F.body }}>{sub}</p>}
       </div>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-        {campana && (
-          <div style={{
-            padding: '5px 12px', borderRadius: 7, background: 'rgba(236,253,245,0.8)',
-            border: '1px solid #6ee7b7', fontSize: 11, fontWeight: 700, color: '#059669',
-            fontFamily: 'monospace', letterSpacing: '0.03em', textTransform: 'uppercase',
-          }}>
-            {campana}
-          </div>
-        )}
-        {fecha && (
-          <div style={{
-            padding: '5px 12px', borderRadius: 7, background: 'rgba(27,42,107,0.06)',
-            border: '1px solid rgba(27,42,107,0.15)', fontSize: 11, color: '#1B2A6B',
-            fontFamily: 'monospace', letterSpacing: '0.03em', fontWeight: 600,
-          }}>
-            CORTE · {fmtFecha(fecha)}
-          </div>
-        )}
-        {sedes !== undefined && (
-          <div style={{
-            padding: '5px 12px', borderRadius: 7, background: '#1B2A6B',
-            border: '1px solid #1B2A6B', fontSize: 11, fontWeight: 700, color: '#fff',
-            fontFamily: 'monospace', letterSpacing: '0.03em',
-          }}>
-            {sedes} SEDES
-          </div>
-        )}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        {campana && <Tag tone="ok">{campana}</Tag>}
+        {fecha && <Tag tone="ink">Corte · {fmtFecha(fecha)}</Tag>}
+        {sedes !== undefined && <Tag tone="solid">{sedes} sedes</Tag>}
         {children}
       </div>
     </div>
   )
+}
+
+function ledgerRuleStyle() {
+  return { height: 1, background: `linear-gradient(90deg, ${C.ink} 0%, ${C.ink} 55%, ${C.crimson} 100%)`, opacity: 0.55 }
 }
 
 const VIEW_META = {
@@ -133,10 +120,8 @@ function AppShell({ onLogout }) {
   return (
     <div style={{
       display: 'flex', minHeight: '100vh',
-      backgroundColor: '#f8fafc',
-      backgroundImage: `radial-gradient(ellipse 1400px 1000px at 10% -10%, rgba(27,42,107,0.10) 0%, rgba(27,42,107,0.03) 40%, transparent 75%), radial-gradient(ellipse 900px 700px at 100% 100%, rgba(200,16,46,0.04) 0%, transparent 60%), url("${ISOTIPO_WATERMARK_B64}")`,
-      backgroundRepeat: 'no-repeat, no-repeat, repeat',
-      backgroundSize: 'auto, auto, 90px 96px',
+      backgroundColor: C.paper,
+      backgroundImage: `repeating-linear-gradient(0deg, rgba(23,35,63,0.028) 0px, rgba(23,35,63,0.028) 1px, transparent 1px, transparent 27px)`,
     }}>
       <Sidebar
         view={view} onView={setView}
@@ -194,21 +179,22 @@ function AppShell({ onLogout }) {
 function SessionExpiredModal({ onDismiss }) {
   return (
     <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.6)',
+      position: 'fixed', inset: 0, background: 'rgba(23,35,63,0.65)',
       zIndex: 20000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
     }}>
       <div style={{
-        background: '#fff', borderRadius: 16, padding: '28px 26px', maxWidth: 380, width: '100%',
-        boxShadow: '0 24px 64px rgba(0,0,0,.3)', textAlign: 'center',
+        background: C.paperRaised, borderRadius: 3, padding: '30px 28px', maxWidth: 380, width: '100%',
+        boxShadow: '0 24px 64px rgba(0,0,0,.35)', textAlign: 'center', border: `1px solid ${C.rule}`,
       }}>
-        <div style={{ fontSize: 32, marginBottom: 12 }}>⏰</div>
-        <div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a', marginBottom: 6 }}>Tu sesión expiró</div>
-        <div style={{ fontSize: 13, color: '#64748b', marginBottom: 20, lineHeight: 1.5 }}>
+        <div style={{ fontSize: 30, marginBottom: 14 }}>⏰</div>
+        <div style={{ fontFamily: F.display, fontSize: 18, fontWeight: 600, color: C.ink, marginBottom: 8 }}>Tu sesión expiró</div>
+        <div style={{ fontSize: 13, color: C.inkSoft, marginBottom: 22, lineHeight: 1.55, fontFamily: F.body }}>
           Iniciá sesión de nuevo para continuar. Si estabas cargando una semana manualmente, tus valores quedaron guardados y se restauran al volver a entrar.
         </div>
         <button onClick={onDismiss} style={{
-          padding: '10px 24px', borderRadius: 8, fontSize: 13, fontWeight: 700,
-          background: '#1B2A6B', color: '#fff', border: 'none', cursor: 'pointer', width: '100%',
+          padding: '11px 24px', borderRadius: 3, fontSize: 13, fontWeight: 600, fontFamily: F.body,
+          background: C.crimson, color: '#fff', border: 'none', cursor: 'pointer', width: '100%',
+          textTransform: 'uppercase', letterSpacing: '0.05em',
         }}>
           Iniciar sesión de nuevo
         </button>

@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { enviarEmailViaScript, obtenerLogEnvios, enviarResumenCele, onAuthExpired, obtenerConfig, guardarConfig, confirmarEnvioLote } from '../hooks/useSheets'
+import { C, F } from '../lib/theme'
 
 const BORRADOR_KEY = 'ucasal_borrador_semana'
 
@@ -7,6 +8,10 @@ function getEstado(d) {
   if (d.total === 0) return 'red'
   if (d.pct >= 50) return 'green'
   return 'amber'
+}
+
+function estadoColor(est) {
+  return { green: C.ok, amber: C.warn, red: C.danger }[est]
 }
 
 function fmtFecha(iso) {
@@ -38,14 +43,14 @@ function renderTemplate(template, vars) {
 }
 
 function buildTablaHTML(d, campNombre) {
-  const color = { green: '#059669', amber: '#d97706', red: '#e11d48' }[getEstado(d)]
+  const color = { green: '#2F6D4F', amber: '#A8752A', red: '#9C2B34' }[getEstado(d)]
   const varTxt = d.var !== null
     ? (d.var > 0 ? ` (+${d.var} vs semana anterior)`
       : d.var < 0 ? ` (${d.var} vs semana anterior)`
       : ' (sin variación)')
     : ''
   return `<table style="width:100%;border-collapse:collapse;margin:10px 0;font-size:12px">
-  <tr style="background:#1a1a2e;color:#fff">
+  <tr style="background:#17233F;color:#fff">
     <th style="padding:7px 10px;text-align:center;font-size:11px">COD SEDE</th>
     <th style="padding:7px 10px;text-align:center;font-size:11px">SEDE</th>
     <th style="padding:7px 10px;text-align:center;font-size:11px">OBJETIVO ${campNombre.toUpperCase()}</th>
@@ -72,6 +77,19 @@ function buildEmailHTML(d, campNombre, template) {
   })
 }
 
+function ModalHeader({ title, sub, onClose, tone = 'ink' }) {
+  const bg = tone === 'crimson' ? C.crimson : C.ink
+  return (
+    <div style={{ background: bg, padding: '16px 22px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, borderBottom: `2px solid ${C.brass}` }}>
+      <div>
+        <div style={{ fontFamily: F.display, color: '#fff', fontWeight: 600, fontSize: 16 }}>{title}</div>
+        {sub && <div style={{ color: 'rgba(255,255,255,.6)', fontSize: 12, marginTop: 2, fontFamily: F.body }}>{sub}</div>}
+      </div>
+      <button onClick={onClose} style={{ background: 'rgba(255,255,255,.15)', border: 'none', color: '#fff', width: 27, height: 27, borderRadius: '50%', cursor: 'pointer', fontSize: 13 }}>✕</button>
+    </div>
+  )
+}
+
 // Editor de la plantilla del email — placeholders: {{saludo}} {{fecha}} {{tabla}}
 function EditorPlantillaModal({ template, sedeEjemplo, campNombre, onClose, onGuardado }) {
   const [texto, setTexto] = useState(template)
@@ -92,64 +110,57 @@ function EditorPlantillaModal({ template, sedeEjemplo, campNombre, onClose, onGu
 
   return (
     <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)',
+      position: 'fixed', inset: 0, background: 'rgba(23,35,63,.6)',
       zIndex: 9600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
     }}>
       <div style={{
-        background: '#fff', borderRadius: 16, width: '100%', maxWidth: 900,
-        overflow: 'hidden', boxShadow: '0 24px 64px rgba(0,0,0,.3)',
+        background: C.paperRaised, borderRadius: 3, width: '100%', maxWidth: 900,
+        overflow: 'hidden', boxShadow: '0 24px 64px rgba(0,0,0,.35)',
         display: 'flex', flexDirection: 'column', maxHeight: '90vh',
       }}>
-        <div style={{
-          background: 'linear-gradient(135deg,#1B2A6B,#0f1d4a)',
-          padding: '16px 22px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0,
-        }}>
-          <div>
-            <div style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>✏️ Editar plantilla del email</div>
-            <div style={{ color: 'rgba(255,255,255,.6)', fontSize: 12, marginTop: 2 }}>
-              Placeholders: <code>{'{{saludo}}'}</code> <code>{'{{fecha}}'}</code> <code>{'{{tabla}}'}</code>
-            </div>
-          </div>
-          <button onClick={onClose} style={{ background: 'rgba(255,255,255,.15)', border: 'none', color: '#fff', width: 28, height: 28, borderRadius: '50%', cursor: 'pointer', fontSize: 13 }}>✕</button>
-        </div>
+        <ModalHeader
+          title="Editar plantilla del email"
+          sub={<>Placeholders: <code>{'{{saludo}}'}</code> <code>{'{{fecha}}'}</code> <code>{'{{tabla}}'}</code></>}
+          onClose={onClose}
+        />
 
         <div style={{ flex: 1, overflow: 'auto', display: 'flex', gap: 0 }}>
-          <div style={{ flex: 1, padding: '16px 20px', borderRight: '1px solid #f1f5f9', display: 'flex', flexDirection: 'column' }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>HTML de la plantilla</div>
+          <div style={{ flex: 1, padding: '16px 20px', borderRight: `1px solid ${C.rule}`, display: 'flex', flexDirection: 'column' }}>
+            <div style={{ fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8, fontFamily: F.mono }}>HTML de la plantilla</div>
             <textarea value={texto} onChange={e => setTexto(e.target.value)} spellCheck={false} style={{
-              flex: 1, minHeight: 320, padding: 12, border: '1px solid #e2e8f0', borderRadius: 10,
-              fontSize: 12, fontFamily: 'monospace', lineHeight: 1.6, resize: 'vertical',
+              flex: 1, minHeight: 320, padding: 12, border: `1px solid ${C.rule}`, borderRadius: 2,
+              fontSize: 12, fontFamily: F.mono, lineHeight: 1.6, resize: 'vertical',
             }} />
             <button onClick={() => setTexto(DEFAULT_TEMPLATE)} style={{
-              marginTop: 8, alignSelf: 'flex-start', fontSize: 11, color: '#94a3b8',
+              marginTop: 8, alignSelf: 'flex-start', fontSize: 11, color: C.inkSoft, fontFamily: F.body,
               background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline',
             }}>
               Restaurar plantilla predeterminada
             </button>
           </div>
-          <div style={{ flex: 1, padding: '16px 20px', background: '#fafafa' }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+          <div style={{ flex: 1, padding: '16px 20px', background: C.paper }}>
+            <div style={{ fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8, fontFamily: F.mono }}>
               Vista previa {sedeEjemplo ? `· ${sedeEjemplo.sede}` : ''}
             </div>
             {sedeEjemplo ? (
-              <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: 16, fontSize: 13, lineHeight: 1.7, color: '#222', background: '#fff' }}
+              <div style={{ border: `1px solid ${C.rule}`, borderRadius: 2, padding: 16, fontSize: 13, lineHeight: 1.7, color: '#222', background: '#fff' }}
                 dangerouslySetInnerHTML={{ __html: preview }} />
             ) : (
-              <div style={{ fontSize: 12, color: '#94a3b8' }}>No hay datos de sedes todavía para previsualizar.</div>
+              <div style={{ fontSize: 12, color: C.inkSoft }}>No hay datos de sedes todavía para previsualizar.</div>
             )}
           </div>
         </div>
 
-        <div style={{ padding: '14px 20px', borderTop: '1px solid #e2e8f0', display: 'flex', gap: 8, justifyContent: 'flex-end', flexShrink: 0 }}>
-          {error && <div style={{ color: '#e11d48', fontSize: 12, marginRight: 'auto', alignSelf: 'center' }}>❌ {error}</div>}
-          <button onClick={onClose} disabled={guardando} style={{ padding: '9px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, background: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0', cursor: 'pointer' }}>
+        <div style={{ padding: '14px 20px', borderTop: `1px solid ${C.rule}`, display: 'flex', gap: 8, justifyContent: 'flex-end', flexShrink: 0 }}>
+          {error && <div style={{ color: C.crimson, fontSize: 12, marginRight: 'auto', alignSelf: 'center' }}>❌ {error}</div>}
+          <button onClick={onClose} disabled={guardando} style={{ padding: '9px 16px', borderRadius: 2, fontSize: 13, fontWeight: 600, background: C.paper, color: C.inkSoft, border: `1px solid ${C.rule}`, cursor: 'pointer', fontFamily: F.body }}>
             Cancelar
           </button>
           <button onClick={handleGuardar} disabled={guardando} style={{
-            padding: '9px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700,
-            background: 'linear-gradient(135deg,#1B2A6B,#0f1d4a)', color: '#fff', border: 'none', cursor: 'pointer', opacity: guardando ? 0.6 : 1,
+            padding: '9px 20px', borderRadius: 2, fontSize: 13, fontWeight: 600, fontFamily: F.body,
+            background: C.ink, color: '#fff', border: 'none', cursor: 'pointer', opacity: guardando ? 0.6 : 1,
           }}>
-            {guardando ? 'Guardando…' : '💾 Guardar plantilla'}
+            {guardando ? 'Guardando…' : 'Guardar plantilla'}
           </button>
         </div>
       </div>
@@ -163,15 +174,15 @@ function TooltipHelp({ text }) {
     <div style={{ position: 'relative', display: 'inline-block' }}
       onMouseEnter={() => setShow(true)} onMouseLeave={() => setShow(false)}>
       <span style={{
-        fontSize: 11, color: '#94a3b8', cursor: 'help', background: '#f1f5f9',
+        fontSize: 11, color: C.inkSoft, cursor: 'help', border: `1px solid ${C.rule}`,
         borderRadius: '50%', width: 18, height: 18,
-        display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700,
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600,
       }}>?</span>
       {show && (
         <div style={{
           position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)',
-          marginBottom: 6, background: '#0f172a', color: '#fff', fontSize: 11,
-          padding: '6px 12px', borderRadius: 6, zIndex: 99, width: 260,
+          marginBottom: 6, background: C.ink, color: '#fff', fontSize: 11, fontFamily: F.body,
+          padding: '6px 12px', borderRadius: 2, zIndex: 99, width: 260,
           textAlign: 'center', lineHeight: 1.5, pointerEvents: 'none',
         }}>{text}</div>
       )}
@@ -193,64 +204,81 @@ function PreviewModal({ sede, campNombre, template, onClose, onSend }) {
 
   return (
     <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)',
+      position: 'fixed', inset: 0, background: 'rgba(23,35,63,.6)',
       zIndex: 9500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
     }}>
       <div style={{
-        background: '#fff', borderRadius: 16, width: '100%', maxWidth: 620,
-        overflow: 'hidden', boxShadow: '0 24px 64px rgba(0,0,0,.3)',
+        background: C.paperRaised, borderRadius: 3, width: '100%', maxWidth: 620,
+        overflow: 'hidden', boxShadow: '0 24px 64px rgba(0,0,0,.35)',
         display: 'flex', flexDirection: 'column', maxHeight: '90vh',
       }}>
-        {/* Header */}
-        <div style={{
-          background: 'linear-gradient(135deg,#1B2A6B,#0f1d4a)',
-          padding: '16px 22px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0,
-        }}>
-          <div>
-            <div style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>Vista previa del email</div>
-            <div style={{ color: 'rgba(255,255,255,.6)', fontSize: 12, marginTop: 2 }}>
-              {sede.sede} · {sede.email}
-            </div>
-          </div>
-          <button onClick={onClose} style={{ background: 'rgba(255,255,255,.15)', border: 'none', color: '#fff', width: 28, height: 28, borderRadius: '50%', cursor: 'pointer', fontSize: 13 }}>✕</button>
-        </div>
+        <ModalHeader title="Vista previa del email" sub={`${sede.sede} · ${sede.email}`} onClose={onClose} />
 
         {/* KPIs rápidos */}
-        <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', flexShrink: 0 }}>
+        <div style={{ display: 'flex', borderBottom: `1px solid ${C.rule}`, flexShrink: 0 }}>
           {[['Objetivo', sede.objetivo], ['Total', sede.total], ['Cumplimiento', sede.pct + '%'], ['Variación', sede.var !== null ? (sede.var > 0 ? '+' + sede.var : sede.var) : '—']].map(([l, v]) => (
-            <div key={l} style={{ flex: 1, padding: '10px 16px', textAlign: 'center', borderRight: '1px solid #f1f5f9' }}>
-              <div style={{ fontSize: 18, fontWeight: 800, color: '#0f172a', fontVariantNumeric: 'tabular-nums' }}>{v}</div>
-              <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 1 }}>{l}</div>
+            <div key={l} style={{ flex: 1, padding: '10px 16px', textAlign: 'center', borderRight: `1px solid ${C.ruleSoft}` }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: C.ink, fontFamily: F.mono }}>{v}</div>
+              <div style={{ fontSize: 10, color: C.inkSoft, marginTop: 1, fontFamily: F.mono, textTransform: 'uppercase' }}>{l}</div>
             </div>
           ))}
         </div>
 
         {/* Preview o editor */}
         <div style={{ flex: 1, overflow: 'auto', padding: '16px 20px' }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
+          <div style={{ fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10, fontFamily: F.mono }}>
             Vista previa · tabla HTML lista para Gmail
           </div>
           <div style={{
-            border: '1px solid #e2e8f0', borderRadius: 10, padding: '16px',
-            fontSize: 13, lineHeight: 1.7, color: '#222', background: '#fafafa',
+            border: `1px solid ${C.rule}`, borderRadius: 2, padding: '16px',
+            fontSize: 13, lineHeight: 1.7, color: '#222', background: C.paper,
           }} dangerouslySetInnerHTML={{ __html: htmlBase }} />
         </div>
 
         {/* Footer */}
         <div style={{
-          padding: '12px 20px', borderTop: '1px solid #e2e8f0',
+          padding: '12px 20px', borderTop: `1px solid ${C.rule}`,
           display: 'flex', gap: 8, justifyContent: 'flex-end', flexShrink: 0,
         }}>
-          <button onClick={onClose} style={{ padding: '9px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, background: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0', cursor: 'pointer' }}>
+          <button onClick={onClose} style={{ padding: '9px 16px', borderRadius: 2, fontSize: 13, fontWeight: 600, background: C.paper, color: C.inkSoft, border: `1px solid ${C.rule}`, cursor: 'pointer', fontFamily: F.body }}>
             Cancelar
           </button>
           <button onClick={handleSend} disabled={enviando} style={{
-            padding: '9px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700,
-            background: 'linear-gradient(135deg,#C8102E,#9b0d23)', color: '#fff', border: 'none',
+            padding: '9px 20px', borderRadius: 2, fontSize: 13, fontWeight: 600, fontFamily: F.body,
+            background: C.crimson, color: '#fff', border: 'none',
             cursor: enviando ? 'not-allowed' : 'pointer', opacity: enviando ? 0.7 : 1,
           }}>
-            {enviando ? 'Enviando…' : '🚀 Enviar este email'}
+            {enviando ? 'Enviando…' : 'Enviar este email'}
           </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ConfirmModal({ tono = 'crimson', title, sub, items, footNote, onClose, onConfirm, confirmLabel }) {
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(23,35,63,.6)', zIndex: 9500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: C.paperRaised, borderRadius: 3, width: '100%', maxWidth: 480, overflow: 'hidden', boxShadow: '0 24px 64px rgba(0,0,0,.35)' }}>
+        <ModalHeader title={title} sub={sub} onClose={onClose} tone={tono} />
+        <div style={{ padding: 20 }}>
+          <div style={{ maxHeight: 200, overflowY: 'auto', marginBottom: 12, border: `1px solid ${C.rule}` }}>
+            {items.map(d => (
+              <div key={d.cod_sede} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 14px', borderBottom: `1px solid ${C.ruleSoft}`, fontSize: 13, fontFamily: F.body }}>
+                <span style={{ fontWeight: 500, color: C.ink }}>{d.sede}</span>
+                <span style={{ color: C.inkSoft, fontSize: 12, fontFamily: F.mono }}>{d.email}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize: 12, color: C.inkSoft, marginBottom: 16, fontFamily: F.body }}>
+            {footNote}
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 2, fontSize: 13, fontWeight: 600, background: C.paper, color: C.inkSoft, border: `1px solid ${C.rule}`, cursor: 'pointer', fontFamily: F.body }}>Cancelar</button>
+            <button onClick={onConfirm} style={{ padding: '9px 20px', borderRadius: 2, fontSize: 13, fontWeight: 600, fontFamily: F.body, background: tono === 'crimson' ? C.crimson : C.ink, color: '#fff', border: 'none', cursor: 'pointer' }}>
+              {confirmLabel}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -277,6 +305,7 @@ export default function Envio({ data, copied, onCopied, campanas, campanaActiva,
   const [mostrarLog, setMostrarLog] = useState(false)
   const [template, setTemplate] = useState(DEFAULT_TEMPLATE)
   const [mostrarEditorPlantilla, setMostrarEditorPlantilla] = useState(false)
+  const [confirmando, setConfirmando] = useState({})
   const logRef = useRef(null)
 
   // Cargar la plantilla de email guardada (si nunca se editó, usa la de siempre)
@@ -443,7 +472,6 @@ export default function Envio({ data, copied, onCopied, campanas, campanaActiva,
     return Object.values(grupos).sort((a, b) => (b.fecha + b.hora).localeCompare(a.fecha + a.hora))
   })()
 
-  const [confirmando, setConfirmando] = useState({})
   const handleConfirmarLote = async (g) => {
     const key = `${g.fecha} ${g.hora}`
     setConfirmando(prev => ({ ...prev, [key]: true }))
@@ -456,7 +484,7 @@ export default function Envio({ data, copied, onCopied, campanas, campanaActiva,
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16, fontFamily: F.body }}>
 
       {previewSede && (
         <PreviewModal
@@ -481,61 +509,60 @@ export default function Envio({ data, copied, onCopied, campanas, campanaActiva,
       {/* Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12 }}>
         {[
-          { l: 'Total sedes',  v: data.length,      c: '#1B2A6B' },
-          { l: 'Enviadas',     v: enviadas.length,   c: '#059669' },
-          { l: 'Pendientes',   v: pendientes.length, c: pendientes.length > 0 ? '#d97706' : '#94a3b8' },
+          { l: 'Total sedes',  v: data.length,      c: C.ink },
+          { l: 'Enviadas',     v: enviadas.length,   c: C.ok },
+          { l: 'Pendientes',   v: pendientes.length, c: pendientes.length > 0 ? C.warn : C.inkSoft },
         ].map(s => (
           <div key={s.l} style={{
-            background: 'rgba(255,255,255,0.55)', backdropFilter: 'blur(20px) saturate(180%)', WebkitBackdropFilter: 'blur(20px) saturate(180%)',
-            border: '1px solid rgba(255,255,255,0.95)', boxShadow: '0 2px 4px rgba(15,23,42,0.06), 0 16px 40px -12px rgba(27,42,107,0.18)',
-            borderRadius: 14, padding: '18px 24px', borderTop: `3px solid ${s.c}`,
+            background: C.paperRaised, border: `1px solid ${C.rule}`,
+            borderRadius: 10, padding: '17px 20px', borderTop: `2px solid ${s.c}`,
           }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>{s.l}</div>
-            <div style={{ fontSize: 32, fontWeight: 800, color: s.c, fontVariantNumeric: 'tabular-nums' }}>{s.v}</div>
+            <div style={{ fontSize: 10.5, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8, fontFamily: F.mono }}>{s.l}</div>
+            <div style={{ fontSize: 30, fontWeight: 600, color: s.c, fontFamily: F.mono }}>{s.v}</div>
           </div>
         ))}
       </div>
 
       {/* Panel de envío */}
       {!cerrada && (
-        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 16, overflow: 'hidden' }}>
-          <div style={{ background: 'linear-gradient(135deg,#C8102E,#9b0d23)', padding: '16px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ background: C.paperRaised, border: `1px solid ${C.rule}`, borderRadius: 10, overflow: 'hidden' }}>
+          <div style={{ background: C.crimson, padding: '16px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
             <div>
-              <div style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>Envío semanal</div>
-              <div style={{ color: 'rgba(255,255,255,.6)', fontSize: 12, marginTop: 2 }}>
+              <div style={{ fontFamily: F.display, color: '#fff', fontWeight: 600, fontSize: 16 }}>Envío semanal</div>
+              <div style={{ color: 'rgba(255,255,255,.65)', fontSize: 12, marginTop: 2, fontFamily: F.body }}>
                 Desde mcrossi@ucasal.edu.ar vía Make · {aEnviar.length} {seleccionadas.length > 0 ? 'seleccionadas' : 'pendientes'}
               </div>
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               {!enviando && (
                 <button onClick={() => setMostrarEditorPlantilla(true)} style={{
-                  padding: '9px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+                  padding: '9px 14px', borderRadius: 2, fontSize: 13, fontWeight: 600, fontFamily: F.body,
                   background: 'rgba(255,255,255,.15)', color: '#fff', border: '1px solid rgba(255,255,255,.3)', cursor: 'pointer',
                 }}>
-                  ✏️ Plantilla
+                  Plantilla
                 </button>
               )}
               {pendientes.length > 0 && !enviando && (
-                <button onClick={() => setModalConfirm(true)} style={{ padding: '9px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700, background: '#fff', color: '#C8102E', border: 'none', cursor: 'pointer' }}>
-                  🚀 Enviar {aEnviar.length} emails
+                <button onClick={() => setModalConfirm(true)} style={{ padding: '9px 20px', borderRadius: 2, fontSize: 13, fontWeight: 600, fontFamily: F.body, background: '#fff', color: C.crimson, border: 'none', cursor: 'pointer' }}>
+                  Enviar {aEnviar.length} emails
                 </button>
               )}
-              {enviando && <div style={{ color: '#fff', fontSize: 13 }}>Enviando… {progreso}%</div>}
+              {enviando && <div style={{ color: '#fff', fontSize: 13, fontFamily: F.mono }}>Enviando… {progreso}%</div>}
             </div>
           </div>
 
           {progreso > 0 && (
-            <div style={{ height: 4, background: '#f1f5f9' }}>
-              <div style={{ width: `${progreso}%`, height: '100%', background: 'linear-gradient(90deg,#C8102E,#f43f5e)', transition: 'width 0.3s' }} />
+            <div style={{ height: 3, background: C.ruleSoft }}>
+              <div style={{ width: `${progreso}%`, height: '100%', background: C.brass, transition: 'width 0.3s' }} />
             </div>
           )}
 
           {log.length > 0 && (
-            <div style={{ padding: '12px 24px', borderBottom: '1px solid #f1f5f9' }}>
-              <div ref={logRef} style={{ background: '#0f172a', borderRadius: 10, padding: '12px 16px', height: 180, overflowY: 'auto', fontFamily: 'monospace', fontSize: 12 }}>
+            <div style={{ padding: '12px 24px', borderBottom: `1px solid ${C.ruleSoft}` }}>
+              <div ref={logRef} style={{ background: C.ink, borderRadius: 2, padding: '12px 16px', height: 180, overflowY: 'auto', fontFamily: F.mono, fontSize: 12 }}>
                 {log.map((l, i) => (
-                  <div key={i} style={{ color: l.tipo === 'ok' ? '#4ade80' : l.tipo === 'error' ? '#f87171' : '#94a3b8', lineHeight: 1.8 }}>
-                    <span style={{ color: '#475569', marginRight: 8 }}>{l.ts}</span>{l.msg}
+                  <div key={i} style={{ color: l.tipo === 'ok' ? '#7fc9a0' : l.tipo === 'error' ? '#e8828a' : 'rgba(255,255,255,.5)', lineHeight: 1.8 }}>
+                    <span style={{ color: 'rgba(255,255,255,.35)', marginRight: 8 }}>{l.ts}</span>{l.msg}
                   </div>
                 ))}
               </div>
@@ -545,49 +572,49 @@ export default function Envio({ data, copied, onCopied, campanas, campanaActiva,
           {pendientes.length > 0 && (
             <div style={{ padding: '16px 24px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                <div style={{ fontSize: 11.5, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: F.mono }}>
                   Pendientes de envío
                 </div>
                 <TooltipHelp text="Seleccioná las sedes que querés enviar ahora. Sin selección se envían todas. Usá 👁 Ver para previsualizar el email — podés editarlo si necesitás." />
                 <div style={{ flex: 1 }} />
-                <button onClick={selAll} style={{ fontSize: 11, color: '#1B2A6B', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}>Sel. todas</button>
-                <button onClick={deselAll} style={{ fontSize: 11, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer' }}>Limpiar</button>
+                <button onClick={selAll} style={{ fontSize: 11, color: C.ink, background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, fontFamily: F.body }}>Sel. todas</button>
+                <button onClick={deselAll} style={{ fontSize: 11, color: C.inkSoft, background: 'none', border: 'none', cursor: 'pointer', fontFamily: F.body }}>Limpiar</button>
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 320, overflowY: 'auto' }}>
                 {pendientes.map(d => {
                   const sel = seleccion[d.cod_sede]
                   const pct = d.pct
-                  const color = pct >= 50 ? '#059669' : pct > 0 ? '#d97706' : '#e11d48'
+                  const color = estadoColor(getEstado(d))
                   return (
                     <div key={d.cod_sede} style={{
                       display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
-                      background: sel ? '#eef0f8' : '#f8fafc',
-                      border: `1px solid ${sel ? '#b8c0e0' : '#e2e8f0'}`,
-                      borderRadius: 8, transition: 'all 0.15s',
+                      background: sel ? 'rgba(169,129,46,0.08)' : C.paper,
+                      border: `1px solid ${sel ? C.brass : C.ruleSoft}`,
+                      transition: 'all 0.15s',
                     }}>
                       <div onClick={() => toggleSel(d.cod_sede)} style={{
-                        width: 16, height: 16, borderRadius: 4, flexShrink: 0, cursor: 'pointer',
-                        border: `2px solid ${sel ? '#1B2A6B' : '#cbd5e1'}`,
-                        background: sel ? '#1B2A6B' : '#fff',
+                        width: 16, height: 16, flexShrink: 0, cursor: 'pointer',
+                        border: `2px solid ${sel ? C.ink : C.rule}`,
+                        background: sel ? C.ink : '#fff',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                       }}>
                         {sel && <span style={{ color: '#fff', fontSize: 10, lineHeight: 1 }}>✓</span>}
                       </div>
-                      <span style={{ fontWeight: 600, fontSize: 13, flex: 1 }}>{d.sede}</span>
-                      <span style={{ fontSize: 12, color: '#94a3b8' }}>{d.email}</span>
-                      <span style={{ fontSize: 12, fontWeight: 700, color, minWidth: 36, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{pct}%</span>
+                      <span style={{ fontWeight: 600, fontSize: 13, flex: 1, color: C.ink, fontFamily: F.body }}>{d.sede}</span>
+                      <span style={{ fontSize: 12, color: C.inkSoft, fontFamily: F.mono }}>{d.email}</span>
+                      <span style={{ fontSize: 12, fontWeight: 600, color, minWidth: 36, textAlign: 'right', fontFamily: F.mono }}>{pct}%</span>
                       <button
                         onClick={() => setPreviewSede(d)}
                         style={{
-                          padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600,
-                          border: '1px solid #e2e8f0', background: '#fff', color: '#64748b',
+                          padding: '4px 10px', borderRadius: 2, fontSize: 11, fontWeight: 600, fontFamily: F.body,
+                          border: `1px solid ${C.rule}`, background: '#fff', color: C.inkSoft,
                           cursor: 'pointer', flexShrink: 0, transition: 'all 0.15s',
                         }}
-                        onMouseEnter={e => { e.currentTarget.style.background = '#1B2A6B'; e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderColor = '#1B2A6B' }}
-                        onMouseLeave={e => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.color = '#64748b'; e.currentTarget.style.borderColor = '#e2e8f0' }}
+                        onMouseEnter={e => { e.currentTarget.style.background = C.ink; e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderColor = C.ink }}
+                        onMouseLeave={e => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.color = C.inkSoft; e.currentTarget.style.borderColor = C.rule }}
                       >
-                        👁 Ver
+                        Ver
                       </button>
                     </div>
                   )
@@ -597,28 +624,28 @@ export default function Envio({ data, copied, onCopied, campanas, campanaActiva,
           )}
 
           {enviadas.length > 0 && (
-            <div style={{ padding: '12px 24px', borderTop: '1px solid #f1f5f9' }}>
+            <div style={{ padding: '12px 24px', borderTop: `1px solid ${C.ruleSoft}` }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#059669', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                <div style={{ fontSize: 11.5, fontWeight: 600, color: C.ok, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: F.mono }}>
                   ✓ Enviadas esta sesión
                 </div>
                 <TooltipHelp text="Por si el envío falló en el medio (ej: el escenario de Make estaba caído) y hay que mandarlos de nuevo." />
                 <div style={{ flex: 1 }} />
                 {!enviando && (
                   <button onClick={() => setModalConfirmReenvio(true)} style={{
-                    fontSize: 11, fontWeight: 700, color: '#1B2A6B', background: '#eef0f8',
-                    border: '1px solid #b8c0e0', borderRadius: 20, padding: '4px 12px', cursor: 'pointer',
+                    fontSize: 11, fontWeight: 600, color: C.ink, background: 'transparent', fontFamily: F.body,
+                    border: `1px solid ${C.rule}`, borderRadius: 2, padding: '4px 12px', cursor: 'pointer',
                   }}>
-                    🔄 Reenviar todas ({enviadas.length})
+                    Reenviar todas ({enviadas.length})
                   </button>
                 )}
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {enviadas.map(d => (
                   <span key={d.cod_sede} style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11,
-                    background: '#ecfdf5', color: '#059669', border: '1px solid #6ee7b7',
-                    padding: '3px 6px 3px 10px', borderRadius: 20, fontWeight: 600,
+                    display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontFamily: F.body,
+                    background: 'rgba(47,109,79,0.08)', color: C.ok, border: `1px solid ${C.ok}45`,
+                    padding: '3px 6px 3px 10px', fontWeight: 600,
                   }}>
                     ✓ {d.sede}
                     <button
@@ -626,13 +653,13 @@ export default function Envio({ data, copied, onCopied, campanas, campanaActiva,
                       disabled={!!reenviando[d.cod_sede]}
                       title="Reenviar este email"
                       style={{
-                        border: 'none', background: 'rgba(5,150,105,0.12)', color: '#059669',
+                        border: 'none', background: 'rgba(47,109,79,0.15)', color: C.ok,
                         borderRadius: '50%', width: 16, height: 16, fontSize: 9, lineHeight: 1,
                         cursor: reenviando[d.cod_sede] ? 'wait' : 'pointer', display: 'flex',
                         alignItems: 'center', justifyContent: 'center', flexShrink: 0, padding: 0,
                       }}
                     >
-                      {reenviando[d.cod_sede] ? '…' : '🔄'}
+                      {reenviando[d.cod_sede] ? '…' : '↻'}
                     </button>
                   </span>
                 ))}
@@ -644,57 +671,57 @@ export default function Envio({ data, copied, onCopied, campanas, campanaActiva,
 
       {/* Registrar nueva semana */}
       {!cerrada && (
-        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 16, overflow: 'hidden' }}>
-          <div style={{ display: 'flex', alignItems: 'center', padding: '14px 24px', borderBottom: mostrarNueva ? '1px solid #e2e8f0' : 'none' }}>
+        <div style={{ background: C.paperRaised, border: `1px solid ${C.rule}`, borderRadius: 10, overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', padding: '14px 24px', borderBottom: mostrarNueva ? `1px solid ${C.rule}` : 'none' }}>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>📅 Registrar nueva semana</div>
-              <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>Ingresá los totales manualmente y guardá en Sheets</div>
+              <div style={{ fontFamily: F.display, fontSize: 15, fontWeight: 600, color: C.ink }}>Registrar nueva semana</div>
+              <div style={{ fontSize: 12, color: C.inkSoft, marginTop: 2 }}>Ingresá los totales manualmente y guardá en Sheets</div>
             </div>
             <TooltipHelp text="Alternativa a subir el Excel: ingresás los totales manualmente por sede y se guarda en el historial de Google Sheets." />
             <div style={{ width: 12 }} />
             <button onClick={() => { setMostrarNueva(v => !v); setErrorGuardar(null); setModoReemplazarSemana(false) }} style={{
-              padding: '7px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600,
-              background: mostrarNueva ? '#f1f5f9' : '#1B2A6B',
-              color: mostrarNueva ? '#64748b' : '#fff', border: 'none', cursor: 'pointer',
+              padding: '7px 16px', borderRadius: 2, fontSize: 13, fontWeight: 600, fontFamily: F.body,
+              background: mostrarNueva ? C.paper : C.ink,
+              color: mostrarNueva ? C.inkSoft : '#fff', border: mostrarNueva ? `1px solid ${C.rule}` : 'none', cursor: 'pointer',
             }}>
-              {mostrarNueva ? '▲ Cerrar' : '▼ Abrir'}
+              {mostrarNueva ? 'Cerrar' : 'Abrir'}
             </button>
           </div>
 
           {mostrarNueva && (
             <div className="animate-fadeIn" style={{ padding: '16px 24px' }}>
               <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
-                <label style={{ fontSize: 13, fontWeight: 600, color: '#64748b' }}>Fecha del corte:</label>
+                <label style={{ fontSize: 13, fontWeight: 600, color: C.inkSoft }}>Fecha del corte:</label>
                 <input type="date" value={nuevaFecha} onChange={e => setNuevaFecha(e.target.value)}
-                  style={{ padding: '7px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13 }} />
+                  style={{ padding: '7px 12px', border: `1px solid ${C.rule}`, borderRadius: 2, fontSize: 13, fontFamily: F.body }} />
                 <button onClick={() => { const p = {}; data.forEach(d => { p[d.cod_sede] = d.total }); setValores(p) }}
-                  style={{ padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b', cursor: 'pointer' }}>
+                  style={{ padding: '7px 14px', borderRadius: 2, fontSize: 12, fontWeight: 600, background: C.paper, border: `1px solid ${C.rule}`, color: C.inkSoft, cursor: 'pointer', fontFamily: F.body }}>
                   Copiar valores actuales
                 </button>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(220px,1fr))', gap: 8, marginBottom: 16, maxHeight: 360, overflowY: 'auto' }}>
                 {data.map(d => (
-                  <div key={d.cod_sede} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
-                    <span style={{ fontSize: 12, fontWeight: 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div key={d.cod_sede} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: C.paper, border: `1px solid ${C.ruleSoft}` }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: C.ink }}>
                       {d.sede.replace(/ - BUENOS AIRES.*/, '').replace(/ - BS AS$/, '')}
                     </span>
                     <input type="number" min="0"
                       value={valores[d.cod_sede] ?? d.total}
                       onChange={e => setValores(prev => ({ ...prev, [d.cod_sede]: e.target.value }))}
-                      style={{ width: 60, padding: '4px 6px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, fontWeight: 700, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }} />
+                      style={{ width: 60, padding: '4px 6px', border: `1px solid ${C.rule}`, borderRadius: 2, fontSize: 13, fontWeight: 700, textAlign: 'center', fontFamily: F.mono }} />
                   </div>
                 ))}
               </div>
               {/* Aviso de reemplazo — ya existe un corte para esta fecha */}
               {modoReemplazarSemana && (
                 <div style={{
-                  background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10,
+                  background: 'rgba(168,117,42,0.08)', border: `1px solid ${C.warn}55`, borderRadius: 2,
                   padding: '12px 16px', marginBottom: 16, fontSize: 13,
                 }}>
-                  <div style={{ fontWeight: 700, color: '#92400e', marginBottom: 6 }}>
-                    ⚠️ Ya existe un corte para esta fecha
+                  <div style={{ fontWeight: 600, color: C.warn, marginBottom: 6 }}>
+                    ⚠ Ya existe un corte para esta fecha
                   </div>
-                  <div style={{ color: '#78350f', marginBottom: 12 }}>
+                  <div style={{ color: C.ink, marginBottom: 12 }}>
                     ¿Querés reemplazar los datos existentes con los nuevos valores? Esta acción no se puede deshacer.
                   </div>
                   <div style={{ display: 'flex', gap: 10 }}>
@@ -702,19 +729,19 @@ export default function Envio({ data, copied, onCopied, campanas, campanaActiva,
                       onClick={() => handleGuardar(true)}
                       disabled={guardando}
                       style={{
-                        padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 700,
-                        background: '#b45309', color: '#fff', border: 'none', cursor: 'pointer',
+                        padding: '8px 16px', borderRadius: 2, fontSize: 13, fontWeight: 600, fontFamily: F.body,
+                        background: C.warn, color: '#fff', border: 'none', cursor: 'pointer',
                         opacity: guardando ? 0.6 : 1,
                       }}
                     >
-                      {guardando ? 'Reemplazando…' : '🔄 Sí, reemplazar'}
+                      {guardando ? 'Reemplazando…' : 'Sí, reemplazar'}
                     </button>
                     <button
                       onClick={() => setModoReemplazarSemana(false)}
                       disabled={guardando}
                       style={{
-                        padding: '8px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600,
-                        background: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0', cursor: 'pointer',
+                        padding: '8px 14px', borderRadius: 2, fontSize: 13, fontWeight: 600, fontFamily: F.body,
+                        background: C.paper, color: C.inkSoft, border: `1px solid ${C.rule}`, cursor: 'pointer',
                       }}
                     >
                       Cancelar
@@ -725,15 +752,15 @@ export default function Envio({ data, copied, onCopied, campanas, campanaActiva,
 
               {!modoReemplazarSemana && (
                 <div style={{ display: 'flex', gap: 10 }}>
-                  <button onClick={() => handleGuardar(false)} disabled={guardando} style={{ padding: '9px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700, background: '#1B2A6B', color: '#fff', border: 'none', cursor: 'pointer', opacity: guardando ? 0.6 : 1 }}>
-                    {guardando ? 'Guardando…' : '💾 Guardar en Sheets'}
+                  <button onClick={() => handleGuardar(false)} disabled={guardando} style={{ padding: '9px 20px', borderRadius: 2, fontSize: 13, fontWeight: 600, fontFamily: F.body, background: C.ink, color: '#fff', border: 'none', cursor: 'pointer', opacity: guardando ? 0.6 : 1 }}>
+                    {guardando ? 'Guardando…' : 'Guardar en Sheets'}
                   </button>
-                  <button onClick={() => { setMostrarNueva(false); setErrorGuardar(null) }} style={{ padding: '9px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, background: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0', cursor: 'pointer' }}>Cancelar</button>
+                  <button onClick={() => { setMostrarNueva(false); setErrorGuardar(null) }} style={{ padding: '9px 16px', borderRadius: 2, fontSize: 13, fontWeight: 600, fontFamily: F.body, background: C.paper, color: C.inkSoft, border: `1px solid ${C.rule}`, cursor: 'pointer' }}>Cancelar</button>
                 </div>
               )}
 
               {errorGuardar && (
-                <div style={{ marginTop: 12, background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#be123c' }}>
+                <div style={{ marginTop: 12, background: 'rgba(156,43,52,0.06)', border: `1px solid ${C.crimson}45`, borderRadius: 2, padding: '10px 14px', fontSize: 12, color: C.crimson }}>
                   ❌ {errorGuardar}
                 </div>
               )}
@@ -743,52 +770,52 @@ export default function Envio({ data, copied, onCopied, campanas, campanaActiva,
       )}
 
       {/* Historial de envíos (persistente en Sheets) */}
-      <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 16, overflow: 'hidden' }}>
-        <div style={{ display: 'flex', alignItems: 'center', padding: '14px 24px', borderBottom: mostrarLog ? '1px solid #e2e8f0' : 'none' }}>
+      <div style={{ background: C.paperRaised, border: `1px solid ${C.rule}`, borderRadius: 10, overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', padding: '14px 24px', borderBottom: mostrarLog ? `1px solid ${C.rule}` : 'none' }}>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>📜 Historial de envíos</div>
-            <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>Registro de cuándo se enviaron los emails — se conserva entre sesiones</div>
+            <div style={{ fontFamily: F.display, fontSize: 15, fontWeight: 600, color: C.ink }}>Historial de envíos</div>
+            <div style={{ fontSize: 12, color: C.inkSoft, marginTop: 2 }}>Registro de cuándo se enviaron los emails — se conserva entre sesiones</div>
           </div>
           <button onClick={toggleLog} style={{
-            padding: '7px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600,
-            background: mostrarLog ? '#f1f5f9' : '#1B2A6B',
-            color: mostrarLog ? '#64748b' : '#fff', border: 'none', cursor: 'pointer',
+            padding: '7px 16px', borderRadius: 2, fontSize: 13, fontWeight: 600, fontFamily: F.body,
+            background: mostrarLog ? C.paper : C.ink,
+            color: mostrarLog ? C.inkSoft : '#fff', border: mostrarLog ? `1px solid ${C.rule}` : 'none', cursor: 'pointer',
           }}>
-            {mostrarLog ? '▲ Cerrar' : '▼ Ver historial'}
+            {mostrarLog ? 'Cerrar' : 'Ver historial'}
           </button>
         </div>
 
         {mostrarLog && (
           <div className="animate-fadeIn" style={{ padding: '16px 24px' }}>
             {cargandoLog ? (
-              <div style={{ textAlign: 'center', padding: '24px', color: '#94a3b8', fontSize: 13 }}>Cargando…</div>
+              <div style={{ textAlign: 'center', padding: '24px', color: C.inkSoft, fontSize: 13 }}>Cargando…</div>
             ) : logAgrupado.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '24px', color: '#94a3b8', fontSize: 13 }}>Todavía no hay envíos registrados</div>
+              <div style={{ textAlign: 'center', padding: '24px', color: C.inkSoft, fontSize: 13 }}>Todavía no hay envíos registrados</div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 420, overflowY: 'auto' }}>
                 {logAgrupado.map((g, i) => {
                   const ok = g.items.filter(it => it.estado === 'enviado').length
                   const err = g.items.filter(it => it.estado !== 'enviado').length
                   return (
-                    <div key={i} style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
+                    <div key={i} style={{ border: `1px solid ${C.rule}`, overflow: 'hidden' }}>
                       <div style={{
                         display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
-                        background: '#f8fafc',
+                        background: C.paper,
                       }}>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: C.ink, fontFamily: F.mono }}>
                           {fmtFecha(g.fecha)} · {g.hora?.slice(0,5)}hs
                         </span>
                         {g.campana && (
-                          <span style={{ fontSize: 11, color: '#1B2A6B', background: '#eef0f8', padding: '2px 8px', borderRadius: 20, fontWeight: 600 }}>
+                          <span style={{ fontSize: 11, color: C.ink, border: `1px solid ${C.rule}`, padding: '2px 8px', fontWeight: 600, fontFamily: F.mono }}>
                             {g.campana}
                           </span>
                         )}
                         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <span style={{ fontSize: 12, color: '#059669', fontWeight: 700 }}>✓ {ok} enviados</span>
-                          {err > 0 && <span style={{ fontSize: 12, color: '#e11d48', fontWeight: 700 }}>✗ {err} con error</span>}
+                          <span style={{ fontSize: 12, color: C.ok, fontWeight: 600, fontFamily: F.mono }}>✓ {ok} enviados</span>
+                          {err > 0 && <span style={{ fontSize: 12, color: C.crimson, fontWeight: 600, fontFamily: F.mono }}>✗ {err} con error</span>}
                           {g.confirmado ? (
-                            <span style={{ fontSize: 11, fontWeight: 700, color: '#1B2A6B', background: '#eef0f8', padding: '3px 10px', borderRadius: 20 }}>
-                              ✅ Entrega confirmada
+                            <span style={{ fontSize: 11, fontWeight: 600, color: C.ink, border: `1px solid ${C.brass}`, padding: '3px 10px', fontFamily: F.body }}>
+                              ✓ Entrega confirmada
                             </span>
                           ) : (
                             <button
@@ -796,11 +823,11 @@ export default function Envio({ data, copied, onCopied, campanas, campanaActiva,
                               disabled={confirmando[`${g.fecha} ${g.hora}`]}
                               title="Marcá esto solo si viste de verdad que los mails llegaron (ej: en Gmail o porque una sede te avisó)"
                               style={{
-                                fontSize: 11, fontWeight: 700, color: '#92400e', background: '#fffbeb',
-                                border: '1px solid #fde68a', padding: '3px 10px', borderRadius: 20, cursor: 'pointer',
+                                fontSize: 11, fontWeight: 600, color: C.warn, background: 'rgba(168,117,42,0.08)', fontFamily: F.body,
+                                border: `1px solid ${C.warn}55`, padding: '3px 10px', cursor: 'pointer',
                               }}
                             >
-                              {confirmando[`${g.fecha} ${g.hora}`] ? '…' : '⏳ Confirmar entrega'}
+                              {confirmando[`${g.fecha} ${g.hora}`] ? '…' : 'Confirmar entrega'}
                             </button>
                           )}
                         </div>
@@ -808,9 +835,9 @@ export default function Envio({ data, copied, onCopied, campanas, campanaActiva,
                       <div style={{ padding: '8px 14px', display: 'flex', flexWrap: 'wrap', gap: 5 }}>
                         {g.items.map((it, j) => (
                           <span key={j} style={{
-                            fontSize: 11, padding: '2px 9px', borderRadius: 20, fontWeight: 600,
-                            background: it.estado === 'enviado' ? '#ecfdf5' : '#fff1f2',
-                            color: it.estado === 'enviado' ? '#059669' : '#e11d48',
+                            fontSize: 11, padding: '2px 9px', fontWeight: 600, fontFamily: F.mono,
+                            background: it.estado === 'enviado' ? 'rgba(47,109,79,0.08)' : 'rgba(156,43,52,0.08)',
+                            color: it.estado === 'enviado' ? C.ok : C.crimson,
                           }}>
                             {it.estado === 'enviado' ? '✓' : '✗'} {it.sede}
                           </span>
@@ -827,70 +854,30 @@ export default function Envio({ data, copied, onCopied, campanas, campanaActiva,
 
       {/* Modal confirmación masiva */}
       {modalConfirm && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', zIndex: 9500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 480, overflow: 'hidden', boxShadow: '0 24px 64px rgba(0,0,0,.3)' }}>
-            <div style={{ background: 'linear-gradient(135deg,#C8102E,#9b0d23)', padding: '18px 22px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <div style={{ color: '#fff', fontWeight: 700, fontSize: 16 }}>🚀 Confirmar envío</div>
-                <div style={{ color: 'rgba(255,255,255,.65)', fontSize: 11, marginTop: 4 }}>{aEnviar.length} emails desde mcrossi@ucasal.edu.ar</div>
-              </div>
-              <button onClick={() => setModalConfirm(false)} style={{ background: 'rgba(255,255,255,.15)', border: 'none', color: '#fff', width: 28, height: 28, borderRadius: '50%', cursor: 'pointer', fontSize: 14 }}>✕</button>
-            </div>
-            <div style={{ padding: 20 }}>
-              <div style={{ maxHeight: 200, overflowY: 'auto', marginBottom: 12, border: '1px solid #e2e8f0', borderRadius: 8 }}>
-                {aEnviar.map(d => (
-                  <div key={d.cod_sede} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 14px', borderBottom: '1px solid #f1f5f9', fontSize: 13 }}>
-                    <span style={{ fontWeight: 500 }}>{d.sede}</span>
-                    <span style={{ color: '#94a3b8', fontSize: 12 }}>{d.email}</span>
-                  </div>
-                ))}
-              </div>
-              <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 16 }}>
-                💡 Para revisar o editar un email individual, cerrá y usá el botón "👁 Ver" en cada sede.
-              </div>
-              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                <button onClick={() => setModalConfirm(false)} style={{ padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600, background: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0', cursor: 'pointer' }}>Cancelar</button>
-                <button onClick={() => { setModalConfirm(false); enviarTodos() }} style={{ padding: '9px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700, background: 'linear-gradient(135deg,#C8102E,#9b0d23)', color: '#fff', border: 'none', cursor: 'pointer' }}>
-                  ✅ Confirmar y enviar
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <ConfirmModal
+          tono="crimson"
+          title="Confirmar envío"
+          sub={`${aEnviar.length} emails desde mcrossi@ucasal.edu.ar`}
+          items={aEnviar}
+          footNote='💡 Para revisar o editar un email individual, cerrá y usá el botón "Ver" en cada sede.'
+          onClose={() => setModalConfirm(false)}
+          onConfirm={() => { setModalConfirm(false); enviarTodos() }}
+          confirmLabel="Confirmar y enviar"
+        />
       )}
 
       {/* Modal confirmación de reenvío masivo */}
       {modalConfirmReenvio && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', zIndex: 9500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 480, overflow: 'hidden', boxShadow: '0 24px 64px rgba(0,0,0,.3)' }}>
-            <div style={{ background: 'linear-gradient(135deg,#1B2A6B,#0f1d4a)', padding: '18px 22px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <div style={{ color: '#fff', fontWeight: 700, fontSize: 16 }}>🔄 Confirmar reenvío</div>
-                <div style={{ color: 'rgba(255,255,255,.65)', fontSize: 11, marginTop: 4 }}>{enviadas.length} emails ya marcados como enviados</div>
-              </div>
-              <button onClick={() => setModalConfirmReenvio(false)} style={{ background: 'rgba(255,255,255,.15)', border: 'none', color: '#fff', width: 28, height: 28, borderRadius: '50%', cursor: 'pointer', fontSize: 14 }}>✕</button>
-            </div>
-            <div style={{ padding: 20 }}>
-              <div style={{ maxHeight: 200, overflowY: 'auto', marginBottom: 12, border: '1px solid #e2e8f0', borderRadius: 8 }}>
-                {enviadas.map(d => (
-                  <div key={d.cod_sede} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 14px', borderBottom: '1px solid #f1f5f9', fontSize: 13 }}>
-                    <span style={{ fontWeight: 500 }}>{d.sede}</span>
-                    <span style={{ color: '#94a3b8', fontSize: 12 }}>{d.email}</span>
-                  </div>
-                ))}
-              </div>
-              <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 16 }}>
-                💡 Usalo solo si sabés que el envío anterior no llegó de verdad (ej: el escenario de Make estaba caído). Las sedes que ya recibieron el mail van a recibirlo de nuevo.
-              </div>
-              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                <button onClick={() => setModalConfirmReenvio(false)} style={{ padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600, background: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0', cursor: 'pointer' }}>Cancelar</button>
-                <button onClick={() => { setModalConfirmReenvio(false); reenviarTodos() }} style={{ padding: '9px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700, background: 'linear-gradient(135deg,#1B2A6B,#0f1d4a)', color: '#fff', border: 'none', cursor: 'pointer' }}>
-                  ✅ Confirmar y reenviar
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <ConfirmModal
+          tono="ink"
+          title="Confirmar reenvío"
+          sub={`${enviadas.length} emails ya marcados como enviados`}
+          items={enviadas}
+          footNote="💡 Usalo solo si sabés que el envío anterior no llegó de verdad (ej: el escenario de Make estaba caído). Las sedes que ya recibieron el mail van a recibirlo de nuevo."
+          onClose={() => setModalConfirmReenvio(false)}
+          onConfirm={() => { setModalConfirmReenvio(false); reenviarTodos() }}
+          confirmLabel="Confirmar y reenviar"
+        />
       )}
     </div>
   )

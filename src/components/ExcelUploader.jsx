@@ -196,24 +196,24 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
 
     return (
       <div style={{
-        background: '#fff', border: '1px solid #e2e8f0', borderTop: '3px solid #1B2A6B',
+        background: '#fff', border: '1px solid #DCD4BE', borderTop: '3px solid #17233F',
         borderRadius: 14, overflow: 'hidden', marginBottom: 4,
       }}>
-        <div style={{ padding: '14px 20px', borderBottom: '1px solid #f1f5f9' }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>👀 Confirmá antes de guardar</div>
-          <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 1 }}>Archivo: {preview.fileName}</div>
+        <div style={{ padding: '14px 20px', borderBottom: '1px solid #EAE4D3' }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#17233F' }}>👀 Confirmá antes de guardar</div>
+          <div style={{ fontSize: 12, color: '#5C6478', marginTop: 1 }}>Archivo: {preview.fileName}</div>
         </div>
 
         <div style={{ padding: '16px 20px' }}>
           <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-            <div style={{ background: '#eef0f8', border: '1px solid #b8c0e0', borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 700, color: '#1B2A6B' }}>
+            <div style={{ background: '#F3EFE3', border: '1px solid #A9812E', borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 700, color: '#17233F' }}>
               {preview.meta.totalFilas} sedes detectadas
             </div>
             <div style={{
               background: preview.meta.detectadoPorFecha ? '#ecfdf5' : '#fffbeb',
               border: `1px solid ${preview.meta.detectadoPorFecha ? '#6ee7b7' : '#fde68a'}`,
               borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 600,
-              color: preview.meta.detectadoPorFecha ? '#059669' : '#92400e',
+              color: preview.meta.detectadoPorFecha ? '#2F6D4F' : '#92400e',
             }}>
               Columna de totales: "{preview.meta.columnaTotal}"
               {!preview.meta.detectadoPorFecha && ' ⚠ verificá que sea correcta'}
@@ -231,7 +231,7 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
               background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 10,
               padding: '12px 16px', marginBottom: 14, fontSize: 13,
             }}>
-              <div style={{ fontWeight: 700, color: '#be123c', marginBottom: 6 }}>
+              <div style={{ fontWeight: 700, color: '#9C2B34', marginBottom: 6 }}>
                 ⚠️ {preview.meta.sinMatch.length} fila{preview.meta.sinMatch.length > 1 ? 's' : ''} del Excel no coincide{preview.meta.sinMatch.length > 1 ? 'n' : ''} con ninguna sede registrada
               </div>
               <div style={{ color: '#9f1239', marginBottom: 8 }}>
@@ -276,7 +276,7 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
                   disabled={confirmando}
                   style={{
                     padding: '8px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600,
-                    background: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0', cursor: 'pointer',
+                    background: '#F3EFE3', color: '#5C6478', border: '1px solid #DCD4BE', cursor: 'pointer',
                   }}
                 >
                   Cancelar
@@ -285,22 +285,22 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
             </div>
           )}
 
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#5C6478', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
             Primeras filas detectadas
           </div>
-          <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', marginBottom: 16 }}>
+          <div style={{ border: '1px solid #DCD4BE', borderRadius: 10, overflow: 'hidden', marginBottom: 16 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
-                <tr style={{ background: '#f8fafc' }}>
-                  <th style={{ padding: '8px 14px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>Cod</th>
-                  <th style={{ padding: '8px 14px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>Sede</th>
-                  <th style={{ padding: '8px 14px', textAlign: 'center', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>Total</th>
+                <tr style={{ background: '#F3EFE3' }}>
+                  <th style={{ padding: '8px 14px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#5C6478', textTransform: 'uppercase' }}>Cod</th>
+                  <th style={{ padding: '8px 14px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#5C6478', textTransform: 'uppercase' }}>Sede</th>
+                  <th style={{ padding: '8px 14px', textAlign: 'center', fontSize: 10, fontWeight: 700, color: '#5C6478', textTransform: 'uppercase' }}>Total</th>
                 </tr>
               </thead>
               <tbody>
                 {top5.map(s => (
-                  <tr key={s.cod} style={{ borderTop: '1px solid #f1f5f9' }}>
-                    <td style={{ padding: '7px 14px', color: '#64748b' }}>{s.cod}</td>
+                  <tr key={s.cod} style={{ borderTop: '1px solid #EAE4D3' }}>
+                    <td style={{ padding: '7px 14px', color: '#5C6478' }}>{s.cod}</td>
                     <td style={{ padding: '7px 14px', fontWeight: 600 }}>{s.sede}</td>
                     <td style={{ padding: '7px 14px', textAlign: 'center', fontWeight: 700 }}>{s.total}</td>
                   </tr>
@@ -308,7 +308,7 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
               </tbody>
             </table>
             {preview.sedes.length > 5 && (
-              <div style={{ padding: '8px 14px', fontSize: 11, color: '#94a3b8', textAlign: 'center', borderTop: '1px solid #f1f5f9' }}>
+              <div style={{ padding: '8px 14px', fontSize: 11, color: '#5C6478', textAlign: 'center', borderTop: '1px solid #EAE4D3' }}>
                 + {preview.sedes.length - 5} sedes más
               </div>
             )}
@@ -318,14 +318,14 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
             <div style={{ display: 'flex', gap: 10 }}>
               <button onClick={() => confirmarCarga(false)} disabled={confirmando} style={{
                 padding: '10px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700,
-                background: '#1B2A6B', color: '#fff', border: 'none', cursor: 'pointer',
+                background: '#17233F', color: '#fff', border: 'none', cursor: 'pointer',
                 opacity: confirmando ? 0.6 : 1,
               }}>
                 {confirmando ? 'Guardando…' : '✅ Confirmar y guardar en Sheets'}
               </button>
               <button onClick={() => setPreview(null)} disabled={confirmando} style={{
                 padding: '10px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600,
-                background: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0', cursor: 'pointer',
+                background: '#F3EFE3', color: '#5C6478', border: '1px solid #DCD4BE', cursor: 'pointer',
               }}>
                 Cancelar
               </button>
@@ -333,7 +333,7 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
           )}
 
           {error && (
-            <div style={{ marginTop: 12, background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#be123c' }}>
+            <div style={{ marginTop: 12, background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#9C2B34' }}>
               ❌ {error}
             </div>
           )}
@@ -361,7 +361,7 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
         </div>
         <button
           onClick={() => { if (inputRef.current) inputRef.current.value = ''; setMinimized(false) }}
-          style={{ fontSize: 12, color: '#059669', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}
+          style={{ fontSize: 12, color: '#2F6D4F', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}
         >
           Cambiar / corregir
         </button>
@@ -372,8 +372,8 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
   return (
     <div style={{
       background: '#fff',
-      border: '1px solid #e2e8f0',
-      borderTop: '3px solid #1B2A6B',
+      border: '1px solid #DCD4BE',
+      borderTop: '3px solid #17233F',
       borderRadius: 14,
       overflow: 'hidden',
       marginBottom: 4,
@@ -381,19 +381,19 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
       <div style={{
         padding: '14px 20px',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        borderBottom: '1px solid #f1f5f9',
+        borderBottom: '1px solid #EAE4D3',
       }}>
         <div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#17233F' }}>
             📊 Cargar Excel semanal
           </div>
-          <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 1 }}>
+          <div style={{ fontSize: 12, color: '#5C6478', marginTop: 1 }}>
             {camp ? `Campaña: ${camp.nombre}` : 'Seleccioná la campaña primero'} · Los datos se guardan automáticamente en Sheets
           </div>
         </div>
         {tieneData && (
           <button onClick={() => setMinimized(true)}
-            style={{ fontSize: 12, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer' }}>
+            style={{ fontSize: 12, color: '#5C6478', background: 'none', border: 'none', cursor: 'pointer' }}>
             Minimizar
           </button>
         )}
@@ -406,12 +406,12 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
         onClick={() => inputRef.current?.click()}
         style={{
           margin: 16,
-          border: `2px dashed ${dragging ? '#1B2A6B' : loading ? '#6ee7b7' : '#cbd5e1'}`,
+          border: `2px dashed ${dragging ? '#17233F' : loading ? '#6ee7b7' : '#DCD4BE'}`,
           borderRadius: 12,
           padding: '32px 20px',
           textAlign: 'center',
           cursor: loading ? 'wait' : 'pointer',
-          background: dragging ? '#eef0f8' : loading ? '#f0fdf4' : '#f8fafc',
+          background: dragging ? '#F3EFE3' : loading ? '#f0fdf4' : '#F3EFE3',
           transition: 'all 0.2s',
         }}
       >
@@ -425,12 +425,12 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
         <div style={{ fontSize: 32, marginBottom: 12 }}>
           {loading ? '⏳' : dragging ? '📂' : '📊'}
         </div>
-        <div style={{ fontSize: 14, fontWeight: 600, color: '#0f172a', marginBottom: 4 }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: '#17233F', marginBottom: 4 }}>
           {loading ? 'Procesando archivo…' :
            dragging ? 'Soltá el archivo acá' :
            'Arrastrá el Excel acá o hacé click para seleccionar'}
         </div>
-        <div style={{ fontSize: 12, color: '#94a3b8' }}>
+        <div style={{ fontSize: 12, color: '#5C6478' }}>
           Formatos aceptados: .xlsx · .xls · La columna de totales se detecta automáticamente
         </div>
       </div>
@@ -439,7 +439,7 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
         <div style={{
           margin: '0 16px 16px',
           background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 8,
-          padding: '10px 14px', fontSize: 12, color: '#be123c',
+          padding: '10px 14px', fontSize: 12, color: '#9C2B34',
           display: 'flex', gap: 8, alignItems: 'flex-start',
         }}>
           <span>❌</span>
