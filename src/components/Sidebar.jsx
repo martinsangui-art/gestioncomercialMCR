@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { ISOTIPO_B64 } from '../assets/isotipo'
+import { useIsMobile } from '../hooks/useIsMobile'
 
 const NAV = [
   { id: 'dashboard', icon: '◎', label: 'Dashboard' },
@@ -9,7 +10,8 @@ const NAV = [
 ]
 
 export default function Sidebar({ view, onView, campanaActiva, campanas, onCampana, onLogout }) {
-  const [expanded, setExpanded] = useState(true)
+  const isMobile = useIsMobile()
+  const [expanded, setExpanded] = useState(!isMobile)
   const [hovered, setHovered] = useState(null)
   const camp = campanas?.find(c => c.id === campanaActiva)
 

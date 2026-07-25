@@ -123,7 +123,7 @@ function parseExcelData(arrayBuffer) {
   }
 }
 
-export default function ExcelUploader({ data, onUpload, campanas, campanaActiva }) {
+export default function ExcelUploader({ data, onUpload, campanas, campanaActiva, sedesConocidas = [] }) {
   const [dragging, setDragging] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -151,7 +151,10 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva 
     try {
       const buffer = await file.arrayBuffer()
       const { sedes, meta } = parseExcelData(buffer)
-      setPreview({ sedes, meta, fileName: file.name })
+      // Filas del Excel que no coinciden con ninguna sede registrada — se
+      // descartarían en silencio al guardar si no se avisa acá primero.
+      const sinMatch = sedes.filter(s => !sedesConocidas.some(sc => String(sc.cod_sede) === String(s.cod)))
+      setPreview({ sedes, meta: { ...meta, sinMatch }, fileName: file.name })
     } catch (e) {
       setError(e.message)
     }
@@ -221,6 +224,28 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva 
               </div>
             )}
           </div>
+
+          {/* Aviso de filas que no matchean ninguna sede registrada — se descartan si se sigue */}
+          {preview.meta.sinMatch?.length > 0 && (
+            <div style={{
+              background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 10,
+              padding: '12px 16px', marginBottom: 14, fontSize: 13,
+            }}>
+              <div style={{ fontWeight: 700, color: '#be123c', marginBottom: 6 }}>
+                ⚠️ {preview.meta.sinMatch.length} fila{preview.meta.sinMatch.length > 1 ? 's' : ''} del Excel no coincide{preview.meta.sinMatch.length > 1 ? 'n' : ''} con ninguna sede registrada
+              </div>
+              <div style={{ color: '#9f1239', marginBottom: 8 }}>
+                Estas filas <strong>no se van a guardar</strong> si seguís. Si son sedes nuevas o cambiaron de nombre, agregalas primero en Sedes → Gestionar sedes.
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {preview.meta.sinMatch.map(s => (
+                  <span key={s.cod} style={{ fontSize: 11, background: '#fff', border: '1px solid #fecdd3', color: '#9f1239', padding: '3px 9px', borderRadius: 20, fontWeight: 600 }}>
+                    {s.cod} · {s.sede || '(sin nombre)'}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Aviso de reemplazo */}
           {modoReemplazar && (

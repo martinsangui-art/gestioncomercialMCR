@@ -1,11 +1,68 @@
 import { useState, useMemo, useEffect } from 'react'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Cell, Legend } from 'recharts'
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Cell, Legend } from 'recharts'
+import { obtenerHistorialCampana } from '../hooks/useSheets'
 
 const COLORS = ['#1B2A6B','#C8102E','#059669','#d97706','#7c3aed']
 
-export default function Historial({ historial, data, onSeleccionChange }) {
+// % de cumplimiento global por corte de un historial, ordenado por fecha e
+// indexado por "semana N desde el inicio" en vez de fecha calendario — así
+// se puede comparar campañas de años distintos en la misma altura del ciclo.
+function evolucionPorSemana(hist) {
+  const byFecha = {}
+  hist.forEach(r => {
+    if (!byFecha[r.fecha]) byFecha[r.fecha] = { total: 0, obj: 0 }
+    byFecha[r.fecha].total += Number(r.total) || 0
+    byFecha[r.fecha].obj += Number(r.objetivo) || 0
+  })
+  return Object.entries(byFecha).sort(([a], [b]) => a.localeCompare(b)).map(([, v], i) => ({
+    semana: i + 1,
+    pct: v.obj > 0 ? Math.round(v.total / v.obj * 100) : 0,
+  }))
+}
+
+export default function Historial({ historial, data, campanas, campanaActiva, onSeleccionChange }) {
   const [tab, setTab] = useState(1)
   const [sedesComp, setSedesComp] = useState([])
+
+  // TAB 3: comparar dos campañas (ej: mismo tipo de ingreso, año contra año)
+  const [campA, setCampA] = useState(campanaActiva || '')
+  const [campB, setCampB] = useState('')
+  const [histA, setHistA] = useState([])
+  const [histB, setHistB] = useState([])
+  const [cargandoComp, setCargandoComp] = useState(false)
+
+  useEffect(() => {
+    if (!campA && campanaActiva) setCampA(campanaActiva)
+  }, [campanaActiva]) // eslint-disable-line
+
+  useEffect(() => {
+    if (tab !== 3 || !campA || !campB) return
+    setCargandoComp(true)
+    Promise.all([
+      campA === campanaActiva ? Promise.resolve(historial) : obtenerHistorialCampana(campA),
+      campB === campanaActiva ? Promise.resolve(historial) : obtenerHistorialCampana(campB),
+    ]).then(([a, b]) => { setHistA(a); setHistB(b) })
+      .catch(() => { setHistA([]); setHistB([]) })
+      .finally(() => setCargandoComp(false))
+  }, [tab, campA, campB]) // eslint-disable-line
+
+  const datosComparacion = useMemo(() => {
+    if (!campA || !campB) return []
+    const evA = evolucionPorSemana(histA)
+    const evB = evolucionPorSemana(histB)
+    const maxSemanas = Math.max(evA.length, evB.length)
+    const rows = []
+    for (let i = 0; i < maxSemanas; i++) {
+      rows.push({
+        semana: `Semana ${i + 1}`,
+        [campA]: evA[i]?.pct,
+        [campB]: evB[i]?.pct,
+      })
+    }
+    return rows
+  }, [histA, histB, campA, campB])
+
+  const nombreCampana = (id) => campanas?.find(c => c.id === id)?.nombre || id
 
   const fechas = useMemo(() => {
     const set = new Set(historial.map(r => r.fecha))
@@ -79,6 +136,7 @@ export default function Historial({ historial, data, onSeleccionChange }) {
         <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0' }}>
           {tabBtn(1, '📋 Evolución por sede')}
           {tabBtn(2, '📊 Comparar sedes')}
+          {tabBtn(3, '🆚 Comparar campañas')}
         </div>
 
         {/* TAB 1: tabla de evolución histórica */}
@@ -241,6 +299,55 @@ export default function Historial({ historial, data, onSeleccionChange }) {
                     </tbody>
                   </table>
                 </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 3: comparar dos campañas alineadas por semana desde el inicio */}
+        {tab === 3 && (
+          <div className="animate-fadeIn" style={{ padding: '16px 20px' }}>
+            <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 12 }}>
+              Compara el % de cumplimiento global de dos campañas, alineadas por semana desde el inicio de cada una (no por fecha calendario) — útil para comparar año contra año.
+            </div>
+            <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
+              <select value={campA} onChange={e => setCampA(e.target.value)}
+                style={{ padding: '7px 10px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, background: '#fff' }}>
+                <option value="">Campaña A…</option>
+                {campanas?.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+              </select>
+              <select value={campB} onChange={e => setCampB(e.target.value)}
+                style={{ padding: '7px 10px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, background: '#fff' }}>
+                <option value="">Campaña B…</option>
+                {campanas?.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+              </select>
+            </div>
+
+            {!campA || !campB ? (
+              <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8', fontSize: 13 }}>
+                Elegí dos campañas para comparar
+              </div>
+            ) : cargandoComp ? (
+              <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8', fontSize: 13 }}>Cargando…</div>
+            ) : datosComparacion.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8', fontSize: 13 }}>Sin datos históricos para comparar</div>
+            ) : (
+              <div style={{ background: '#f8fafc', borderRadius: 12, padding: 20 }}>
+                <ResponsiveContainer width="100%" height={320}>
+                  <LineChart data={datosComparacion} margin={{ top: 10, right: 20, bottom: 20, left: -10 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                    <XAxis dataKey="semana" tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} />
+                    <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} tickLine={false} axisLine={false}
+                      tickFormatter={v => v + '%'} domain={[0, 110]} />
+                    <Tooltip
+                      contentStyle={{ fontSize: 12, border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff' }}
+                      formatter={(v, name) => [v !== undefined ? v + '%' : '—', nombreCampana(name)]}
+                    />
+                    <Legend formatter={nombreCampana} wrapperStyle={{ fontSize: 12, paddingTop: 12 }} />
+                    <Line type="monotone" dataKey={campA} stroke={COLORS[0]} strokeWidth={2.5} dot={{ r: 3 }} connectNulls />
+                    <Line type="monotone" dataKey={campB} stroke={COLORS[1]} strokeWidth={2.5} dot={{ r: 3 }} connectNulls />
+                  </LineChart>
+                </ResponsiveContainer>
               </div>
             )}
           </div>

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useIsMobile } from './hooks/useIsMobile'
 import { useSheets, useAuth } from './hooks/useSheets'
 import Sidebar from './components/Sidebar'
 import ExcelUploader from './components/ExcelUploader'
@@ -57,6 +58,7 @@ function PageHeader({ title, sub, campana, fecha, sedes, children }) {
     <div style={{
       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       paddingBottom: 20, marginBottom: 24, position: 'relative',
+      flexWrap: 'wrap', gap: 12,
     }}>
       <div style={{
         position: 'absolute', bottom: 0, left: 0, right: 0, height: 2,
@@ -114,11 +116,12 @@ const VIEW_META = {
 function AppShell({ onLogout }) {
   const [view, setView] = useState('dashboard')
   const [sedesComparacion, setSedesComparacion] = useState([])
+  const isMobile = useIsMobile()
 
   const {
     loading, error, campanas, sedes, campanaActiva, data, historial,
     copied, stats, cargarCampana, markCopied, markAllCopied,
-    guardarSemana, subirExcel,
+    guardarSemana, subirExcel, refrescarSedes,
   } = useSheets()
 
   if (loading || error) return <LoadingScreen error={error} />
@@ -142,7 +145,7 @@ function AppShell({ onLogout }) {
         onLogout={onLogout}
       />
 
-      <main style={{ flex: 1, minWidth: 0, padding: '28px 32px', overflowY: 'auto' }}>
+      <main style={{ flex: 1, minWidth: 0, padding: isMobile ? '16px 14px' : '28px 32px', overflowY: 'auto' }}>
         <PageHeader
           title={meta.title} sub={meta.sub}
           campana={camp?.nombre} fecha={fecha}
@@ -163,6 +166,7 @@ function AppShell({ onLogout }) {
             onUpload={subirExcel}
             campanas={campanas}
             campanaActiva={campanaActiva}
+            sedesConocidas={sedes}
           />
         )}
 
@@ -170,10 +174,10 @@ function AppShell({ onLogout }) {
           <Dashboard data={data} stats={stats} historial={historial} campanas={campanas} campanaActiva={campanaActiva} />
         )}
         {view === 'sedes' && (
-          <Sedes data={data} campanas={campanas} campanaActiva={campanaActiva} />
+          <Sedes data={data} campanas={campanas} campanaActiva={campanaActiva} onSedesChanged={refrescarSedes} />
         )}
         {view === 'historial' && (
-          <Historial historial={historial} data={data} onSeleccionChange={setSedesComparacion} />
+          <Historial historial={historial} data={data} campanas={campanas} campanaActiva={campanaActiva} onSeleccionChange={setSedesComparacion} />
         )}
         {view === 'envio' && (
           <Envio

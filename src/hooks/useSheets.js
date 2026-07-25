@@ -172,6 +172,15 @@ export function useSheets() {
       })
   }, [])
 
+  // Refrescar la lista de sedes (después de agregar/editar/activar una sede
+  // desde el panel de gestión, para que el resto de la app la vea al toque)
+  const refrescarSedes = useCallback(() => {
+    return jsonp('sedes').then(sedes => {
+      setState(s => ({ ...s, sedes }))
+      return sedes
+    })
+  }, [])
+
   // Cargar datos cuando cambia campaña activa
   const cargarCampana = useCallback((campanaId) => {
     setState(s => ({ ...s, loading: true, error: null, campanaActiva: campanaId, data: [] }))
@@ -318,12 +327,34 @@ export function useSheets() {
     markAllCopied,
     guardarSemana,
     subirExcel,
+    refrescarSedes,
   }
 }
 
 // Obtener historial de envíos registrado en Sheets
 export function obtenerLogEnvios(limite = 200) {
   return jsonp('log_envios', { limite })
+}
+
+// Historial de una campaña puntual — para comparar campañas sin pisar el
+// estado de la campaña activa que ya está cargada en pantalla.
+export function obtenerHistorialCampana(campanaId) {
+  return jsonp('historial', { campana: campanaId })
+}
+
+// El webhook de Make solo confirma que recibió el pedido, no que el mail
+// salió de verdad (ver incidente del escenario desactivado) — esto marca a
+// mano una tanda como confirmada cuando alguien la vio llegar de verdad.
+export function confirmarEnvioLote(fecha, hora) {
+  return post({ action: 'confirmar_envio_lote', fecha, hora })
+}
+
+// ── Notas por sede (mini-CRM de seguimiento) ────────────────────────────────
+export function obtenerNotasSede(cod_sede) {
+  return jsonp('notas_sede', { cod_sede })
+}
+export function agregarNotaSede(cod_sede, nota) {
+  return post({ action: 'agregar_nota', cod_sede, nota })
 }
 
 // Manda a Cele un resumen consolidado de una tanda de envíos (individual o masiva)
@@ -333,6 +364,28 @@ export function enviarResumenCele(campana, fecha, items) {
     fecha,
     items: JSON.stringify(items),
   })
+}
+
+// ── Gestión de sedes ────────────────────────────────────────────────────────
+export function obtenerSedesTodas() {
+  return jsonp('sedes_todas')
+}
+export function agregarSede(sede) {
+  return post({ action: 'agregar_sede', ...sede })
+}
+export function editarSede(sede) {
+  return post({ action: 'editar_sede', ...sede })
+}
+export function setSedeActiva(cod_sede, activa) {
+  return post({ action: 'set_sede_activa', cod_sede, activa })
+}
+
+// ── Configuración editable (plantilla de email, etc.) ───────────────────────
+export function obtenerConfig() {
+  return jsonp('config')
+}
+export function guardarConfig(claves) {
+  return post({ action: 'set_config', claves })
 }
 
 export { post, jsonp }

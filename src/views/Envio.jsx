@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { enviarEmailViaScript, obtenerLogEnvios, enviarResumenCele, onAuthExpired } from '../hooks/useSheets'
+import { enviarEmailViaScript, obtenerLogEnvios, enviarResumenCele, onAuthExpired, obtenerConfig, guardarConfig, confirmarEnvioLote } from '../hooks/useSheets'
 
 const BORRADOR_KEY = 'ucasal_borrador_semana'
 
@@ -24,18 +24,27 @@ const esc = (s) => String(s ?? '')
   .replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;')
 
-function buildEmailHTML(d, campNombre) {
+// Plantilla por defecto — se usa si todavía no se cargó/guardó una propia
+// desde el editor. Coincide con el texto que mandaba la app antes de que la
+// plantilla fuera editable, para no cambiar nada sin que alguien lo pida.
+const DEFAULT_TEMPLATE = `<p>{{saludo}}:</p>
+<p style="margin-top:6px">Enviamos el resultado del <strong>cómo vamos</strong> al {{fecha}}</p>
+{{tabla}}
+<p style="margin-top:8px">Quedamos a disposición para cualquier consulta o duda que puedas tener.</p>
+<p style="margin-top:10px">Feliz fin de semana.<br>Saludos!</p>`
+
+function renderTemplate(template, vars) {
+  return String(template ?? '').replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] ?? '')
+}
+
+function buildTablaHTML(d, campNombre) {
   const color = { green: '#059669', amber: '#d97706', red: '#e11d48' }[getEstado(d)]
   const varTxt = d.var !== null
     ? (d.var > 0 ? ` (+${d.var} vs semana anterior)`
       : d.var < 0 ? ` (${d.var} vs semana anterior)`
       : ' (sin variación)')
     : ''
-  // Morón (cod 57) no tiene contacto personalizado — saludo genérico sin nombre
-  const saludo = String(d.cod_sede) === '57' ? 'Estimados' : d.saludo
-  return `<p>${esc(saludo)}:</p>
-<p style="margin-top:6px">Enviamos el resultado del <strong>cómo vamos</strong> al ${fmtFecha(d.fecha)}</p>
-<table style="width:100%;border-collapse:collapse;margin:10px 0;font-size:12px">
+  return `<table style="width:100%;border-collapse:collapse;margin:10px 0;font-size:12px">
   <tr style="background:#1a1a2e;color:#fff">
     <th style="padding:7px 10px;text-align:center;font-size:11px">COD SEDE</th>
     <th style="padding:7px 10px;text-align:center;font-size:11px">SEDE</th>
@@ -50,9 +59,102 @@ function buildEmailHTML(d, campNombre) {
     <td style="padding:7px 10px;text-align:center;border:1px solid #e5e7eb">${d.total}${varTxt}</td>
     <td style="padding:7px 10px;text-align:center;border:1px solid #e5e7eb;color:${color};font-weight:700">${d.pct}%</td>
   </tr>
-</table>
-<p style="margin-top:8px">Quedamos a disposición para cualquier consulta o duda que puedas tener.</p>
-<p style="margin-top:10px">Feliz fin de semana.<br>Saludos!</p>`
+</table>`
+}
+
+function buildEmailHTML(d, campNombre, template) {
+  // Morón (cod 57) no tiene contacto personalizado — saludo genérico sin nombre
+  const saludo = String(d.cod_sede) === '57' ? 'Estimados' : d.saludo
+  return renderTemplate(template || DEFAULT_TEMPLATE, {
+    saludo: esc(saludo),
+    fecha: fmtFecha(d.fecha),
+    tabla: buildTablaHTML(d, campNombre),
+  })
+}
+
+// Editor de la plantilla del email — placeholders: {{saludo}} {{fecha}} {{tabla}}
+function EditorPlantillaModal({ template, sedeEjemplo, campNombre, onClose, onGuardado }) {
+  const [texto, setTexto] = useState(template)
+  const [guardando, setGuardando] = useState(false)
+  const [error, setError] = useState(null)
+
+  const handleGuardar = async () => {
+    setGuardando(true); setError(null)
+    try {
+      await guardarConfig({ EMAIL_TEMPLATE: texto })
+      onGuardado(texto)
+      onClose()
+    } catch (e) { setError(e.message) }
+    setGuardando(false)
+  }
+
+  const preview = sedeEjemplo ? buildEmailHTML(sedeEjemplo, campNombre, texto) : ''
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)',
+      zIndex: 9600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+    }}>
+      <div style={{
+        background: '#fff', borderRadius: 16, width: '100%', maxWidth: 900,
+        overflow: 'hidden', boxShadow: '0 24px 64px rgba(0,0,0,.3)',
+        display: 'flex', flexDirection: 'column', maxHeight: '90vh',
+      }}>
+        <div style={{
+          background: 'linear-gradient(135deg,#1B2A6B,#0f1d4a)',
+          padding: '16px 22px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0,
+        }}>
+          <div>
+            <div style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>✏️ Editar plantilla del email</div>
+            <div style={{ color: 'rgba(255,255,255,.6)', fontSize: 12, marginTop: 2 }}>
+              Placeholders: <code>{'{{saludo}}'}</code> <code>{'{{fecha}}'}</code> <code>{'{{tabla}}'}</code>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: 'rgba(255,255,255,.15)', border: 'none', color: '#fff', width: 28, height: 28, borderRadius: '50%', cursor: 'pointer', fontSize: 13 }}>✕</button>
+        </div>
+
+        <div style={{ flex: 1, overflow: 'auto', display: 'flex', gap: 0 }}>
+          <div style={{ flex: 1, padding: '16px 20px', borderRight: '1px solid #f1f5f9', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>HTML de la plantilla</div>
+            <textarea value={texto} onChange={e => setTexto(e.target.value)} spellCheck={false} style={{
+              flex: 1, minHeight: 320, padding: 12, border: '1px solid #e2e8f0', borderRadius: 10,
+              fontSize: 12, fontFamily: 'monospace', lineHeight: 1.6, resize: 'vertical',
+            }} />
+            <button onClick={() => setTexto(DEFAULT_TEMPLATE)} style={{
+              marginTop: 8, alignSelf: 'flex-start', fontSize: 11, color: '#94a3b8',
+              background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline',
+            }}>
+              Restaurar plantilla predeterminada
+            </button>
+          </div>
+          <div style={{ flex: 1, padding: '16px 20px', background: '#fafafa' }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+              Vista previa {sedeEjemplo ? `· ${sedeEjemplo.sede}` : ''}
+            </div>
+            {sedeEjemplo ? (
+              <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: 16, fontSize: 13, lineHeight: 1.7, color: '#222', background: '#fff' }}
+                dangerouslySetInnerHTML={{ __html: preview }} />
+            ) : (
+              <div style={{ fontSize: 12, color: '#94a3b8' }}>No hay datos de sedes todavía para previsualizar.</div>
+            )}
+          </div>
+        </div>
+
+        <div style={{ padding: '14px 20px', borderTop: '1px solid #e2e8f0', display: 'flex', gap: 8, justifyContent: 'flex-end', flexShrink: 0 }}>
+          {error && <div style={{ color: '#e11d48', fontSize: 12, marginRight: 'auto', alignSelf: 'center' }}>❌ {error}</div>}
+          <button onClick={onClose} disabled={guardando} style={{ padding: '9px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, background: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0', cursor: 'pointer' }}>
+            Cancelar
+          </button>
+          <button onClick={handleGuardar} disabled={guardando} style={{
+            padding: '9px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700,
+            background: 'linear-gradient(135deg,#1B2A6B,#0f1d4a)', color: '#fff', border: 'none', cursor: 'pointer', opacity: guardando ? 0.6 : 1,
+          }}>
+            {guardando ? 'Guardando…' : '💾 Guardar plantilla'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function TooltipHelp({ text }) {
@@ -78,9 +180,9 @@ function TooltipHelp({ text }) {
 }
 
 // Modal preview de email por sede
-function PreviewModal({ sede, campNombre, onClose, onSend }) {
+function PreviewModal({ sede, campNombre, template, onClose, onSend }) {
   const [enviando, setEnviando] = useState(false)
-  const htmlBase = buildEmailHTML(sede, campNombre)
+  const htmlBase = buildEmailHTML(sede, campNombre, template)
 
   const handleSend = async () => {
     setEnviando(true)
@@ -173,7 +275,16 @@ export default function Envio({ data, copied, onCopied, campanas, campanaActiva,
   const [logEnvios, setLogEnvios] = useState([])
   const [cargandoLog, setCargandoLog] = useState(false)
   const [mostrarLog, setMostrarLog] = useState(false)
+  const [template, setTemplate] = useState(DEFAULT_TEMPLATE)
+  const [mostrarEditorPlantilla, setMostrarEditorPlantilla] = useState(false)
   const logRef = useRef(null)
+
+  // Cargar la plantilla de email guardada (si nunca se editó, usa la de siempre)
+  useEffect(() => {
+    obtenerConfig()
+      .then(cfg => { if (cfg?.EMAIL_TEMPLATE) setTemplate(cfg.EMAIL_TEMPLATE) })
+      .catch(() => {}) // si falla, se sigue usando DEFAULT_TEMPLATE
+  }, [])
 
   // Restaurar el borrador de "Registrar nueva semana" si quedó guardado de
   // una sesión que expiró a mitad de la carga manual (ver useEffect de abajo).
@@ -223,7 +334,7 @@ export default function Envio({ data, copied, onCopied, campanas, campanaActiva,
   const deselAll = () => setSeleccion({})
 
   const enviarUno = async (d, htmlCustom = null) => {
-    const htmlRich = htmlCustom || buildEmailHTML(d, camp?.nombre || '')
+    const htmlRich = htmlCustom || buildEmailHTML(d, camp?.nombre || '', template)
     const fecha = d.fecha || new Date().toISOString().slice(0,10)
     const campNom = camp?.nombre || ''
     await enviarEmailViaScript({
@@ -265,7 +376,7 @@ export default function Envio({ data, copied, onCopied, campanas, campanaActiva,
     for (let i = 0; i < lista.length; i++) {
       const d = lista[i]
       try {
-        const htmlRich = buildEmailHTML(d, campNom)
+        const htmlRich = buildEmailHTML(d, campNom, template)
         await enviarEmailViaScript({
           to: d.email, subject: 'Como Vamos — ' + campNom + ' — ' + fmtFecha(d.fecha || fechaRef),
           html: htmlRich, sede: d.sede, cod: String(d.cod_sede), fecha: d.fecha || fechaRef, campana: campNom,
@@ -325,11 +436,24 @@ export default function Envio({ data, copied, onCopied, campanas, campanaActiva,
     const grupos = {}
     logEnvios.forEach(r => {
       const key = `${r.fecha} ${r.hora?.slice(0,5)}` // agrupa por fecha + hora:minuto
-      if (!grupos[key]) grupos[key] = { fecha: r.fecha, hora: r.hora, campana: r.campana, items: [] }
+      if (!grupos[key]) grupos[key] = { fecha: r.fecha, hora: r.hora, campana: r.campana, items: [], confirmado: false }
       grupos[key].items.push(r)
+      if (String(r.confirmado ?? '').toUpperCase() === 'TRUE') grupos[key].confirmado = true
     })
     return Object.values(grupos).sort((a, b) => (b.fecha + b.hora).localeCompare(a.fecha + a.hora))
   })()
+
+  const [confirmando, setConfirmando] = useState({})
+  const handleConfirmarLote = async (g) => {
+    const key = `${g.fecha} ${g.hora}`
+    setConfirmando(prev => ({ ...prev, [key]: true }))
+    try {
+      await confirmarEnvioLote(g.fecha, g.hora)
+      const datos = await obtenerLogEnvios(300)
+      setLogEnvios(datos)
+    } catch { /* silencioso — se puede reintentar */ }
+    setConfirmando(prev => ({ ...prev, [key]: false }))
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -338,8 +462,19 @@ export default function Envio({ data, copied, onCopied, campanas, campanaActiva,
         <PreviewModal
           sede={previewSede}
           campNombre={camp?.nombre || ''}
+          template={template}
           onClose={() => setPreviewSede(null)}
           onSend={enviarUno}
+        />
+      )}
+
+      {mostrarEditorPlantilla && (
+        <EditorPlantillaModal
+          template={template}
+          sedeEjemplo={data[0]}
+          campNombre={camp?.nombre || ''}
+          onClose={() => setMostrarEditorPlantilla(false)}
+          onGuardado={setTemplate}
         />
       )}
 
@@ -371,12 +506,22 @@ export default function Envio({ data, copied, onCopied, campanas, campanaActiva,
                 Desde mcrossi@ucasal.edu.ar vía Make · {aEnviar.length} {seleccionadas.length > 0 ? 'seleccionadas' : 'pendientes'}
               </div>
             </div>
-            {pendientes.length > 0 && !enviando && (
-              <button onClick={() => setModalConfirm(true)} style={{ padding: '9px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700, background: '#fff', color: '#C8102E', border: 'none', cursor: 'pointer' }}>
-                🚀 Enviar {aEnviar.length} emails
-              </button>
-            )}
-            {enviando && <div style={{ color: '#fff', fontSize: 13 }}>Enviando… {progreso}%</div>}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              {!enviando && (
+                <button onClick={() => setMostrarEditorPlantilla(true)} style={{
+                  padding: '9px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+                  background: 'rgba(255,255,255,.15)', color: '#fff', border: '1px solid rgba(255,255,255,.3)', cursor: 'pointer',
+                }}>
+                  ✏️ Plantilla
+                </button>
+              )}
+              {pendientes.length > 0 && !enviando && (
+                <button onClick={() => setModalConfirm(true)} style={{ padding: '9px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700, background: '#fff', color: '#C8102E', border: 'none', cursor: 'pointer' }}>
+                  🚀 Enviar {aEnviar.length} emails
+                </button>
+              )}
+              {enviando && <div style={{ color: '#fff', fontSize: 13 }}>Enviando… {progreso}%</div>}
+            </div>
           </div>
 
           {progreso > 0 && (
@@ -638,8 +783,27 @@ export default function Envio({ data, copied, onCopied, campanas, campanaActiva,
                             {g.campana}
                           </span>
                         )}
-                        <span style={{ fontSize: 12, color: '#059669', fontWeight: 700, marginLeft: 'auto' }}>✓ {ok} enviados</span>
-                        {err > 0 && <span style={{ fontSize: 12, color: '#e11d48', fontWeight: 700 }}>✗ {err} con error</span>}
+                        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <span style={{ fontSize: 12, color: '#059669', fontWeight: 700 }}>✓ {ok} enviados</span>
+                          {err > 0 && <span style={{ fontSize: 12, color: '#e11d48', fontWeight: 700 }}>✗ {err} con error</span>}
+                          {g.confirmado ? (
+                            <span style={{ fontSize: 11, fontWeight: 700, color: '#1B2A6B', background: '#eef0f8', padding: '3px 10px', borderRadius: 20 }}>
+                              ✅ Entrega confirmada
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => handleConfirmarLote(g)}
+                              disabled={confirmando[`${g.fecha} ${g.hora}`]}
+                              title="Marcá esto solo si viste de verdad que los mails llegaron (ej: en Gmail o porque una sede te avisó)"
+                              style={{
+                                fontSize: 11, fontWeight: 700, color: '#92400e', background: '#fffbeb',
+                                border: '1px solid #fde68a', padding: '3px 10px', borderRadius: 20, cursor: 'pointer',
+                              }}
+                            >
+                              {confirmando[`${g.fecha} ${g.hora}`] ? '…' : '⏳ Confirmar entrega'}
+                            </button>
+                          )}
+                        </div>
                       </div>
                       <div style={{ padding: '8px 14px', display: 'flex', flexWrap: 'wrap', gap: 5 }}>
                         {g.items.map((it, j) => (

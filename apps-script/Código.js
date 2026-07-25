@@ -92,6 +92,7 @@ function doGet(e) {
     }
     else if (action === 'campanas')      result = okData(getCampanas());
     else if (action === 'sedes')    result = okData(getSedes());
+    else if (action === 'sedes_todas') result = okData(getSedesTodas());
     else if (action === 'objetivos') result = okData(getObjetivos(campana));
     else if (action === 'historial') result = okData(getHistorial(campana));
     else if (action === 'semana_actual') result = okData(getSemanaActual(campana));
@@ -109,6 +110,12 @@ function doGet(e) {
     }
     else if (action === 'log_envios') {
       result = okData(getLogEnvios(Number(e.parameter.limite) || 200));
+    }
+    else if (action === 'config') {
+      result = okData(getConfig());
+    }
+    else if (action === 'notas_sede') {
+      result = okData(getNotasSede(e.parameter.cod_sede));
     }
     else if (action === 'resumen_cele') {
       var itemsParsed = JSON.parse(e.parameter.items || '[]');
@@ -166,6 +173,12 @@ function doPost(e) {
     if (action === 'eliminar_corte') return ok(eliminarCorte(body));
     if (action === 'set_password') return ok(setPassword(body));
     if (action === 'corregir_log_envios') return ok(corregirLogEnvios(body));
+    if (action === 'agregar_sede') return ok(agregarSede(body));
+    if (action === 'editar_sede') return ok(editarSede(body));
+    if (action === 'set_sede_activa') return ok(setSedeActiva(body));
+    if (action === 'set_config') return ok(setConfig(body));
+    if (action === 'confirmar_envio_lote') return ok(confirmarEnvioLote(body));
+    if (action === 'agregar_nota') return ok(agregarNotaSede(body));
 
     return err('action no reconocida: ' + action);
   } catch(ex) {
@@ -346,6 +359,89 @@ function enviarResumenCele(payload) {
   return { enviado: enviado, status: status };
 }
 
+// ── Configuración editable (plantilla de email, etc.) ───────────────────────
+var DEFAULT_EMAIL_TEMPLATE = '<p>{{saludo}}:</p>\n' +
+  '<p style="margin-top:6px">Enviamos el resultado del <strong>cómo vamos</strong> al {{fecha}}</p>\n' +
+  '{{tabla}}\n' +
+  '<p style="margin-top:8px">Quedamos a disposición para cualquier consulta o duda que puedas tener.</p>\n' +
+  '<p style="margin-top:10px">Feliz fin de semana.<br>Saludos!</p>';
+
+function getConfigSheet() {
+  var h = SS.getSheetByName('config');
+  if (!h) {
+    h = SS.insertSheet('config');
+    h.getRange(1, 1, 1, 2).setValues([['clave', 'valor']]);
+    h.getRange(1, 1, 1, 2).setBackground('#1B2A6B').setFontColor('#ffffff').setFontWeight('bold');
+    h.appendRow(['EMAIL_TEMPLATE', DEFAULT_EMAIL_TEMPLATE]);
+    h.setFrozenRows(1);
+    SpreadsheetApp.flush();
+  }
+  return h;
+}
+
+function getConfig() {
+  var h = getConfigSheet();
+  var rows = h.getDataRange().getValues();
+  var out = {};
+  for (var i = 1; i < rows.length; i++) {
+    out[rows[i][0]] = rows[i][1];
+  }
+  if (!out.EMAIL_TEMPLATE) out.EMAIL_TEMPLATE = DEFAULT_EMAIL_TEMPLATE;
+  return out;
+}
+
+function setConfig(body) {
+  if (!body.claves) throw new Error('Falta claves');
+  var h = getConfigSheet();
+  var rows = h.getDataRange().getValues();
+  Object.keys(body.claves).forEach(function(clave) {
+    var found = false;
+    for (var i = 1; i < rows.length; i++) {
+      if (rows[i][0] === clave) {
+        h.getRange(i + 1, 2).setValue(body.claves[clave]);
+        found = true;
+        break;
+      }
+    }
+    if (!found) h.appendRow([clave, body.claves[clave]]);
+  });
+  SpreadsheetApp.flush();
+  return { ok: true };
+}
+
+// ── Notas por sede (mini-CRM de seguimiento) ────────────────────────────────
+function getNotasSheet() {
+  var h = SS.getSheetByName('notas_sede');
+  if (!h) {
+    h = SS.insertSheet('notas_sede');
+    h.getRange(1, 1, 1, 3).setValues([['fecha', 'cod_sede', 'nota']]);
+    h.getRange(1, 1, 1, 3).setBackground('#1B2A6B').setFontColor('#ffffff').setFontWeight('bold');
+    h.setFrozenRows(1);
+    SpreadsheetApp.flush();
+  }
+  return h;
+}
+
+function getNotasSede(cod_sede) {
+  var h = getNotasSheet();
+  var rows = h.getDataRange().getValues();
+  if (rows.length <= 1) return [];
+  var keys = rows[0];
+  var data = rows.slice(1).map(function(r) { return rowToObj(keys, r); });
+  if (cod_sede) data = data.filter(function(r) { return String(r.cod_sede) === String(cod_sede); });
+  data.reverse();
+  return data;
+}
+
+function agregarNotaSede(body) {
+  if (!body.cod_sede || !body.nota) throw new Error('Falta cod_sede o nota');
+  var h = getNotasSheet();
+  var fecha = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
+  h.appendRow([fecha, body.cod_sede, body.nota]);
+  SpreadsheetApp.flush();
+  return { ok: true };
+}
+
 function getLogSheet() {
   var h = SS.getSheetByName('log_envios');
   if (!h) {
@@ -356,6 +452,44 @@ function getLogSheet() {
     SpreadsheetApp.flush();
   }
   return h;
+}
+
+// El webhook de Make devuelve 200 apenas RECIBE el pedido, no cuando termina
+// de mandar el mail de verdad (ver incidente del escenario desactivado) —
+// no hay forma de confirmar la entrega real solo con código. Esto agrega una
+// marca manual: Cele confirma a mano una tanda cuando de verdad la vio llegar.
+function getLogSheetConConfirmado() {
+  var h = getLogSheet();
+  var headers = h.getRange(1, 1, 1, h.getLastColumn()).getValues()[0];
+  var idx = headers.indexOf('confirmado');
+  if (idx === -1) {
+    var nuevaCol = headers.length + 1;
+    h.getRange(1, nuevaCol).setValue('confirmado');
+    idx = nuevaCol - 1;
+  }
+  return { sheet: h, idxConfirmado: idx };
+}
+
+function confirmarEnvioLote(body) {
+  if (!body.fecha || !body.hora) throw new Error('Falta fecha u hora');
+  var info = getLogSheetConConfirmado();
+  var h = info.sheet;
+  var allRows = h.getDataRange().getValues();
+  var count = 0;
+  for (var i = 1; i < allRows.length; i++) {
+    var rowFecha = allRows[i][0];
+    if (rowFecha instanceof Date) rowFecha = Utilities.formatDate(rowFecha, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    rowFecha = String(rowFecha);
+    var rowHora = allRows[i][1];
+    if (rowHora instanceof Date) rowHora = Utilities.formatDate(rowHora, Session.getScriptTimeZone(), 'HH:mm:ss');
+    rowHora = String(rowHora);
+    if (rowFecha === body.fecha && rowHora.slice(0, 5) === String(body.hora).slice(0, 5)) {
+      h.getRange(i + 1, info.idxConfirmado + 1).setValue('TRUE');
+      count++;
+    }
+  }
+  if (count) SpreadsheetApp.flush();
+  return { confirmadas: count };
 }
 
 function registrarEnvio(p) {
@@ -391,15 +525,30 @@ function getCampanas() {
   });
 }
 
-// Sedes desvinculadas — se excluyen de toda vista y envío, pero su historial pasado queda intacto
-var SEDES_EXCLUIDAS = []; // 57 = MORÓN (reactivada)
+// Una sede se considera activa salvo que la columna 'activa' diga explícitamente
+// lo contrario — si la columna no existe todavía (sedes cargadas antes de esta
+// función) o está vacía, se toma como activa por defecto.
+function esSedeActiva(row) {
+  var v = row.activa;
+  if (v === undefined || v === null || v === '') return true;
+  var s = String(v).trim().toUpperCase();
+  return !(s === 'FALSE' || s === 'FALSO' || s === '0' || s === 'NO');
+}
 
 function getSedes() {
   var h = SS.getSheetByName('sedes');
   var rows = h.getDataRange().getValues();
   var keys = rows[0];
   var data = rows.slice(1).map(function(r) { return rowToObj(keys, r); });
-  return data.filter(function(r) { return SEDES_EXCLUIDAS.indexOf(String(r.cod_sede)) === -1; });
+  return data.filter(esSedeActiva);
+}
+
+// Todas las sedes (activas e inactivas) — para el panel de gestión.
+function getSedesTodas() {
+  var h = SS.getSheetByName('sedes');
+  var rows = h.getDataRange().getValues();
+  var keys = rows[0];
+  return rows.slice(1).map(function(r) { return rowToObj(keys, r); });
 }
 
 function getObjetivos(campanaId) {
@@ -408,8 +557,93 @@ function getObjetivos(campanaId) {
   var keys = rows[0];
   var data = rows.slice(1).map(function(r) { return rowToObj(keys, r); });
   if (campanaId) data = data.filter(function(r) { return r.campana_id === campanaId; });
-  data = data.filter(function(r) { return SEDES_EXCLUIDAS.indexOf(String(r.cod_sede)) === -1; });
+  var sedesActivas = {};
+  getSedes().forEach(function(s) { sedesActivas[String(s.cod_sede)] = true; });
+  data = data.filter(function(r) { return sedesActivas[String(r.cod_sede)]; });
   return data;
+}
+
+// ── Gestión de sedes (alta / edición / activar-desactivar) ──────────────────
+// Se agrega la columna 'activa' sola la primera vez que hace falta, para no
+// depender de una migración manual en la planilla.
+function getSedesSheetConActiva() {
+  var h = SS.getSheetByName('sedes');
+  var headers = h.getRange(1, 1, 1, h.getLastColumn()).getValues()[0];
+  var idxActiva = headers.indexOf('activa');
+  if (idxActiva === -1) {
+    var nuevaCol = headers.length + 1;
+    h.getRange(1, nuevaCol).setValue('activa');
+    var lastRow = h.getLastRow();
+    if (lastRow > 1) {
+      var vals = [];
+      for (var i = 0; i < lastRow - 1; i++) vals.push(['TRUE']);
+      h.getRange(2, nuevaCol, lastRow - 1, 1).setValues(vals);
+    }
+    idxActiva = nuevaCol - 1;
+    headers = h.getRange(1, 1, 1, h.getLastColumn()).getValues()[0];
+  }
+  return { sheet: h, headers: headers, idxActiva: idxActiva };
+}
+
+function agregarSede(body) {
+  if (!body.cod_sede || !body.sede) throw new Error('Falta cod_sede o sede');
+  var info = getSedesSheetConActiva();
+  var h = info.sheet;
+  var idxCod = info.headers.indexOf('cod_sede');
+  var allRows = h.getDataRange().getValues();
+  for (var i = 1; i < allRows.length; i++) {
+    if (String(allRows[i][idxCod]) === String(body.cod_sede)) {
+      throw new Error('Ya existe una sede con ese código');
+    }
+  }
+  var fila = info.headers.map(function(col) {
+    if (col === 'cod_sede') return body.cod_sede;
+    if (col === 'sede') return body.sede;
+    if (col === 'email') return body.email || '';
+    if (col === 'saludo') return body.saludo || '';
+    if (col === 'activa') return 'TRUE';
+    return '';
+  });
+  h.appendRow(fila);
+  SpreadsheetApp.flush();
+  return { ok: true };
+}
+
+function editarSede(body) {
+  if (!body.cod_sede) throw new Error('Falta cod_sede');
+  var h = SS.getSheetByName('sedes');
+  var headers = h.getRange(1, 1, 1, h.getLastColumn()).getValues()[0];
+  var idxCod = headers.indexOf('cod_sede');
+  var allRows = h.getDataRange().getValues();
+  for (var i = 1; i < allRows.length; i++) {
+    if (String(allRows[i][idxCod]) === String(body.cod_sede)) {
+      ['sede', 'email', 'saludo'].forEach(function(campo) {
+        var idx = headers.indexOf(campo);
+        if (idx !== -1 && body[campo] !== undefined) {
+          h.getRange(i + 1, idx + 1).setValue(body[campo]);
+        }
+      });
+      SpreadsheetApp.flush();
+      return { ok: true };
+    }
+  }
+  throw new Error('No se encontró la sede');
+}
+
+function setSedeActiva(body) {
+  if (!body.cod_sede) throw new Error('Falta cod_sede');
+  var info = getSedesSheetConActiva();
+  var h = info.sheet;
+  var idxCod = info.headers.indexOf('cod_sede');
+  var allRows = h.getDataRange().getValues();
+  for (var i = 1; i < allRows.length; i++) {
+    if (String(allRows[i][idxCod]) === String(body.cod_sede)) {
+      h.getRange(i + 1, info.idxActiva + 1).setValue(body.activa ? 'TRUE' : 'FALSE');
+      SpreadsheetApp.flush();
+      return { ok: true };
+    }
+  }
+  throw new Error('No se encontró la sede');
 }
 
 function getHistorial(campanaId) {

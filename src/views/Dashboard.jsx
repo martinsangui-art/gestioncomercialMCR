@@ -1,6 +1,7 @@
 import { useMemo, useEffect, useRef } from 'react'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from 'recharts'
 import { useCountUp } from '../hooks/useCountUp'
+import { useIsMobile } from '../hooks/useIsMobile'
 
 function fmtFecha(iso) {
   if (!iso) return ''
@@ -145,6 +146,7 @@ function GlassPanel({ children, delay = 0, style = {} }) {
 export default function Dashboard({ data, stats, historial, campanas, campanaActiva }) {
   const camp = campanas?.find(c => c.id === campanaActiva)
   const cerrada = camp?.estado === 'cerrada'
+  const isMobile = useIsMobile()
 
   const evolucion = useMemo(() => {
     if (!historial.length) return []
@@ -167,6 +169,30 @@ export default function Dashboard({ data, stats, historial, campanas, campanaAct
       .slice(0, 5)
   }, [data])
 
+  // Sedes con 2 o más cortes consecutivos sin avance (o retrocediendo) —
+  // necesitan un llamado o seguimiento puntual, no solo un número en rojo.
+  const sedesEnRiesgo = useMemo(() => {
+    if (historial.length < 3) return []
+    const porSede = {}
+    historial.forEach(r => {
+      const cod = String(r.cod_sede)
+      if (!porSede[cod]) porSede[cod] = { sede: r.sede, vals: [] }
+      porSede[cod].vals.push({ fecha: r.fecha, total: Number(r.total) || 0 })
+    })
+    const riesgo = []
+    Object.entries(porSede).forEach(([cod, info]) => {
+      const ordenado = [...info.vals].sort((a, b) => a.fecha.localeCompare(b.fecha))
+      if (ordenado.length < 3) return
+      const [a, b, c] = ordenado.slice(-3)
+      const sinAvance2Cortes = (c.total - b.total) <= 0 && (b.total - a.total) <= 0
+      if (sinAvance2Cortes) {
+        const curr = data.find(d => String(d.cod_sede) === cod)
+        riesgo.push({ cod_sede: cod, sede: curr?.sede || info.sede, total: c.total, pct: curr?.pct ?? null })
+      }
+    })
+    return riesgo.sort((x, y) => (x.pct ?? 0) - (y.pct ?? 0))
+  }, [historial, data])
+
   const diasRestantes = useMemo(() => {
     if (!camp?.fin || cerrada) return null
     const fin = new Date(camp.fin)
@@ -174,6 +200,28 @@ export default function Dashboard({ data, stats, historial, campanas, campanaAct
     const dias = Math.ceil((fin - hoy) / (1000 * 60 * 60 * 24))
     return dias > 0 ? dias : null
   }, [camp, cerrada])
+
+  // Proyección lineal: con el ritmo de ingreso de las últimas semanas, ¿a qué
+  // total/% se llegaría para la fecha de cierre de la campaña?
+  const proyeccion = useMemo(() => {
+    if (!camp?.fin || cerrada || !stats.totalObj) return null
+    const fechas = [...new Set(historial.map(r => r.fecha))].sort()
+    if (fechas.length < 2) return null
+    const totalPorFecha = (fecha) => historial
+      .filter(r => r.fecha === fecha)
+      .reduce((acc, r) => acc + (Number(r.total) || 0), 0)
+    const primera = fechas[0]
+    const ultima = fechas[fechas.length - 1]
+    const totalPrimera = totalPorFecha(primera)
+    const totalUltima = totalPorFecha(ultima)
+    const diasTranscurridos = (new Date(ultima) - new Date(primera)) / 86400000
+    if (diasTranscurridos <= 0) return null
+    const tasaDiaria = (totalUltima - totalPrimera) / diasTranscurridos
+    const diasRestantesCalc = Math.max(0, (new Date(camp.fin) - new Date()) / 86400000)
+    const proyectado = Math.max(totalUltima, Math.round(totalUltima + tasaDiaria * diasRestantesCalc))
+    const pctProyectado = Math.round(proyectado / stats.totalObj * 100)
+    return { proyectado, pctProyectado }
+  }, [camp, cerrada, historial, stats.totalObj])
 
   const sedesBajoObjetivo = data.filter(d => d.pct < 50).length
 
@@ -208,7 +256,7 @@ export default function Dashboard({ data, stats, historial, campanas, campanaAct
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 16, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '220px 1fr', gap: 16, alignItems: 'start' }}>
         <GlassPanel style={{ padding: '20px 12px 12px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, borderTop: '4px solid #1B2A6B' }}>
           <ArcGauge pct={stats.pctGlobal} />
           <div style={{ fontSize: 12, color: '#94a3b8', textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
@@ -223,6 +271,17 @@ export default function Dashboard({ data, stats, historial, campanas, campanaAct
               CORTE · {fmtFecha(data[0].fecha)}
             </div>
           )}
+          {proyeccion && (
+            <div style={{
+              fontSize: 10.5, textAlign: 'center', marginTop: 8, lineHeight: 1.5,
+              color: proyeccion.pctProyectado >= 50 ? '#059669' : '#d97706',
+              background: proyeccion.pctProyectado >= 50 ? '#ecfdf5' : '#fffbeb',
+              border: `1px solid ${proyeccion.pctProyectado >= 50 ? '#6ee7b7' : '#fde68a'}`,
+              padding: '5px 10px', borderRadius: 10,
+            }}>
+              📈 Proyección al cierre: <strong>{proyeccion.pctProyectado}%</strong> ({proyeccion.proyectado})
+            </div>
+          )}
         </GlassPanel>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 12 }}>
@@ -233,7 +292,7 @@ export default function Dashboard({ data, stats, historial, campanas, campanaAct
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 260px', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 260px', gap: 16 }}>
 
         <GlassPanel delay={100} style={{ padding: '20px 24px', borderTop: '4px solid #1B2A6B' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 16 }}>
@@ -301,6 +360,29 @@ export default function Dashboard({ data, stats, historial, campanas, campanaAct
           )}
         </GlassPanel>
       </div>
+
+      {sedesEnRiesgo.length > 0 && (
+        <GlassPanel delay={130} style={{ padding: '20px 24px', borderTop: '4px solid #e11d48' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>⚠️ Sedes en riesgo</div>
+          </div>
+          <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 14 }}>2 o más cortes seguidos sin avance — conviene un llamado puntual</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {sedesEnRiesgo.map(s => {
+              let nombre = s.sede.replace(/ - BUENOS AIRES.*/, '').replace(/ - BS AS$/, '')
+              return (
+                <div key={s.cod_sede} style={{
+                  display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px',
+                  background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 10,
+                }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: '#9f1239' }}>{nombre}</span>
+                  <span style={{ fontSize: 11, color: '#be123c' }}>{s.pct !== null ? `${s.pct}%` : '—'} · total {s.total}</span>
+                </div>
+              )
+            })}
+          </div>
+        </GlassPanel>
+      )}
 
       <GlassPanel delay={150} style={{ padding: '20px 24px', borderTop: '4px solid #1B2A6B' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
