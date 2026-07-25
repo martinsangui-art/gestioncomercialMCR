@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useIsMobile } from './hooks/useIsMobile'
 import { useSheets, useAuth } from './hooks/useSheets'
-import { C, F, useClosingTransition } from './lib/theme'
+import { C, F, useClosingTransition, pageBackgroundStyle } from './lib/theme'
 import Sidebar from './components/Sidebar'
 import ExcelUploader from './components/ExcelUploader'
 import InformesPDF from './components/InformesPDF'
@@ -120,8 +120,7 @@ function AppShell({ onLogout }) {
   return (
     <div style={{
       display: 'flex', minHeight: '100vh',
-      backgroundColor: C.paper,
-      backgroundImage: `repeating-linear-gradient(0deg, rgba(23,35,63,0.028) 0px, rgba(23,35,63,0.028) 1px, transparent 1px, transparent 27px)`,
+      ...pageBackgroundStyle(),
     }}>
       <Sidebar
         view={view} onView={setView}

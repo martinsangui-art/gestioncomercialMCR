@@ -42,6 +42,32 @@ export const ledgerRule = {
   opacity: 0.8,
 }
 
+// Sello institucional simplificado (el mismo círculo + chevron que la firma
+// de Login), tileado como marca de agua — el fondo de la app deja de ser un
+// color plano y pasa a sentirse papel de registro con su propio timbrado,
+// como el papel de seguridad de un libro de actas real.
+const SEAL_WATERMARK_SVG = `<svg xmlns='http://www.w3.org/2000/svg' width='108' height='108' viewBox='0 0 108 108'>
+  <circle cx='54' cy='54' r='36' fill='none' stroke='rgba(23,35,63,0.05)' stroke-width='1'/>
+  <circle cx='54' cy='54' r='29' fill='none' stroke='rgba(23,35,63,0.035)' stroke-width='0.6'/>
+  <path d='M36 42 L54 68 L72 42' fill='none' stroke='rgba(23,35,63,0.05)' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/>
+</svg>`
+
+// Fondo de página "libro de registro": leve viñeta cálida + la marca de agua
+// del sello + renglones de ledger en las dos direcciones (como el papel
+// cuadriculado de un libro contable), todo a opacidad muy baja para no
+// competir con el contenido. Reemplaza el color plano que había antes.
+export function pageBackgroundStyle() {
+  return {
+    backgroundColor: C.paper,
+    backgroundImage: [
+      `radial-gradient(ellipse 1100px 700px at 12% -8%, #FBF7EC 0%, transparent 60%)`,
+      `url("data:image/svg+xml,${encodeURIComponent(SEAL_WATERMARK_SVG)}")`,
+      `repeating-linear-gradient(0deg, rgba(23,35,63,0.03) 0px, rgba(23,35,63,0.03) 1px, transparent 1px, transparent 27px)`,
+      `repeating-linear-gradient(90deg, rgba(23,35,63,0.018) 0px, rgba(23,35,63,0.018) 1px, transparent 1px, transparent 96px)`,
+    ].join(', '),
+  }
+}
+
 // Da a cualquier modal una salida animada de verdad: en vez de desmontarse
 // de golpe al tocar "cerrar", entra en estado "closing" (dispara la clase
 // .modal-closing) y recién después de que termine la transición se llama al
