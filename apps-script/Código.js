@@ -172,6 +172,10 @@ function doPost(e) {
     if (action === 'agregar_semana') return ok(agregarSemana(body));
     if (action === 'eliminar_corte') return ok(eliminarCorte(body));
     if (action === 'set_password') return ok(setPassword(body));
+    if (action === 'set_secret_prop') return ok(setSecretProp(body));
+    if (action === 'chequear_make') return ok(chequearEstadoMake());
+    if (action === 'chequear_escenario_activo') return ok(chequearEscenarioActivoMake());
+    if (action === 'instalar_chequeo_make') return ok(instalarChequeoMakeDiario());
     if (action === 'corregir_log_envios') return ok(corregirLogEnvios(body));
     if (action === 'agregar_sede') return ok(agregarSede(body));
     if (action === 'editar_sede') return ok(editarSede(body));
@@ -222,6 +226,114 @@ function setPassword(body) {
     AUTH_PASSWORD_SALT: body.salt,
     AUTH_PASSWORD_HASH: body.hash,
   });
+  return { ok: true };
+}
+
+// Guarda un secreto puntual en PropertiesService — lista blanca cerrada para
+// no poder pisar AUTH_SECRET/AUTH_PASSWORD_* por error desde acá. Pensado
+// para que el propio usuario lo corra desde la consola del navegador (nunca
+// pasando el valor por el chat con el asistente).
+var SECRETOS_PERMITIDOS = ['MAKE_API_TOKEN', 'MAKE_SCENARIO_ID', 'MAKE_ZONE', 'ALERTA_EMAIL'];
+function setSecretProp(body) {
+  if (!body.clave || body.valor === undefined) throw new Error('Falta clave o valor');
+  if (SECRETOS_PERMITIDOS.indexOf(body.clave) === -1) throw new Error('Clave no permitida: ' + body.clave);
+  PropertiesService.getScriptProperties().setProperty(body.clave, body.valor);
+  return { ok: true };
+}
+
+// ── Chequeo real del escenario de Make vía su API ───────────────────────────
+// El webhook solo confirma que Make RECIBIÓ el pedido (ver incidente del
+// escenario desactivado) — esto consulta el historial de ejecuciones real
+// de la API de Make para saber si el último envío falló de verdad, y avisa
+// por mail directo desde Google (MailApp, no Make) para que la alerta llegue
+// incluso si el propio Make está caído.
+function chequearEstadoMake() {
+  var props = PropertiesService.getScriptProperties();
+  var token = props.getProperty('MAKE_API_TOKEN');
+  var scenarioId = props.getProperty('MAKE_SCENARIO_ID');
+  var zone = props.getProperty('MAKE_ZONE') || 'us2';
+  var alertaEmail = props.getProperty('ALERTA_EMAIL');
+  if (!token || !scenarioId) throw new Error('Falta configurar MAKE_API_TOKEN o MAKE_SCENARIO_ID');
+
+  var headers = { Authorization: 'Token ' + token };
+  var base = 'https://' + zone + '.make.com/api/v2/scenarios/' + scenarioId;
+
+  // 1) ¿Está activo el escenario? — esto es exactamente lo que pasó ayer:
+  // Make lo desactivó solo y el webhook seguía devolviendo 200 igual.
+  var respEscenario = UrlFetchApp.fetch(base, { method: 'get', headers: headers, muteHttpExceptions: true });
+  if (respEscenario.getResponseCode() < 200 || respEscenario.getResponseCode() >= 300) {
+    return { ok: false, error: 'API de Make (escenario) respondió ' + respEscenario.getResponseCode(), detalle: respEscenario.getContentText() };
+  }
+  var escenario = JSON.parse(respEscenario.getContentText()).scenario;
+  var desactivado = escenario && (escenario.isActive === false || escenario.isPaused === true);
+
+  // 2) ¿La última ejecución registrada terminó en error?
+  var respLogs = UrlFetchApp.fetch(base + '/logs?pg[limit]=1&pg[sortDir]=desc', { method: 'get', headers: headers, muteHttpExceptions: true });
+  var ultimo = null;
+  if (respLogs.getResponseCode() >= 200 && respLogs.getResponseCode() < 300) {
+    var dataLogs = JSON.parse(respLogs.getContentText());
+    ultimo = dataLogs.scenarioLogs && dataLogs.scenarioLogs[0];
+  }
+  // status: 0/1 = éxito (con o sin warning), 2 = error — confirmado con un
+  // envío real exitoso que devolvió status:1.
+  var ultimoFallo = !!(ultimo && (ultimo.status === 2 || ultimo.status === 'error'));
+
+  var fallo = desactivado || ultimoFallo;
+
+  if (fallo && alertaEmail) {
+    var motivo = desactivado ? 'El escenario está desactivado o pausado en Make.' : 'La última ejecución registrada en Make terminó con error.';
+    MailApp.sendEmail({
+      to: alertaEmail,
+      subject: '⚠️ Alerta: el escenario de Make de Cómo Vamos no está enviando',
+      htmlBody: '<p>' + motivo + '</p>' +
+        '<p>Revisá el escenario directamente en Make.com — esta alerta se manda desde Google, no desde Make, para que llegue igual si Make está caído.</p>' +
+        '<pre>escenario.isActive: ' + (escenario && escenario.isActive) + '\nescenario.isPaused: ' + (escenario && escenario.isPaused) + '</pre>' +
+        (ultimo ? '<pre>' + JSON.stringify(ultimo, null, 2) + '</pre>' : ''),
+    });
+  }
+
+  return { ok: true, fallo: fallo, desactivado: !!desactivado, ultimoFallo: ultimoFallo, ultimoLog: ultimo };
+}
+
+// Chequeo exploratorio: trae el detalle del escenario (no los logs) para ver
+// el campo real que indica si está activo/desactivado — se usa una vez para
+// confirmar el nombre exacto del campo antes de dejarlo en el chequeo diario.
+function chequearEscenarioActivoMake() {
+  var props = PropertiesService.getScriptProperties();
+  var token = props.getProperty('MAKE_API_TOKEN');
+  var scenarioId = props.getProperty('MAKE_SCENARIO_ID');
+  var zone = props.getProperty('MAKE_ZONE') || 'us2';
+  if (!token || !scenarioId) throw new Error('Falta configurar MAKE_API_TOKEN o MAKE_SCENARIO_ID');
+
+  var url = 'https://' + zone + '.make.com/api/v2/scenarios/' + scenarioId;
+  var response = UrlFetchApp.fetch(url, {
+    method: 'get',
+    headers: { Authorization: 'Token ' + token },
+    muteHttpExceptions: true,
+  });
+  var status = response.getResponseCode();
+  if (status < 200 || status >= 300) {
+    return { ok: false, error: 'API de Make respondió ' + status, detalle: response.getContentText() };
+  }
+  return { ok: true, data: JSON.parse(response.getContentText()) };
+}
+
+// Wrapper sin argumentos — los triggers de Apps Script llaman a la función
+// por nombre, sin parámetros.
+function chequearEstadoMakeTrigger() {
+  try { chequearEstadoMake(); } catch (ex) {
+    // Si falla la config (token vencido, etc.) no hay mucho más para hacer acá;
+    // se ve corriendo 'chequear_make' manualmente para diagnosticar.
+  }
+}
+
+// Instala (o reinstala, sin duplicar) un chequeo diario del estado real del
+// escenario de Make. Se corre una sola vez desde una sesión ya autenticada.
+function instalarChequeoMakeDiario() {
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    if (t.getHandlerFunction() === 'chequearEstadoMakeTrigger') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('chequearEstadoMakeTrigger').timeBased().everyDays(1).atHour(18).create();
   return { ok: true };
 }
 
