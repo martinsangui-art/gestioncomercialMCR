@@ -5,12 +5,14 @@ import { C, F } from '../lib/theme'
 
 const COLORS = [C.ink, C.crimson, C.ok, C.warn, C.brass]
 
-// % de cumplimiento global por corte de un historial, ordenado por fecha e
-// indexado por "semana N desde el inicio" en vez de fecha calendario — así
-// se puede comparar campañas de años distintos en la misma altura del ciclo.
-function evolucionPorSemana(hist) {
+// % de cumplimiento por corte de un historial, ordenado por fecha e indexado
+// por "semana N desde el inicio" en vez de fecha calendario — así se puede
+// comparar campañas de años distintos en la misma altura del ciclo. Si se
+// pasa codSede, agrupa solo esa sede en vez del total general.
+function evolucionPorSemana(hist, codSede) {
+  const filtrado = codSede ? hist.filter(r => String(r.cod_sede) === String(codSede)) : hist
   const byFecha = {}
-  hist.forEach(r => {
+  filtrado.forEach(r => {
     if (!byFecha[r.fecha]) byFecha[r.fecha] = { total: 0, obj: 0 }
     byFecha[r.fecha].total += Number(r.total) || 0
     byFecha[r.fecha].obj += Number(r.objetivo) || 0
@@ -31,6 +33,7 @@ export default function Historial({ historial, data, campanas, campanaActiva, on
   const [histA, setHistA] = useState([])
   const [histB, setHistB] = useState([])
   const [cargandoComp, setCargandoComp] = useState(false)
+  const [sedeComp3, setSedeComp3] = useState('') // '' = general (todas las sedes)
 
   useEffect(() => {
     if (!campA && campanaActiva) setCampA(campanaActiva)
@@ -49,8 +52,8 @@ export default function Historial({ historial, data, campanas, campanaActiva, on
 
   const datosComparacion = useMemo(() => {
     if (!campA || !campB) return []
-    const evA = evolucionPorSemana(histA)
-    const evB = evolucionPorSemana(histB)
+    const evA = evolucionPorSemana(histA, sedeComp3)
+    const evB = evolucionPorSemana(histB, sedeComp3)
     const maxSemanas = Math.max(evA.length, evB.length)
     const rows = []
     for (let i = 0; i < maxSemanas; i++) {
@@ -61,7 +64,15 @@ export default function Historial({ historial, data, campanas, campanaActiva, on
       })
     }
     return rows
-  }, [histA, histB, campA, campB])
+  }, [histA, histB, campA, campB, sedeComp3])
+
+  // Sedes disponibles para el filtro de la comparación de campañas — la
+  // unión de las que aparecen en cualquiera de las dos campañas cargadas.
+  const sedesComp3 = useMemo(() => {
+    const map = {}
+    ;[...histA, ...histB].forEach(r => { if (!map[r.cod_sede]) map[r.cod_sede] = r.sede })
+    return Object.entries(map).sort(([, a], [, b]) => a.localeCompare(b))
+  }, [histA, histB])
 
   const nombreCampana = (id) => campanas?.find(c => c.id === id)?.nombre || id
 
@@ -307,7 +318,7 @@ export default function Historial({ historial, data, campanas, campanaActiva, on
         {tab === 3 && (
           <div className="animate-fadeIn" style={{ padding: '16px 20px' }}>
             <div style={{ fontSize: 12, color: C.inkSoft, marginBottom: 12 }}>
-              Compara el % de cumplimiento global de dos campañas, alineadas por semana desde el inicio de cada una (no por fecha calendario) — útil para comparar año contra año.
+              Compara el % de cumplimiento de dos campañas — general o de una sede puntual — alineadas por semana desde el inicio de cada una (no por fecha calendario), útil para comparar año contra año.
             </div>
             <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
               <select value={campA} onChange={e => setCampA(e.target.value)}
@@ -320,6 +331,14 @@ export default function Historial({ historial, data, campanas, campanaActiva, on
                 <option value="">Campaña B…</option>
                 {campanas?.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
               </select>
+              <select value={sedeComp3} onChange={e => setSedeComp3(e.target.value)}
+                disabled={!campA || !campB}
+                style={{ padding: '7px 10px', border: `1px solid ${C.rule}`, borderRadius: 2, fontSize: 13, background: '#fff', fontFamily: F.body, color: sedeComp3 ? C.ink : C.inkSoft, opacity: (!campA || !campB) ? 0.5 : 1 }}>
+                <option value="">General · todas las sedes</option>
+                {sedesComp3.map(([cod, nombre]) => (
+                  <option key={cod} value={cod}>{nombre.replace(/ - BUENOS AIRES.*/, '').replace(/ - BS AS$/, '')}</option>
+                ))}
+              </select>
             </div>
 
             {!campA || !campB ? (
@@ -329,7 +348,11 @@ export default function Historial({ historial, data, campanas, campanaActiva, on
             ) : cargandoComp ? (
               <div style={{ textAlign: 'center', padding: '40px', color: C.inkSoft, fontSize: 13 }}>Cargando…</div>
             ) : datosComparacion.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '40px', color: C.inkSoft, fontSize: 13 }}>Sin datos históricos para comparar</div>
+              <div style={{ textAlign: 'center', padding: '40px', color: C.inkSoft, fontSize: 13 }}>
+                {sedeComp3
+                  ? `Ninguna de las dos campañas tiene datos históricos de ${sedeNombre(sedeComp3)}`
+                  : 'Sin datos históricos para comparar'}
+              </div>
             ) : (
               <div style={{ background: C.paper, padding: 20 }}>
                 <ResponsiveContainer width="100%" height={320}>
