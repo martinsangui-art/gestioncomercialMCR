@@ -95,6 +95,7 @@ export default function Login({ onLogin, error, loading }) {
         <button
           type="submit"
           disabled={loading || !password.trim()}
+          className="btn-press"
           style={{
             padding: '12px', borderRadius: 3, fontSize: 13, fontWeight: 600, fontFamily: F.body,
             background: loading ? 'rgba(156,43,52,0.55)' : C.crimson,

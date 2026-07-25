@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useIsMobile } from './hooks/useIsMobile'
 import { useSheets, useAuth } from './hooks/useSheets'
-import { C, F } from './lib/theme'
+import { C, F, useClosingTransition } from './lib/theme'
 import Sidebar from './components/Sidebar'
 import ExcelUploader from './components/ExcelUploader'
 import InformesPDF from './components/InformesPDF'
@@ -145,44 +145,50 @@ function AppShell({ onLogout }) {
           )}
         </PageHeader>
 
-        {view === 'dashboard' && camp?.estado === 'activa' && (
-          <ExcelUploader
-            data={data}
-            onUpload={subirExcel}
-            campanas={campanas}
-            campanaActiva={campanaActiva}
-            sedesConocidas={sedes}
-          />
-        )}
+        {/* key={view} fuerza un remonte al cambiar de sección, así la
+            transición de entrada (.view-enter) se dispara cada vez — la
+            navegación se siente como un cambio de pantalla, no un corte. */}
+        <div key={view} className="view-enter">
+          {view === 'dashboard' && camp?.estado === 'activa' && (
+            <ExcelUploader
+              data={data}
+              onUpload={subirExcel}
+              campanas={campanas}
+              campanaActiva={campanaActiva}
+              sedesConocidas={sedes}
+            />
+          )}
 
-        {view === 'dashboard' && (
-          <Dashboard data={data} stats={stats} historial={historial} campanas={campanas} campanaActiva={campanaActiva} />
-        )}
-        {view === 'sedes' && (
-          <Sedes data={data} campanas={campanas} campanaActiva={campanaActiva} onSedesChanged={refrescarSedes} />
-        )}
-        {view === 'historial' && (
-          <Historial historial={historial} data={data} campanas={campanas} campanaActiva={campanaActiva} onSeleccionChange={setSedesComparacion} />
-        )}
-        {view === 'envio' && (
-          <Envio
-            data={data} copied={copied} onCopied={markCopied}
-            campanas={campanas} campanaActiva={campanaActiva}
-            guardarSemana={guardarSemana}
-          />
-        )}
+          {view === 'dashboard' && (
+            <Dashboard data={data} stats={stats} historial={historial} campanas={campanas} campanaActiva={campanaActiva} />
+          )}
+          {view === 'sedes' && (
+            <Sedes data={data} campanas={campanas} campanaActiva={campanaActiva} onSedesChanged={refrescarSedes} />
+          )}
+          {view === 'historial' && (
+            <Historial historial={historial} data={data} campanas={campanas} campanaActiva={campanaActiva} onSeleccionChange={setSedesComparacion} />
+          )}
+          {view === 'envio' && (
+            <Envio
+              data={data} copied={copied} onCopied={markCopied}
+              campanas={campanas} campanaActiva={campanaActiva}
+              guardarSemana={guardarSemana}
+            />
+          )}
+        </div>
       </main>
     </div>
   )
 }
 
 function SessionExpiredModal({ onDismiss }) {
+  const [closing, requestClose] = useClosingTransition(onDismiss)
   return (
-    <div style={{
+    <div className={`modal-overlay ${closing ? 'modal-closing' : ''}`} style={{
       position: 'fixed', inset: 0, background: 'rgba(23,35,63,0.65)',
       zIndex: 20000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
     }}>
-      <div style={{
+      <div className={`modal-panel ${closing ? 'modal-closing' : ''}`} style={{
         background: C.paperRaised, borderRadius: 3, padding: '30px 28px', maxWidth: 380, width: '100%',
         boxShadow: '0 24px 64px rgba(0,0,0,.35)', textAlign: 'center', border: `1px solid ${C.rule}`,
       }}>
@@ -191,7 +197,7 @@ function SessionExpiredModal({ onDismiss }) {
         <div style={{ fontSize: 13, color: C.inkSoft, marginBottom: 22, lineHeight: 1.55, fontFamily: F.body }}>
           Iniciá sesión de nuevo para continuar. Si estabas cargando una semana manualmente, tus valores quedaron guardados y se restauran al volver a entrar.
         </div>
-        <button onClick={onDismiss} style={{
+        <button onClick={requestClose} className="btn-press" style={{
           padding: '11px 24px', borderRadius: 3, fontSize: 13, fontWeight: 600, fontFamily: F.body,
           background: C.crimson, color: '#fff', border: 'none', cursor: 'pointer', width: '100%',
           textTransform: 'uppercase', letterSpacing: '0.05em',

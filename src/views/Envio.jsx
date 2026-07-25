@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { enviarEmailViaScript, obtenerLogEnvios, enviarResumenCele, onAuthExpired, obtenerConfig, guardarConfig, confirmarEnvioLote } from '../hooks/useSheets'
-import { C, F } from '../lib/theme'
+import { C, F, useClosingTransition } from '../lib/theme'
 
 const BORRADOR_KEY = 'ucasal_borrador_semana'
 
@@ -85,7 +85,7 @@ function ModalHeader({ title, sub, onClose, tone = 'ink' }) {
         <div style={{ fontFamily: F.display, color: '#fff', fontWeight: 600, fontSize: 16 }}>{title}</div>
         {sub && <div style={{ color: 'rgba(255,255,255,.6)', fontSize: 12, marginTop: 2, fontFamily: F.body }}>{sub}</div>}
       </div>
-      <button onClick={onClose} style={{ background: 'rgba(255,255,255,.15)', border: 'none', color: '#fff', width: 27, height: 27, borderRadius: '50%', cursor: 'pointer', fontSize: 13 }}>✕</button>
+      <button onClick={onClose} className="btn-press" style={{ background: 'rgba(255,255,255,.15)', border: 'none', color: '#fff', width: 27, height: 27, borderRadius: '50%', cursor: 'pointer', fontSize: 13 }}>✕</button>
     </div>
   )
 }
@@ -95,13 +95,14 @@ function EditorPlantillaModal({ template, sedeEjemplo, campNombre, onClose, onGu
   const [texto, setTexto] = useState(template)
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState(null)
+  const [closing, requestClose] = useClosingTransition(onClose)
 
   const handleGuardar = async () => {
     setGuardando(true); setError(null)
     try {
       await guardarConfig({ EMAIL_TEMPLATE: texto })
       onGuardado(texto)
-      onClose()
+      requestClose()
     } catch (e) { setError(e.message) }
     setGuardando(false)
   }
@@ -109,11 +110,11 @@ function EditorPlantillaModal({ template, sedeEjemplo, campNombre, onClose, onGu
   const preview = sedeEjemplo ? buildEmailHTML(sedeEjemplo, campNombre, texto) : ''
 
   return (
-    <div style={{
+    <div className={`modal-overlay ${closing ? 'modal-closing' : ''}`} style={{
       position: 'fixed', inset: 0, background: 'rgba(23,35,63,.6)',
       zIndex: 9600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
     }}>
-      <div style={{
+      <div className={`modal-panel ${closing ? 'modal-closing' : ''}`} style={{
         background: C.paperRaised, borderRadius: 3, width: '100%', maxWidth: 900,
         overflow: 'hidden', boxShadow: '0 24px 64px rgba(0,0,0,.35)',
         display: 'flex', flexDirection: 'column', maxHeight: '90vh',
@@ -121,7 +122,7 @@ function EditorPlantillaModal({ template, sedeEjemplo, campNombre, onClose, onGu
         <ModalHeader
           title="Editar plantilla del email"
           sub={<>Placeholders: <code>{'{{saludo}}'}</code> <code>{'{{fecha}}'}</code> <code>{'{{tabla}}'}</code></>}
-          onClose={onClose}
+          onClose={requestClose}
         />
 
         <div style={{ flex: 1, overflow: 'auto', display: 'flex', gap: 0 }}>
@@ -153,10 +154,10 @@ function EditorPlantillaModal({ template, sedeEjemplo, campNombre, onClose, onGu
 
         <div style={{ padding: '14px 20px', borderTop: `1px solid ${C.rule}`, display: 'flex', gap: 8, justifyContent: 'flex-end', flexShrink: 0 }}>
           {error && <div style={{ color: C.crimson, fontSize: 12, marginRight: 'auto', alignSelf: 'center' }}>❌ {error}</div>}
-          <button onClick={onClose} disabled={guardando} style={{ padding: '9px 16px', borderRadius: 2, fontSize: 13, fontWeight: 600, background: C.paper, color: C.inkSoft, border: `1px solid ${C.rule}`, cursor: 'pointer', fontFamily: F.body }}>
+          <button onClick={requestClose} disabled={guardando} className="btn-press" style={{ padding: '9px 16px', borderRadius: 2, fontSize: 13, fontWeight: 600, background: C.paper, color: C.inkSoft, border: `1px solid ${C.rule}`, cursor: 'pointer', fontFamily: F.body }}>
             Cancelar
           </button>
-          <button onClick={handleGuardar} disabled={guardando} style={{
+          <button onClick={handleGuardar} disabled={guardando} className="btn-press" style={{
             padding: '9px 20px', borderRadius: 2, fontSize: 13, fontWeight: 600, fontFamily: F.body,
             background: C.ink, color: '#fff', border: 'none', cursor: 'pointer', opacity: guardando ? 0.6 : 1,
           }}>
@@ -193,26 +194,27 @@ function TooltipHelp({ text }) {
 // Modal preview de email por sede
 function PreviewModal({ sede, campNombre, template, onClose, onSend }) {
   const [enviando, setEnviando] = useState(false)
+  const [closing, requestClose] = useClosingTransition(onClose)
   const htmlBase = buildEmailHTML(sede, campNombre, template)
 
   const handleSend = async () => {
     setEnviando(true)
     await onSend(sede, null)
     setEnviando(false)
-    onClose()
+    requestClose()
   }
 
   return (
-    <div style={{
+    <div className={`modal-overlay ${closing ? 'modal-closing' : ''}`} style={{
       position: 'fixed', inset: 0, background: 'rgba(23,35,63,.6)',
       zIndex: 9500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
     }}>
-      <div style={{
+      <div className={`modal-panel ${closing ? 'modal-closing' : ''}`} style={{
         background: C.paperRaised, borderRadius: 3, width: '100%', maxWidth: 620,
         overflow: 'hidden', boxShadow: '0 24px 64px rgba(0,0,0,.35)',
         display: 'flex', flexDirection: 'column', maxHeight: '90vh',
       }}>
-        <ModalHeader title="Vista previa del email" sub={`${sede.sede} · ${sede.email}`} onClose={onClose} />
+        <ModalHeader title="Vista previa del email" sub={`${sede.sede} · ${sede.email}`} onClose={requestClose} />
 
         {/* KPIs rápidos */}
         <div style={{ display: 'flex', borderBottom: `1px solid ${C.rule}`, flexShrink: 0 }}>
@@ -240,10 +242,10 @@ function PreviewModal({ sede, campNombre, template, onClose, onSend }) {
           padding: '12px 20px', borderTop: `1px solid ${C.rule}`,
           display: 'flex', gap: 8, justifyContent: 'flex-end', flexShrink: 0,
         }}>
-          <button onClick={onClose} style={{ padding: '9px 16px', borderRadius: 2, fontSize: 13, fontWeight: 600, background: C.paper, color: C.inkSoft, border: `1px solid ${C.rule}`, cursor: 'pointer', fontFamily: F.body }}>
+          <button onClick={requestClose} className="btn-press" style={{ padding: '9px 16px', borderRadius: 2, fontSize: 13, fontWeight: 600, background: C.paper, color: C.inkSoft, border: `1px solid ${C.rule}`, cursor: 'pointer', fontFamily: F.body }}>
             Cancelar
           </button>
-          <button onClick={handleSend} disabled={enviando} style={{
+          <button onClick={handleSend} disabled={enviando} className="btn-press" style={{
             padding: '9px 20px', borderRadius: 2, fontSize: 13, fontWeight: 600, fontFamily: F.body,
             background: C.crimson, color: '#fff', border: 'none',
             cursor: enviando ? 'not-allowed' : 'pointer', opacity: enviando ? 0.7 : 1,
@@ -257,10 +259,11 @@ function PreviewModal({ sede, campNombre, template, onClose, onSend }) {
 }
 
 function ConfirmModal({ tono = 'crimson', title, sub, items, footNote, onClose, onConfirm, confirmLabel }) {
+  const [closing, requestClose] = useClosingTransition(onClose)
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(23,35,63,.6)', zIndex: 9500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-      <div style={{ background: C.paperRaised, borderRadius: 3, width: '100%', maxWidth: 480, overflow: 'hidden', boxShadow: '0 24px 64px rgba(0,0,0,.35)' }}>
-        <ModalHeader title={title} sub={sub} onClose={onClose} tone={tono} />
+    <div className={`modal-overlay ${closing ? 'modal-closing' : ''}`} style={{ position: 'fixed', inset: 0, background: 'rgba(23,35,63,.6)', zIndex: 9500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div className={`modal-panel ${closing ? 'modal-closing' : ''}`} style={{ background: C.paperRaised, borderRadius: 3, width: '100%', maxWidth: 480, overflow: 'hidden', boxShadow: '0 24px 64px rgba(0,0,0,.35)' }}>
+        <ModalHeader title={title} sub={sub} onClose={requestClose} tone={tono} />
         <div style={{ padding: 20 }}>
           <div style={{ maxHeight: 200, overflowY: 'auto', marginBottom: 12, border: `1px solid ${C.rule}` }}>
             {items.map(d => (
@@ -274,8 +277,8 @@ function ConfirmModal({ tono = 'crimson', title, sub, items, footNote, onClose, 
             {footNote}
           </div>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 2, fontSize: 13, fontWeight: 600, background: C.paper, color: C.inkSoft, border: `1px solid ${C.rule}`, cursor: 'pointer', fontFamily: F.body }}>Cancelar</button>
-            <button onClick={onConfirm} style={{ padding: '9px 20px', borderRadius: 2, fontSize: 13, fontWeight: 600, fontFamily: F.body, background: tono === 'crimson' ? C.crimson : C.ink, color: '#fff', border: 'none', cursor: 'pointer' }}>
+            <button onClick={requestClose} className="btn-press" style={{ padding: '9px 18px', borderRadius: 2, fontSize: 13, fontWeight: 600, background: C.paper, color: C.inkSoft, border: `1px solid ${C.rule}`, cursor: 'pointer', fontFamily: F.body }}>Cancelar</button>
+            <button onClick={onConfirm} className="btn-press" style={{ padding: '9px 20px', borderRadius: 2, fontSize: 13, fontWeight: 600, fontFamily: F.body, background: tono === 'crimson' ? C.crimson : C.ink, color: '#fff', border: 'none', cursor: 'pointer' }}>
               {confirmLabel}
             </button>
           </div>

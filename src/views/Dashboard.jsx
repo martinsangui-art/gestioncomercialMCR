@@ -89,7 +89,7 @@ function StatCard({ label, value, color, sub, delay = 0 }) {
   const animated = useCountUp(typeof value === 'number' ? value : 0, 800)
   const display = typeof value === 'number' ? animated : value
   return (
-    <div className="animate-fadeUp" style={{ animationDelay: `${delay}ms`, ...panel({ padding: '15px 18px' }) }}>
+    <div className="animate-fadeUp card-hover" style={{ animationDelay: `${delay}ms`, ...panel({ padding: '15px 18px' }) }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
         <span style={{ width: 6, height: 6, background: color, flexShrink: 0 }} />
         <div style={{

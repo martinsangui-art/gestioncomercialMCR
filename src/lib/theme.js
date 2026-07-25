@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 // ── Sistema de diseño "Libro de registro" ───────────────────────────────────
 // UCASAL gestiona un registro de inscripciones: cupos, cortes semanales,
 // sedes. La identidad visual toma eso literalmente — un libro de actas
@@ -38,4 +40,18 @@ export const ledgerRule = {
   height: 1,
   background: `linear-gradient(90deg, ${C.ink} 0%, ${C.ink} 40%, ${C.crimson} 100%)`,
   opacity: 0.8,
+}
+
+// Da a cualquier modal una salida animada de verdad: en vez de desmontarse
+// de golpe al tocar "cerrar", entra en estado "closing" (dispara la clase
+// .modal-closing) y recién después de que termine la transición se llama al
+// onClose real que lo saca del árbol. Ver .modal-overlay/.modal-panel en
+// index.css.
+export function useClosingTransition(onClose, duration = 170) {
+  const [closing, setClosing] = useState(false)
+  const requestClose = () => {
+    setClosing(true)
+    setTimeout(onClose, duration)
+  }
+  return [closing, requestClose]
 }

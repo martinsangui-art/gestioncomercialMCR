@@ -28,8 +28,8 @@
 /* Scrollbar minimalista */
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 2px; }
-::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+::-webkit-scrollbar-thumb { background: #DCD4BE; border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: #A9812E; }
 
 /* Animaciones */
 @keyframes fadeUp {
@@ -49,9 +49,37 @@
   50% { opacity: 0.4; }
 }
 
+/* Transición al cambiar de sección (Dashboard → Sedes → Historial → Envío) —
+   entra con una leve subida + fade, para que la navegación se sienta como un
+   cambio de página real y no un corte instantáneo. */
+@keyframes viewEnter {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.view-enter { animation: viewEnter 0.28s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+/* Modales: entrada con escala + fade; la salida la controla cada componente
+   agregando .modal-closing (ver useClosingTransition en theme.js) */
+@keyframes modalOverlayIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes modalPanelIn {
+  from { opacity: 0; transform: scale(0.96) translateY(6px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+.modal-overlay { animation: modalOverlayIn 0.16s ease both; transition: opacity 0.16s ease; }
+.modal-panel { animation: modalPanelIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) both; transition: opacity 0.16s ease, transform 0.16s ease; }
+.modal-overlay.modal-closing { opacity: 0; }
+.modal-panel.modal-closing { opacity: 0; transform: scale(0.97) translateY(4px); }
+
 .animate-fadeUp { animation: fadeUp 0.3s ease both; }
 .animate-fadeIn { animation: fadeIn 0.2s ease both; }
 .animate-slideIn { animation: slideIn 0.25s ease both; }
+
+/* Micro-interacciones: botones responden al toque, paneles se levantan al pasar el mouse */
+.btn-press { transition: transform 0.12s ease, opacity 0.12s ease, background 0.15s ease, color 0.15s ease, border-color 0.15s ease; }
+.btn-press:active { transform: scale(0.96); }
+
+.card-hover { transition: transform 0.18s cubic-bezier(0.16,1,0.3,1), box-shadow 0.18s ease, border-color 0.18s ease; }
+.card-hover:hover { transform: translateY(-2px); box-shadow: 0 10px 24px -14px rgba(23,35,63,0.35); border-color: #A9812E55; }
 
 /* Stagger delays para listas */
 .stagger-1 { animation-delay: 0.05s; }
