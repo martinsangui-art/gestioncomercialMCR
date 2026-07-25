@@ -165,11 +165,40 @@ function doPost(e) {
     if (action === 'agregar_semana') return ok(agregarSemana(body));
     if (action === 'eliminar_corte') return ok(eliminarCorte(body));
     if (action === 'set_password') return ok(setPassword(body));
+    if (action === 'corregir_log_envios') return ok(corregirLogEnvios(body));
 
     return err('action no reconocida: ' + action);
   } catch(ex) {
     return err(ex.message);
   }
+}
+
+// Corrige filas de log_envios marcadas 'enviado' que en realidad fallaron
+// (ej: escenario de Make caído silenciosamente) — las pasa a 'error' para
+// que la app las vuelva a mostrar como pendientes de envío.
+function corregirLogEnvios(body) {
+  var fecha = body.fecha;
+  var campanaNombre = body.campana_nombre || null;
+  if (!fecha) throw new Error('Falta fecha');
+
+  var h = getLogSheet();
+  var allRows = h.getDataRange().getValues();
+  var corregidas = 0;
+  for (var i = 1; i < allRows.length; i++) {
+    var rowFecha = allRows[i][0];
+    if (rowFecha instanceof Date) {
+      rowFecha = Utilities.formatDate(rowFecha, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    }
+    rowFecha = String(rowFecha);
+    var rowCampana = String(allRows[i][2] || '');
+    var rowEstado = String(allRows[i][6] || '');
+    if (rowFecha === fecha && rowEstado === 'enviado' && (!campanaNombre || rowCampana.indexOf(campanaNombre) >= 0)) {
+      h.getRange(i + 1, 7).setValue('error');
+      corregidas++;
+    }
+  }
+  if (corregidas) SpreadsheetApp.flush();
+  return { corregidas: corregidas };
 }
 
 // Cambia la contraseña de acceso (autenticado — requiere una sesión ya
@@ -537,9 +566,13 @@ function rowToObj(keys, row) {
   var obj = {};
   keys.forEach(function(k, i) {
     var val = row[i];
-    // Normalizar fechas a string YYYY-MM-DD
+    // Normalizar fechas a string YYYY-MM-DD — salvo la columna 'hora', que
+    // Sheets guarda como Date con fecha epoch (1899-12-30) y solo la hora
+    // importa; formatearla como fecha perdía la hora real (bug histórico).
     if (val instanceof Date) {
-      val = Utilities.formatDate(val, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+      val = (k === 'hora')
+        ? Utilities.formatDate(val, Session.getScriptTimeZone(), 'HH:mm:ss')
+        : Utilities.formatDate(val, Session.getScriptTimeZone(), 'yyyy-MM-dd');
     }
     obj[k] = val;
   });

@@ -161,6 +161,8 @@ export default function Envio({ data, copied, onCopied, campanas, campanaActiva,
   const [enviando, setEnviando] = useState(false)
   const [progreso, setProgreso] = useState(0)
   const [modalConfirm, setModalConfirm] = useState(false)
+  const [modalConfirmReenvio, setModalConfirmReenvio] = useState(false)
+  const [reenviando, setReenviando] = useState({})
   const [previewSede, setPreviewSede] = useState(null)
   const [mostrarNueva, setMostrarNueva] = useState(false)
   const [nuevaFecha, setNuevaFecha] = useState(new Date().toISOString().slice(0,10))
@@ -238,15 +240,30 @@ export default function Envio({ data, copied, onCopied, campanas, campanaActiva,
     enviarResumenCele(campNom, fecha, [{ sede: d.sede, email: d.email, estado: 'enviado' }]).catch(() => {})
   }
 
-  const enviarTodos = async () => {
+  // Reenvío individual de una sede ya marcada como enviada — no toca la
+  // selección ni el log grande, solo un indicador puntual en ese chip.
+  const reenviarUno = async (d) => {
+    setReenviando(prev => ({ ...prev, [d.cod_sede]: true }))
+    try {
+      await enviarUno(d)
+      addLog(`✓ ${d.sede} (reenviado)`, 'ok')
+    } catch {
+      addLog(`✗ Error al reenviar ${d.sede}`, 'error')
+    }
+    setReenviando(prev => ({ ...prev, [d.cod_sede]: false }))
+  }
+
+  // Envío en lote reutilizado tanto para "Enviar pendientes" como para
+  // "Reenviar todas" — misma lógica, distinta lista de entrada.
+  const enviarLote = async (lista, { esReenvio = false } = {}) => {
     setEnviando(true); setLog([]); setProgreso(0)
-    addLog(`Iniciando envío de ${aEnviar.length} emails…`, 'info')
+    addLog(`${esReenvio ? 'Reenviando' : 'Iniciando envío de'} ${lista.length} emails…`, 'info')
     const resumenItems = []
     const campNom = camp?.nombre || ''
-    const fechaRef = aEnviar[0]?.fecha || new Date().toISOString().slice(0,10)
+    const fechaRef = lista[0]?.fecha || new Date().toISOString().slice(0,10)
 
-    for (let i = 0; i < aEnviar.length; i++) {
-      const d = aEnviar[i]
+    for (let i = 0; i < lista.length; i++) {
+      const d = lista[i]
       try {
         const htmlRich = buildEmailHTML(d, campNom)
         await enviarEmailViaScript({
@@ -254,19 +271,22 @@ export default function Envio({ data, copied, onCopied, campanas, campanaActiva,
           html: htmlRich, sede: d.sede, cod: String(d.cod_sede), fecha: d.fecha || fechaRef, campana: campNom,
         })
         onCopied(d.cod_sede)
-        addLog(`✓ ${d.sede}`, 'ok')
+        addLog(`✓ ${d.sede}${esReenvio ? ' (reenviado)' : ''}`, 'ok')
         resumenItems.push({ sede: d.sede, email: d.email, estado: 'enviado' })
       } catch {
         addLog(`✗ Error en ${d.sede}`, 'error')
         resumenItems.push({ sede: d.sede, email: d.email, estado: 'error' })
       }
-      setProgreso(Math.round((i + 1) / aEnviar.length * 100))
+      setProgreso(Math.round((i + 1) / lista.length * 100))
     }
-    addLog(`Listo. ${aEnviar.length} emails procesados.`, 'ok')
+    addLog(`Listo. ${lista.length} emails procesados.`, 'ok')
     setEnviando(false); setSeleccion({})
     // Un solo resumen consolidado a Cele con toda la tanda
     enviarResumenCele(campNom, fechaRef, resumenItems).catch(() => {})
   }
+
+  const enviarTodos = () => enviarLote(aEnviar)
+  const reenviarTodos = () => enviarLote(enviadas, { esReenvio: true })
 
   const handleGuardar = async (reemplazar = false) => {
     if (!nuevaFecha) return
@@ -433,13 +453,42 @@ export default function Envio({ data, copied, onCopied, campanas, campanaActiva,
 
           {enviadas.length > 0 && (
             <div style={{ padding: '12px 24px', borderTop: '1px solid #f1f5f9' }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#059669', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
-                ✓ Enviadas esta sesión
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#059669', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  ✓ Enviadas esta sesión
+                </div>
+                <TooltipHelp text="Por si el envío falló en el medio (ej: el escenario de Make estaba caído) y hay que mandarlos de nuevo." />
+                <div style={{ flex: 1 }} />
+                {!enviando && (
+                  <button onClick={() => setModalConfirmReenvio(true)} style={{
+                    fontSize: 11, fontWeight: 700, color: '#1B2A6B', background: '#eef0f8',
+                    border: '1px solid #b8c0e0', borderRadius: 20, padding: '4px 12px', cursor: 'pointer',
+                  }}>
+                    🔄 Reenviar todas ({enviadas.length})
+                  </button>
+                )}
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {enviadas.map(d => (
-                  <span key={d.cod_sede} style={{ fontSize: 11, background: '#ecfdf5', color: '#059669', border: '1px solid #6ee7b7', padding: '3px 10px', borderRadius: 20, fontWeight: 600 }}>
+                  <span key={d.cod_sede} style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11,
+                    background: '#ecfdf5', color: '#059669', border: '1px solid #6ee7b7',
+                    padding: '3px 6px 3px 10px', borderRadius: 20, fontWeight: 600,
+                  }}>
                     ✓ {d.sede}
+                    <button
+                      onClick={() => reenviarUno(d)}
+                      disabled={!!reenviando[d.cod_sede]}
+                      title="Reenviar este email"
+                      style={{
+                        border: 'none', background: 'rgba(5,150,105,0.12)', color: '#059669',
+                        borderRadius: '50%', width: 16, height: 16, fontSize: 9, lineHeight: 1,
+                        cursor: reenviando[d.cod_sede] ? 'wait' : 'pointer', display: 'flex',
+                        alignItems: 'center', justifyContent: 'center', flexShrink: 0, padding: 0,
+                      }}
+                    >
+                      {reenviando[d.cod_sede] ? '…' : '🔄'}
+                    </button>
                   </span>
                 ))}
               </div>
@@ -639,6 +688,40 @@ export default function Envio({ data, copied, onCopied, campanas, campanaActiva,
                 <button onClick={() => setModalConfirm(false)} style={{ padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600, background: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0', cursor: 'pointer' }}>Cancelar</button>
                 <button onClick={() => { setModalConfirm(false); enviarTodos() }} style={{ padding: '9px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700, background: 'linear-gradient(135deg,#C8102E,#9b0d23)', color: '#fff', border: 'none', cursor: 'pointer' }}>
                   ✅ Confirmar y enviar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal confirmación de reenvío masivo */}
+      {modalConfirmReenvio && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', zIndex: 9500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 480, overflow: 'hidden', boxShadow: '0 24px 64px rgba(0,0,0,.3)' }}>
+            <div style={{ background: 'linear-gradient(135deg,#1B2A6B,#0f1d4a)', padding: '18px 22px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ color: '#fff', fontWeight: 700, fontSize: 16 }}>🔄 Confirmar reenvío</div>
+                <div style={{ color: 'rgba(255,255,255,.65)', fontSize: 11, marginTop: 4 }}>{enviadas.length} emails ya marcados como enviados</div>
+              </div>
+              <button onClick={() => setModalConfirmReenvio(false)} style={{ background: 'rgba(255,255,255,.15)', border: 'none', color: '#fff', width: 28, height: 28, borderRadius: '50%', cursor: 'pointer', fontSize: 14 }}>✕</button>
+            </div>
+            <div style={{ padding: 20 }}>
+              <div style={{ maxHeight: 200, overflowY: 'auto', marginBottom: 12, border: '1px solid #e2e8f0', borderRadius: 8 }}>
+                {enviadas.map(d => (
+                  <div key={d.cod_sede} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 14px', borderBottom: '1px solid #f1f5f9', fontSize: 13 }}>
+                    <span style={{ fontWeight: 500 }}>{d.sede}</span>
+                    <span style={{ color: '#94a3b8', fontSize: 12 }}>{d.email}</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 16 }}>
+                💡 Usalo solo si sabés que el envío anterior no llegó de verdad (ej: el escenario de Make estaba caído). Las sedes que ya recibieron el mail van a recibirlo de nuevo.
+              </div>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button onClick={() => setModalConfirmReenvio(false)} style={{ padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600, background: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0', cursor: 'pointer' }}>Cancelar</button>
+                <button onClick={() => { setModalConfirmReenvio(false); reenviarTodos() }} style={{ padding: '9px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700, background: 'linear-gradient(135deg,#1B2A6B,#0f1d4a)', color: '#fff', border: 'none', cursor: 'pointer' }}>
+                  ✅ Confirmar y reenviar
                 </button>
               </div>
             </div>
