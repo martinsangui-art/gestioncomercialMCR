@@ -52,11 +52,15 @@
 /* Transición al cambiar de sección (Dashboard → Sedes → Historial → Envío) —
    entra con una leve subida + fade, para que la navegación se sienta como un
    cambio de página real y no un corte instantáneo. */
+/* OJO: nunca usar `transform` acá — cualquier transform en un ancestor de un
+   modal lo convierte en "containing block" y rompe el position:fixed de los
+   modales (les pasó exactamente eso la primera vez). Solo opacity + margin,
+   que no tienen ese efecto. */
 @keyframes viewEnter {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; margin-top: 6px; }
+  to   { opacity: 1; margin-top: 0; }
 }
-.view-enter { animation: viewEnter 0.28s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.view-enter { animation: viewEnter 0.28s cubic-bezier(0.16, 1, 0.3, 1); }
 
 /* Modales: entrada con escala + fade; la salida la controla cada componente
    agregando .modal-closing (ver useClosingTransition en theme.js) */
