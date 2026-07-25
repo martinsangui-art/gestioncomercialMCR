@@ -105,8 +105,9 @@ export default function Sidebar({ view, onView, campanaActiva, campanas, onCampa
       <nav className="flex-1" style={{ padding: '10px 0', position: 'relative' }}>
         {/* Indicador que se desliza al cambiar de sección, en vez de un borde estático por ítem */}
         <div style={{
-          position: 'absolute', left: 0, top: 10 + activeIndex * ITEM_H, width: 3, height: ITEM_H,
-          background: C.crimson, transition: 'top 0.25s cubic-bezier(0.4,0,0.2,1)',
+          position: 'absolute', left: 0, top: 10 + activeIndex * ITEM_H, width: 4, height: ITEM_H,
+          background: C.crimson, boxShadow: `0 0 10px 0 ${C.crimson}99`,
+          transition: 'top 0.32s cubic-bezier(0.4,0,0.2,1)',
         }} />
         {NAV.map(item => {
           const active = view === item.id
@@ -129,7 +130,14 @@ export default function Sidebar({ view, onView, campanaActiva, campanas, onCampa
                   transition: 'background 0.15s ease',
                 }}
               >
-                <Icon color={active ? '#e8828a' : 'rgba(255,255,255,0.45)'} />
+                <span style={{
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                  width: 30, height: 30, borderRadius: 7,
+                  background: active ? 'rgba(156,43,52,0.28)' : hovered === item.id ? 'rgba(255,255,255,0.07)' : 'transparent',
+                  transition: 'background 0.2s cubic-bezier(0.4,0,0.2,1)',
+                }}>
+                  <Icon color={active ? '#e8828a' : 'rgba(255,255,255,0.48)'} strokeWidth={active ? 2.1 : 1.7} />
+                </span>
                 <Collapsible show={expanded} maxHeight={30}>
                   <span style={{
                     fontFamily: F.body, fontSize: 13.5, fontWeight: active ? 600 : 500, whiteSpace: 'nowrap',

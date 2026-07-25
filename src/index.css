@@ -50,40 +50,45 @@
 }
 
 /* Transición al cambiar de sección (Dashboard → Sedes → Historial → Envío) —
-   entra con una leve subida + fade, para que la navegación se sienta como un
-   cambio de página real y no un corte instantáneo. */
-/* OJO: nunca usar `transform` acá — cualquier transform en un ancestor de un
-   modal lo convierte en "containing block" y rompe el position:fixed de los
-   modales (les pasó exactamente eso la primera vez). Solo opacity + margin,
-   que no tienen ese efecto. */
+   la sección se "descorre" desde abajo, tipo página que se asienta, para que
+   la navegación se sienta como un cambio de pantalla real y no un parpadeo. */
+/* OJO: nunca usar `transform` ni `filter` acá — cualquier transform/filter en
+   un ancestor de un modal lo convierte en "containing block" y rompe el
+   position:fixed de los modales (les pasó exactamente eso la primera vez).
+   `clip-path` + opacity + margin no tienen ese efecto secundario. */
 @keyframes viewEnter {
-  from { opacity: 0; margin-top: 6px; }
-  to   { opacity: 1; margin-top: 0; }
+  0%   { opacity: 0; margin-top: 20px; clip-path: inset(0 0 8% 0); }
+  100% { opacity: 1; margin-top: 0;    clip-path: inset(0 0 0% 0); }
 }
-.view-enter { animation: viewEnter 0.28s cubic-bezier(0.16, 1, 0.3, 1); }
+.view-enter { animation: viewEnter 0.46s cubic-bezier(0.16, 1, 0.3, 1); }
 
-/* Modales: entrada con escala + fade; la salida la controla cada componente
-   agregando .modal-closing (ver useClosingTransition en theme.js) */
-@keyframes modalOverlayIn { from { opacity: 0; } to { opacity: 1; } }
+/* Modales: entrada marcada — escala de más lejos + leve giro al asentarse,
+   y el fondo se desenfoca para separar el modal del resto de la app. La
+   salida la controla cada componente agregando .modal-closing (ver
+   useClosingTransition en theme.js). */
+@keyframes modalOverlayIn { from { opacity: 0; backdrop-filter: blur(0px); } to { opacity: 1; backdrop-filter: blur(3px); } }
 @keyframes modalPanelIn {
-  from { opacity: 0; transform: scale(0.96) translateY(6px); }
-  to   { opacity: 1; transform: scale(1) translateY(0); }
+  0%   { opacity: 0; transform: scale(0.88) translateY(22px) rotate(-0.6deg); }
+  60%  { opacity: 1; transform: scale(1.015) translateY(-2px) rotate(0deg); }
+  100% { opacity: 1; transform: scale(1) translateY(0) rotate(0deg); }
 }
-.modal-overlay { animation: modalOverlayIn 0.16s ease both; transition: opacity 0.16s ease; }
-.modal-panel { animation: modalPanelIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) both; transition: opacity 0.16s ease, transform 0.16s ease; }
-.modal-overlay.modal-closing { opacity: 0; }
-.modal-panel.modal-closing { opacity: 0; transform: scale(0.97) translateY(4px); }
+.modal-overlay { animation: modalOverlayIn 0.22s ease both; transition: opacity 0.2s ease, backdrop-filter 0.2s ease; }
+.modal-panel { animation: modalPanelIn 0.36s cubic-bezier(0.2, 0.9, 0.25, 1) both; transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.4,0,0.2,1); }
+.modal-overlay.modal-closing { opacity: 0; backdrop-filter: blur(0px); }
+.modal-panel.modal-closing { opacity: 0; transform: scale(0.92) translateY(10px); }
 
 .animate-fadeUp { animation: fadeUp 0.3s ease both; }
 .animate-fadeIn { animation: fadeIn 0.2s ease both; }
 .animate-slideIn { animation: slideIn 0.25s ease both; }
 
-/* Micro-interacciones: botones responden al toque, paneles se levantan al pasar el mouse */
-.btn-press { transition: transform 0.12s ease, opacity 0.12s ease, background 0.15s ease, color 0.15s ease, border-color 0.15s ease; }
-.btn-press:active { transform: scale(0.96); }
+/* Micro-interacciones: botones responden al toque con más contundencia,
+   paneles se levantan bien al pasar el mouse */
+.btn-press { transition: transform 0.14s cubic-bezier(0.4,0,0.2,1), opacity 0.12s ease, background 0.15s ease, color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease; }
+.btn-press:active { transform: scale(0.91); }
+.btn-press:hover { box-shadow: 0 3px 10px -4px rgba(23,35,63,0.4); }
 
-.card-hover { transition: transform 0.18s cubic-bezier(0.16,1,0.3,1), box-shadow 0.18s ease, border-color 0.18s ease; }
-.card-hover:hover { transform: translateY(-2px); box-shadow: 0 10px 24px -14px rgba(23,35,63,0.35); border-color: #A9812E55; }
+.card-hover { transition: transform 0.22s cubic-bezier(0.16,1,0.3,1), box-shadow 0.22s ease, border-color 0.22s ease; }
+.card-hover:hover { transform: translateY(-5px); box-shadow: 0 18px 36px -16px rgba(23,35,63,0.45); border-color: #A9812E88; }
 
 /* Stagger delays para listas */
 .stagger-1 { animation-delay: 0.05s; }

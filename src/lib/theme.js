@@ -47,7 +47,7 @@ export const ledgerRule = {
 // .modal-closing) y recién después de que termine la transición se llama al
 // onClose real que lo saca del árbol. Ver .modal-overlay/.modal-panel en
 // index.css.
-export function useClosingTransition(onClose, duration = 170) {
+export function useClosingTransition(onClose, duration = 200) {
   const [closing, setClosing] = useState(false)
   const requestClose = () => {
     setClosing(true)

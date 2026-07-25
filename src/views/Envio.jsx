@@ -77,6 +77,51 @@ function buildEmailHTML(d, campNombre, template) {
   })
 }
 
+// Convierte **texto** a <strong>texto</strong> — la única marca que alguien
+// sin HTML necesita para resaltar algo en el mail — y su inversa, para poder
+// mostrar de nuevo una plantilla guardada como texto editable.
+const mdBoldToHtml = (s) => s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+const htmlStrongToMd = (s) => s.replace(/<strong>([\s\S]*?)<\/strong>/g, '**$1**')
+
+const CAMPOS_PLANTILLA_DEFAULT = {
+  intro: 'Enviamos el resultado del **cómo vamos** al {{fecha}}',
+  cierre: 'Quedamos a disposición para cualquier consulta o duda que puedas tener.',
+  despedida: 'Feliz fin de semana.\nSaludos!',
+}
+
+// Arma el HTML final a partir de 3 campos de texto plano — quien edita el
+// mail no necesita ver nunca una etiqueta HTML ni los placeholders
+// {{saludo}}/{{tabla}}, que son siempre automáticos.
+function buildTemplateFromFields({ intro, cierre, despedida }) {
+  const introHtml = mdBoldToHtml(esc(intro))
+  const cierreHtml = mdBoldToHtml(esc(cierre))
+  const despedidaHtml = mdBoldToHtml(esc(despedida)).replace(/\n/g, '<br>')
+  return `<p>{{saludo}}:</p>
+<p style="margin-top:6px">${introHtml}</p>
+{{tabla}}
+<p style="margin-top:8px">${cierreHtml}</p>
+<p style="margin-top:10px">${despedidaHtml}</p>`
+}
+
+// Intenta separar una plantilla HTML guardada en los 3 campos del editor
+// simple. Si no calza con esa forma (alguien la customizó a mano con otra
+// estructura en modo avanzado), devuelve null y el editor abre en avanzado
+// para no pisar nada.
+function parseTemplateToFields(template) {
+  const re = /^<p>\{\{saludo\}\}:<\/p>\s*<p[^>]*>([\s\S]*?)<\/p>\s*\{\{tabla\}\}\s*<p[^>]*>([\s\S]*?)<\/p>\s*<p[^>]*>([\s\S]*?)<\/p>\s*$/
+  const m = String(template ?? '').trim().match(re)
+  if (!m) return null
+  return {
+    intro: htmlStrongToMd(m[1]).trim(),
+    cierre: htmlStrongToMd(m[2]).trim(),
+    despedida: htmlStrongToMd(m[3]).replace(/<br\s*\/?>/gi, '\n').trim(),
+  }
+}
+
+const campoLabelStyle = { display: 'block', fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6, fontFamily: F.mono }
+const campoFieldStyle = { width: '100%', padding: '10px 12px', border: `1px solid ${C.rule}`, borderRadius: 2, fontSize: 13, fontFamily: F.body, lineHeight: 1.5, resize: 'vertical' }
+const linkBtnStyle = { fontSize: 11, color: C.inkSoft, fontFamily: F.body, background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0 }
+
 function ModalHeader({ title, sub, onClose, tone = 'ink' }) {
   const bg = tone === 'crimson' ? C.crimson : C.ink
   return (
@@ -90,24 +135,45 @@ function ModalHeader({ title, sub, onClose, tone = 'ink' }) {
   )
 }
 
-// Editor de la plantilla del email — placeholders: {{saludo}} {{fecha}} {{tabla}}
+// Editor de la plantilla del email. Por defecto, 3 campos de texto plano sin
+// ninguna etiqueta HTML a la vista — el saludo y la tabla de resultados se
+// arman solos. Si la plantilla guardada ya tenía HTML propio que no calza
+// con esa forma (editado antes a mano en modo avanzado), abre directo en
+// avanzado para no pisar nada.
 function EditorPlantillaModal({ template, sedeEjemplo, campNombre, onClose, onGuardado }) {
+  const camposIniciales = parseTemplateToFields(template)
+  const [modo, setModo] = useState(camposIniciales ? 'simple' : 'avanzado')
+  const [campos, setCampos] = useState(camposIniciales || CAMPOS_PLANTILLA_DEFAULT)
   const [texto, setTexto] = useState(template)
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState(null)
   const [closing, requestClose] = useClosingTransition(onClose)
 
+  const textoFinal = modo === 'simple' ? buildTemplateFromFields(campos) : texto
+
   const handleGuardar = async () => {
     setGuardando(true); setError(null)
     try {
-      await guardarConfig({ EMAIL_TEMPLATE: texto })
-      onGuardado(texto)
+      await guardarConfig({ EMAIL_TEMPLATE: textoFinal })
+      onGuardado(textoFinal)
       requestClose()
     } catch (e) { setError(e.message) }
     setGuardando(false)
   }
 
-  const preview = sedeEjemplo ? buildEmailHTML(sedeEjemplo, campNombre, texto) : ''
+  const handleRestaurar = () => {
+    setCampos(CAMPOS_PLANTILLA_DEFAULT)
+    setTexto(DEFAULT_TEMPLATE)
+  }
+
+  const irAAvanzado = () => { setTexto(textoFinal); setError(null); setModo('avanzado') }
+  const irASimple = () => {
+    const parsed = parseTemplateToFields(texto)
+    if (parsed) { setCampos(parsed); setError(null); setModo('simple') }
+    else setError('Este HTML tiene una estructura personalizada — no se puede pasar al editor simple sin perder cambios. Podés seguir en modo avanzado.')
+  }
+
+  const preview = sedeEjemplo ? buildEmailHTML(sedeEjemplo, campNombre, textoFinal) : ''
 
   return (
     <div className={`modal-overlay ${closing ? 'modal-closing' : ''}`} style={{
@@ -121,23 +187,48 @@ function EditorPlantillaModal({ template, sedeEjemplo, campNombre, onClose, onGu
       }}>
         <ModalHeader
           title="Editar plantilla del email"
-          sub={<>Placeholders: <code>{'{{saludo}}'}</code> <code>{'{{fecha}}'}</code> <code>{'{{tabla}}'}</code></>}
+          sub={modo === 'simple'
+            ? 'El saludo y la tabla de resultados se arman solos — acá se edita el texto del mensaje'
+            : <>Placeholders: <code>{'{{saludo}}'}</code> <code>{'{{fecha}}'}</code> <code>{'{{tabla}}'}</code></>}
           onClose={requestClose}
         />
 
         <div style={{ flex: 1, overflow: 'auto', display: 'flex', gap: 0 }}>
-          <div style={{ flex: 1, padding: '16px 20px', borderRight: `1px solid ${C.rule}`, display: 'flex', flexDirection: 'column' }}>
-            <div style={{ fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8, fontFamily: F.mono }}>HTML de la plantilla</div>
-            <textarea value={texto} onChange={e => setTexto(e.target.value)} spellCheck={false} style={{
-              flex: 1, minHeight: 320, padding: 12, border: `1px solid ${C.rule}`, borderRadius: 2,
-              fontSize: 12, fontFamily: F.mono, lineHeight: 1.6, resize: 'vertical',
-            }} />
-            <button onClick={() => setTexto(DEFAULT_TEMPLATE)} style={{
-              marginTop: 8, alignSelf: 'flex-start', fontSize: 11, color: C.inkSoft, fontFamily: F.body,
-              background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline',
-            }}>
-              Restaurar plantilla predeterminada
-            </button>
+          <div style={{ flex: 1, padding: '16px 20px', borderRight: `1px solid ${C.rule}`, display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {modo === 'simple' ? (
+              <>
+                <div>
+                  <label style={campoLabelStyle}>
+                    Introducción <span style={{ textTransform: 'none', fontWeight: 400, letterSpacing: 0 }}>· podés usar {'{{fecha}}'} y **negrita**</span>
+                  </label>
+                  <textarea value={campos.intro} onChange={e => setCampos(c => ({ ...c, intro: e.target.value }))} rows={3} style={campoFieldStyle} />
+                </div>
+                <div>
+                  <label style={campoLabelStyle}>Mensaje de cierre</label>
+                  <textarea value={campos.cierre} onChange={e => setCampos(c => ({ ...c, cierre: e.target.value }))} rows={2} style={campoFieldStyle} />
+                </div>
+                <div>
+                  <label style={campoLabelStyle}>Despedida</label>
+                  <textarea value={campos.despedida} onChange={e => setCampos(c => ({ ...c, despedida: e.target.value }))} rows={2} style={campoFieldStyle} />
+                </div>
+                <div style={{ marginTop: 'auto', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                  <button onClick={handleRestaurar} style={linkBtnStyle}>Restaurar textos predeterminados</button>
+                  <button onClick={irAAvanzado} style={linkBtnStyle}>Editar el HTML directamente (avanzado) →</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: F.mono }}>HTML de la plantilla</div>
+                <textarea value={texto} onChange={e => setTexto(e.target.value)} spellCheck={false} style={{
+                  flex: 1, minHeight: 320, padding: 12, border: `1px solid ${C.rule}`, borderRadius: 2,
+                  fontSize: 12, fontFamily: F.mono, lineHeight: 1.6, resize: 'vertical',
+                }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                  <button onClick={handleRestaurar} style={linkBtnStyle}>Restaurar plantilla predeterminada</button>
+                  <button onClick={irASimple} style={linkBtnStyle}>← Volver al editor simple</button>
+                </div>
+              </>
+            )}
           </div>
           <div style={{ flex: 1, padding: '16px 20px', background: C.paper }}>
             <div style={{ fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8, fontFamily: F.mono }}>
@@ -153,7 +244,7 @@ function EditorPlantillaModal({ template, sedeEjemplo, campNombre, onClose, onGu
         </div>
 
         <div style={{ padding: '14px 20px', borderTop: `1px solid ${C.rule}`, display: 'flex', gap: 8, justifyContent: 'flex-end', flexShrink: 0 }}>
-          {error && <div style={{ color: C.crimson, fontSize: 12, marginRight: 'auto', alignSelf: 'center' }}>❌ {error}</div>}
+          {error && <div style={{ color: C.crimson, fontSize: 12, marginRight: 'auto', alignSelf: 'center', maxWidth: 340 }}>❌ {error}</div>}
           <button onClick={requestClose} disabled={guardando} className="btn-press" style={{ padding: '9px 16px', borderRadius: 2, fontSize: 13, fontWeight: 600, background: C.paper, color: C.inkSoft, border: `1px solid ${C.rule}`, cursor: 'pointer', fontFamily: F.body }}>
             Cancelar
           </button>
@@ -800,7 +891,7 @@ export default function Envio({ data, copied, onCopied, campanas, campanaActiva,
                   const ok = g.items.filter(it => it.estado === 'enviado').length
                   const err = g.items.filter(it => it.estado !== 'enviado').length
                   return (
-                    <div key={i} style={{ border: `1px solid ${C.rule}`, overflow: 'hidden' }}>
+                    <div key={i} style={{ border: `1px solid ${C.rule}`, overflow: 'hidden', flexShrink: 0 }}>
                       <div style={{
                         display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
                         background: C.paper,
