@@ -32,7 +32,9 @@ function ModalShell({ children, onClose, title, sub, maxWidth = 480 }) {
   )
 }
 
-function NotasSedeModal({ d, onClose }) {
+// Sección de notas de seguimiento — se usa embebida dentro del modal de
+// detalle de sede (antes vivía en su propio modal separado).
+function NotasSeccion({ d }) {
   const [notas, setNotas] = useState([])
   const [cargando, setCargando] = useState(true)
   const [nueva, setNueva] = useState('')
@@ -57,37 +59,113 @@ function NotasSedeModal({ d, onClose }) {
   }
 
   return (
-    <ModalShell onClose={onClose} title={`Notas · ${d.sede}`} sub="Seguimiento de contacto con esta sede">
-      <div style={{ flex: 1, overflow: 'auto', padding: '16px 20px' }}>
-        {cargando ? (
-          <div style={{ textAlign: 'center', padding: 20, color: C.inkSoft, fontFamily: F.body }}>Cargando…</div>
-        ) : notas.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 20, color: C.inkSoft, fontSize: 13, fontFamily: F.body }}>Todavía no hay notas para esta sede</div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {notas.map((n, i) => (
-              <div key={i} style={{ background: C.paper, border: `1px solid ${C.rule}`, padding: '10px 12px' }}>
-                <div style={{ fontSize: 10, color: C.inkSoft, marginBottom: 4, fontFamily: F.mono }}>{n.fecha}</div>
-                <div style={{ fontSize: 13, color: C.ink, fontFamily: F.body }}>{n.nota}</div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-      <div style={{ padding: '14px 20px', borderTop: `1px solid ${C.rule}`, flexShrink: 0 }}>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input value={nueva} onChange={e => setNueva(e.target.value)}
-            placeholder="Ej: hablé con Fulano, dijo que cargan el lunes…"
-            onKeyDown={e => e.key === 'Enter' && handleAgregar()}
-            style={{ flex: 1, padding: '8px 12px', border: `1px solid ${C.rule}`, borderRadius: 2, fontSize: 13, fontFamily: F.body }} />
-          <button onClick={handleAgregar} disabled={guardando} style={{
-            padding: '8px 16px', borderRadius: 2, fontSize: 13, fontWeight: 600, fontFamily: F.body,
-            background: C.ink, color: '#fff', border: 'none', cursor: 'pointer', opacity: guardando ? 0.6 : 1,
-          }}>
-            {guardando ? '…' : 'Agregar'}
-          </button>
+    <div>
+      <div style={campoLabelStyle}>Notas de seguimiento</div>
+      {cargando ? (
+        <div style={{ textAlign: 'center', padding: 16, color: C.inkSoft, fontSize: 13, fontFamily: F.body }}>Cargando…</div>
+      ) : notas.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: 16, color: C.inkSoft, fontSize: 13, fontFamily: F.body }}>Todavía no hay notas para esta sede</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 180, overflowY: 'auto', marginBottom: 10 }}>
+          {notas.map((n, i) => (
+            <div key={i} style={{ background: C.paper, border: `1px solid ${C.rule}`, padding: '9px 11px', flexShrink: 0 }}>
+              <div style={{ fontSize: 10, color: C.inkSoft, marginBottom: 3, fontFamily: F.mono }}>{n.fecha}</div>
+              <div style={{ fontSize: 13, color: C.ink, fontFamily: F.body }}>{n.nota}</div>
+            </div>
+          ))}
         </div>
-        {error && <div style={{ color: C.crimson, fontSize: 12, marginTop: 8 }}>❌ {error}</div>}
+      )}
+      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+        <input value={nueva} onChange={e => setNueva(e.target.value)}
+          placeholder="Ej: hablé con Fulano, dijo que cargan el lunes…"
+          onKeyDown={e => e.key === 'Enter' && handleAgregar()}
+          style={{ flex: 1, padding: '8px 12px', border: `1px solid ${C.rule}`, borderRadius: 2, fontSize: 13, fontFamily: F.body }} />
+        <button onClick={handleAgregar} disabled={guardando} style={{
+          padding: '8px 16px', borderRadius: 2, fontSize: 13, fontWeight: 600, fontFamily: F.body,
+          background: C.ink, color: '#fff', border: 'none', cursor: 'pointer', opacity: guardando ? 0.6 : 1,
+        }}>
+          {guardando ? '…' : 'Agregar'}
+        </button>
+      </div>
+      {error && <div style={{ color: C.crimson, fontSize: 12, marginTop: 8 }}>❌ {error}</div>}
+    </div>
+  )
+}
+
+const campoLabelStyle = { fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8, fontFamily: F.mono }
+
+function StatBox({ label, value, color }) {
+  return (
+    <div style={{ background: C.paper, border: `1px solid ${C.rule}`, padding: '10px 12px' }}>
+      <div style={{ fontSize: 10, color: C.inkSoft, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: F.mono, marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 18, fontWeight: 700, color: color || C.ink, fontFamily: F.mono }}>{value}</div>
+    </div>
+  )
+}
+
+// Modal de detalle al clickear una sede — junta todo lo relacionado a esa
+// sede en un solo lugar: estado en la campaña activa, evolución histórica de
+// esta sede puntual (filtrando el historial general) y notas de seguimiento.
+function SedeDetalleModal({ d, historial, onClose }) {
+  const est = getEstado(d)
+  const e = E[est]
+  const varTxt = d.var === null ? '—' : d.var > 0 ? `+${d.var}` : String(d.var)
+  const varColor = d.var > 0 ? C.ok : d.var < 0 ? C.danger : C.inkSoft
+
+  const evolucion = useMemo(() => {
+    return (historial || [])
+      .filter(r => String(r.cod_sede) === String(d.cod_sede))
+      .sort((a, b) => b.fecha.localeCompare(a.fecha))
+  }, [historial, d.cod_sede])
+
+  return (
+    <ModalShell onClose={onClose} title={d.sede} sub={`Cod. ${d.cod_sede} · ${d.email}`} maxWidth={560}>
+      <div style={{ flex: 1, overflow: 'auto', padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 18 }}>
+        <div>
+          <div style={campoLabelStyle}>Estado en la campaña activa</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 8 }}>
+            <StatBox label="Objetivo" value={d.objetivo} />
+            <StatBox label="Actual" value={d.total} color={C.ink} />
+            <StatBox label="Faltan" value={Math.max(0, d.objetivo - d.total)} />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+            <StatBox label="Cumplimiento" value={`${d.pct}%`} color={e.color} />
+            <StatBox label="Var. semana" value={varTxt} color={varColor} />
+            <div style={{ background: C.paper, border: `1px solid ${C.rule}`, padding: '10px 12px', display: 'flex', alignItems: 'center' }}>
+              <EstadoTag color={e.color}>{e.label}</EstadoTag>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div style={campoLabelStyle}>Evolución en esta campaña</div>
+          {evolucion.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 14, color: C.inkSoft, fontSize: 13, fontFamily: F.body, border: `1px solid ${C.rule}` }}>
+              Sin historial todavía para esta sede
+            </div>
+          ) : (
+            <div style={{ border: `1px solid ${C.rule}`, maxHeight: 140, overflowY: 'auto' }}>
+              {evolucion.map((r, i) => {
+                const obj = Number(r.objetivo) || 0
+                const tot = Number(r.total) || 0
+                const pct = obj > 0 ? Math.round(tot / obj * 100) : 0
+                return (
+                  <div key={i} style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '7px 12px', borderBottom: i < evolucion.length - 1 ? `1px solid ${C.ruleSoft}` : 'none',
+                    background: i % 2 === 0 ? '#fff' : C.paper,
+                  }}>
+                    <span style={{ fontSize: 12, color: C.inkSoft, fontFamily: F.mono }}>{r.fecha.slice(5).replace('-', '/')}</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: C.ink, fontFamily: F.mono }}>{tot}</span>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: pct >= 50 ? C.ok : pct > 0 ? C.warn : C.danger, fontFamily: F.mono }}>{pct}%</span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        <NotasSeccion d={d} />
       </div>
     </ModalShell>
   )
@@ -106,16 +184,17 @@ function EstadoTag({ color, children }) {
   )
 }
 
-function SedeRow({ d }) {
+function SedeRow({ d, historial }) {
   const est = getEstado(d)
   const e = E[est]
   const noav = d.var !== null && d.var === 0
   const varColor = d.var > 0 ? C.ok : d.var < 0 ? C.danger : C.inkSoft
   const varTxt = d.var === null ? '—' : d.var > 0 ? `+${d.var}` : String(d.var)
-  const [mostrarNotas, setMostrarNotas] = useState(false)
+  const [mostrarDetalle, setMostrarDetalle] = useState(false)
 
   return (
-    <tr style={{ borderBottom: `1px solid ${C.ruleSoft}`, transition: 'background 0.15s' }}
+    <tr style={{ borderBottom: `1px solid ${C.ruleSoft}`, transition: 'background 0.15s', cursor: 'pointer' }}
+      onClick={() => setMostrarDetalle(true)}
       onMouseEnter={e2 => e2.currentTarget.style.background = C.paper}
       onMouseLeave={e2 => e2.currentTarget.style.background = 'transparent'}
     >
@@ -145,13 +224,13 @@ function SedeRow({ d }) {
         <EstadoTag color={e.color}>{e.label}</EstadoTag>
       </td>
       <td style={{ padding: '10px 16px', textAlign: 'center' }}>
-        <button onClick={() => setMostrarNotas(true)} title="Notas de seguimiento" style={{
+        <button onClick={e2 => { e2.stopPropagation(); setMostrarDetalle(true) }} title="Ver detalle y notas" style={{
           border: `1px solid ${C.rule}`, background: '#fff', color: C.inkSoft,
           borderRadius: 2, padding: '4px 10px', fontSize: 12, cursor: 'pointer',
         }}>
           📝
         </button>
-        {mostrarNotas && <NotasSedeModal d={d} onClose={() => setMostrarNotas(false)} />}
+        {mostrarDetalle && <SedeDetalleModal d={d} historial={historial} onClose={() => setMostrarDetalle(false)} />}
       </td>
     </tr>
   )
@@ -318,7 +397,7 @@ function GestionSedesModal({ onClose, onChanged }) {
   )
 }
 
-export default function Sedes({ data, campanas, campanaActiva, onSedesChanged }) {
+export default function Sedes({ data, historial, campanas, campanaActiva, onSedesChanged }) {
   const [filtro, setFiltro] = useState('')
   const [busq, setBusq] = useState('')
   const [mostrarGestion, setMostrarGestion] = useState(false)
@@ -413,7 +492,7 @@ export default function Sedes({ data, campanas, campanaActiva, onSedesChanged })
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>{thead}</thead>
                 <tbody>
-                  {items.map(d => <SedeRow key={d.cod_sede} d={d} />)}
+                  {items.map(d => <SedeRow key={d.cod_sede} d={d} historial={historial} />)}
                 </tbody>
               </table>
             </div>

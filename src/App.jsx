@@ -162,7 +162,7 @@ function AppShell({ onLogout }) {
             <Dashboard data={data} stats={stats} historial={historial} campanas={campanas} campanaActiva={campanaActiva} />
           )}
           {view === 'sedes' && (
-            <Sedes data={data} campanas={campanas} campanaActiva={campanaActiva} onSedesChanged={refrescarSedes} />
+            <Sedes data={data} historial={historial} campanas={campanas} campanaActiva={campanaActiva} onSedesChanged={refrescarSedes} />
           )}
           {view === 'historial' && (
             <Historial historial={historial} data={data} campanas={campanas} campanaActiva={campanaActiva} onSeleccionChange={setSedesComparacion} />
