@@ -63,13 +63,25 @@ function parseExcelData(arrayBuffer) {
 
   columnaLabel = String(headerRaw[iTotal] || '').trim() || `Columna ${iTotal + 1}`
 
-  // Intentar extraer fecha real del header de la columna de totales
+  // Intentar extraer fecha real del header de la columna de totales.
+  //
+  // OJO: sheet_to_json fue llamado con raw:false + dateNF más arriba, así que
+  // headerRaw[iTotal] SIEMPRE llega como string ya formateado — incluso si en
+  // Excel esa celda es una fecha nativa real. Por eso NO alcanza con mirar
+  // headerRaw[iTotal]: hay que consultar la celda cruda del worksheet para
+  // saber si de verdad es una fecha nativa (sin ambigüedad posible) o texto
+  // suelto (donde sí puede haber ambigüedad DD/MM vs MM/DD).
+  const range = XLSX.utils.decode_range(ws['!ref'])
+  const headerRowIdx = range.s.r // fila real del encabezado en la planilla
+  const headerCellRef = ws[XLSX.utils.encode_cell({ r: headerRowIdx, c: iTotal })]
+  const esFechaNativa = headerCellRef?.t === 'd' // tipo 'd' = fecha real de Excel, con cellDates:true
+
   let fechaCorte = null
   let fechaAmbigua = false // día y mes ambos <=12: no se puede saber DD/MM vs MM/DD por texto
-  const hRaw = headerRaw[iTotal]
-  if (hRaw instanceof Date) {
-    // SheetJS puede devolver Date objects con cellDates:true — esto solo
-    // pasa si Excel guardó la celda como fecha nativa, no como texto.
+  const hRaw = esFechaNativa ? headerCellRef.v : headerRaw[iTotal]
+  if (esFechaNativa && hRaw instanceof Date) {
+    // Fecha nativa de Excel confirmada por el tipo de celda — no hay
+    // ambigüedad posible, se usa el valor real sin adivinar nada.
     const d = hRaw
     const dd = String(d.getDate()).padStart(2, '0')
     const mm = String(d.getMonth() + 1).padStart(2, '0')
@@ -141,6 +153,15 @@ function invertirDiaMes(fechaISO) {
   return `${yyyy}-${d}-${mo}`
 }
 
+const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
+
+// Fecha ISO en palabras (ej. "3 de agosto de 2026") para que al elegir entre
+// las dos interpretaciones ambiguas no haya que leer un ISO crudo y adivinar.
+function fechaEnPalabras(fechaISO) {
+  const [yyyy, mo, d] = fechaISO.split('-').map(Number)
+  return `${d} de ${MESES[mo - 1]} de ${yyyy}`
+}
+
 export default function ExcelUploader({ data, onUpload, campanas, campanaActiva, sedesConocidas = [] }) {
   const [dragging, setDragging] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -158,6 +179,10 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
       ...prev,
       meta: { ...prev.meta, fechaCorte: fechaElegida, fechaAmbigua: false },
     })
+    // Guarda directo al elegir — antes había que elegir la fecha Y ADEMÁS
+    // apretar "Confirmar y guardar" más abajo, lo cual generaba la falsa
+    // sensación de que ya había quedado guardado y perdía la carga.
+    confirmarCarga(false, fechaElegida)
   }
 
   const camp = campanas?.find(c => c.id === campanaActiva)
@@ -189,12 +214,13 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
     setLoading(false)
   }
 
-  const confirmarCarga = async (reemplazar = false) => {
+  const confirmarCarga = async (reemplazar = false, fechaOverride = null) => {
     if (!preview) return
     setConfirmando(true)
     setError(null)
     try {
-      await onUpload(preview.sedes, preview.fileName, reemplazar, preview.meta.fechaCorte)
+      const fecha = fechaOverride ?? preview.meta.fechaCorte
+      await onUpload(preview.sedes, preview.fileName, reemplazar, fecha)
       setPreview(null)
       setModoReemplazar(false)
       setMinimized(true)
@@ -266,15 +292,16 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
               </div>
               <div style={{ color: '#7f1d1d', marginBottom: 10 }}>
                 El encabezado "{preview.meta.columnaTotal}" se puede leer de dos formas distintas.
-                Elegí la que corresponde:
+                Elegí la que corresponde — al tocarla se guarda directo:
               </div>
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                 {[preview.meta.fechaCorte, invertirDiaMes(preview.meta.fechaCorte)].map(opcion => (
-                  <button key={opcion} onClick={() => elegirFecha(opcion)} style={{
+                  <button key={opcion} onClick={() => elegirFecha(opcion)} disabled={confirmando} style={{
                     padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 700,
-                    background: '#dc2626', color: '#fff', border: 'none', cursor: 'pointer',
+                    background: '#dc2626', color: '#fff', border: 'none',
+                    cursor: confirmando ? 'wait' : 'pointer', opacity: confirmando ? 0.6 : 1,
                   }}>
-                    📅 {opcion}
+                    📅 {fechaEnPalabras(opcion)}
                   </button>
                 ))}
               </div>
