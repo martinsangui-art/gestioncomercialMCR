@@ -176,7 +176,19 @@ export function useSheets() {
   // desde el panel de gestión, para que el resto de la app la vea al toque)
   const refrescarSedes = useCallback(() => {
     return jsonp('sedes').then(sedes => {
-      setState(s => ({ ...s, sedes }))
+      setState(s => {
+        // semana_actual devuelve cada fila con sede/email/saludo ya copiados
+        // desde la hoja 'sedes' al momento de cargar la campaña. Si acá solo
+        // se actualizara `sedes`, esa copia dentro de `data` quedaría vieja y
+        // el envío seguiría usando el email anterior hasta recargar la página.
+        const porCod = {}
+        sedes.forEach(x => { porCod[String(x.cod_sede)] = x })
+        const data = s.data.map(d => {
+          const sed = porCod[String(d.cod_sede)]
+          return sed ? { ...d, sede: sed.sede, email: sed.email, saludo: sed.saludo } : d
+        })
+        return { ...s, sedes, data }
+      })
       return sedes
     })
   }, [])
