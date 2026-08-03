@@ -65,9 +65,11 @@ function parseExcelData(arrayBuffer) {
 
   // Intentar extraer fecha real del header de la columna de totales
   let fechaCorte = null
+  let fechaAmbigua = false // día y mes ambos <=12: no se puede saber DD/MM vs MM/DD por texto
   const hRaw = headerRaw[iTotal]
   if (hRaw instanceof Date) {
-    // SheetJS puede devolver Date objects con cellDates:true
+    // SheetJS puede devolver Date objects con cellDates:true — esto solo
+    // pasa si Excel guardó la celda como fecha nativa, no como texto.
     const d = hRaw
     const dd = String(d.getDate()).padStart(2, '0')
     const mm = String(d.getMonth() + 1).padStart(2, '0')
@@ -75,15 +77,23 @@ function parseExcelData(arrayBuffer) {
     fechaCorte = `${yyyy}-${mm}-${dd}`
     columnaLabel = `${dd}/${mm}/${yyyy}`
   } else if (typeof hRaw === 'string') {
-    // Intentar parsear string de fecha
+    // Intentar parsear string de fecha (encabezado guardado como texto plano)
     const m1 = hRaw.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/)
     if (m1) {
       let [, d, mo, y] = m1
       const yyyy = y.length === 2 ? '20' + y : y
-      // Se espera DD/MM/AAAA, pero si el segundo valor no puede ser un mes
-      // válido (>12) y el primero sí, el Excel viene en MM/DD/AAAA (formato
-      // en inglés) — se invierten para no guardar una fecha corrupta.
-      if (Number(mo) > 12 && Number(d) <= 12) { [d, mo] = [mo, d] }
+      // Se espera DD/MM/AAAA. Si el segundo valor no puede ser un mes válido
+      // (>12) y el primero sí, es inequívocamente MM/DD/AAAA y se invierte.
+      // Pero si AMBOS son <=12 (ej. "8/3/26"), es ambiguo de verdad: no hay
+      // forma de saber si es 8 de marzo o 3 de agosto solo con el texto.
+      // Antes acá se adivinaba en silencio (bug real del 03/08/2026, guardó
+      // el corte como si fuera 8 de marzo). Ahora se deja marcado como
+      // ambiguo para que la UI lo muestre en rojo y no pase desapercibido.
+      if (Number(mo) > 12 && Number(d) <= 12) {
+        [d, mo] = [mo, d]
+      } else if (Number(d) !== Number(mo) && Number(d) <= 12 && Number(mo) <= 12) {
+        fechaAmbigua = true
+      }
       fechaCorte = `${yyyy}-${mo.padStart(2,'0')}-${d.padStart(2,'0')}`
       columnaLabel = `${d.padStart(2,'0')}/${mo.padStart(2,'0')}/${yyyy}`
     }
@@ -118,9 +128,17 @@ function parseExcelData(arrayBuffer) {
       columnaTotal: columnaLabel,
       detectadoPorFecha,
       fechaCorte, // fecha extraída del header, null si no se pudo
+      fechaAmbigua, // true si día/mes son ambos <=12: no se sabe con certeza
       totalFilas: sedes.length,
     },
   }
+}
+
+// Invierte día y mes de una fecha ISO (yyyy-mm-dd) — usado para ofrecer la
+// interpretación alternativa cuando la fecha del corte es ambigua.
+function invertirDiaMes(fechaISO) {
+  const [yyyy, mo, d] = fechaISO.split('-')
+  return `${yyyy}-${d}-${mo}`
 }
 
 export default function ExcelUploader({ data, onUpload, campanas, campanaActiva, sedesConocidas = [] }) {
@@ -131,7 +149,16 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
   const [preview, setPreview] = useState(null) // { sedes, meta, fileName }
   const [confirmando, setConfirmando] = useState(false)
   const [modoReemplazar, setModoReemplazar] = useState(false) // cuando ya existe la fecha
+  const [fechaConfirmada, setFechaConfirmada] = useState(null) // fecha elegida cuando era ambigua
   const inputRef = useRef(null)
+
+  const elegirFecha = (fechaElegida) => {
+    setFechaConfirmada(fechaElegida)
+    setPreview(prev => prev && {
+      ...prev,
+      meta: { ...prev.meta, fechaCorte: fechaElegida, fechaAmbigua: false },
+    })
+  }
 
   const camp = campanas?.find(c => c.id === campanaActiva)
   const tieneData = data.length > 0
@@ -148,6 +175,7 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
     setLoading(true)
     setError(null)
     setModoReemplazar(false)
+    setFechaConfirmada(null)
     try {
       const buffer = await file.arrayBuffer()
       const { sedes, meta } = parseExcelData(buffer)
@@ -218,12 +246,40 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
               Columna de totales: "{preview.meta.columnaTotal}"
               {!preview.meta.detectadoPorFecha && ' ⚠ verificá que sea correcta'}
             </div>
-            {preview.meta.fechaCorte && (
+            {preview.meta.fechaCorte && !preview.meta.fechaAmbigua && (
               <div style={{ background: '#f0f9ff', border: '1px solid #7dd3fc', borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 600, color: '#0369a1' }}>
                 📅 Corte: {preview.meta.fechaCorte}
               </div>
             )}
           </div>
+
+          {/* Fecha ambigua (día y mes ambos <=12, ej "8/3/26"): no se puede
+              saber con certeza si es DD/MM o MM/DD solo con el texto del
+              Excel. Se bloquea la confirmación hasta que el usuario elija. */}
+          {preview.meta.fechaCorte && preview.meta.fechaAmbigua && !fechaConfirmada && (
+            <div style={{
+              background: '#fef2f2', border: '2px solid #dc2626', borderRadius: 10,
+              padding: '12px 16px', marginBottom: 14, fontSize: 13,
+            }}>
+              <div style={{ fontWeight: 700, color: '#991b1b', marginBottom: 6 }}>
+                🚨 Fecha de corte ambigua — confirmá cuál es la correcta
+              </div>
+              <div style={{ color: '#7f1d1d', marginBottom: 10 }}>
+                El encabezado "{preview.meta.columnaTotal}" se puede leer de dos formas distintas.
+                Elegí la que corresponde:
+              </div>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                {[preview.meta.fechaCorte, invertirDiaMes(preview.meta.fechaCorte)].map(opcion => (
+                  <button key={opcion} onClick={() => elegirFecha(opcion)} style={{
+                    padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 700,
+                    background: '#dc2626', color: '#fff', border: 'none', cursor: 'pointer',
+                  }}>
+                    📅 {opcion}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Aviso de filas que no matchean ninguna sede registrada — se descartan si se sigue */}
           {preview.meta.sinMatch?.length > 0 && (
@@ -316,12 +372,18 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
 
           {!modoReemplazar && (
             <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={() => confirmarCarga(false)} disabled={confirmando} style={{
-                padding: '10px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700,
-                background: '#17233F', color: '#fff', border: 'none', cursor: 'pointer',
-                opacity: confirmando ? 0.6 : 1,
-              }}>
-                {confirmando ? 'Guardando…' : '✅ Confirmar y guardar en Sheets'}
+              <button
+                onClick={() => confirmarCarga(false)}
+                disabled={confirmando || preview.meta.fechaAmbigua}
+                title={preview.meta.fechaAmbigua ? 'Elegí primero la fecha de corte correcta arriba' : undefined}
+                style={{
+                  padding: '10px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700,
+                  background: preview.meta.fechaAmbigua ? '#9ca3af' : '#17233F', color: '#fff', border: 'none',
+                  cursor: (confirmando || preview.meta.fechaAmbigua) ? 'not-allowed' : 'pointer',
+                  opacity: confirmando ? 0.6 : 1,
+                }}
+              >
+                {confirmando ? 'Guardando…' : preview.meta.fechaAmbigua ? '⛔ Elegí la fecha primero' : '✅ Confirmar y guardar en Sheets'}
               </button>
               <button onClick={() => setPreview(null)} disabled={confirmando} style={{
                 padding: '10px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600,
