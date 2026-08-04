@@ -285,12 +285,23 @@ function TooltipHelp({ text }) {
 // Modal preview de email por sede
 function PreviewModal({ sede, campNombre, template, onClose, onSend }) {
   const [enviando, setEnviando] = useState(false)
+  const [errorEnvio, setErrorEnvio] = useState(null)
   const [closing, requestClose] = useClosingTransition(onClose)
   const htmlBase = buildEmailHTML(sede, campNombre, template)
 
+  // El envío ahora puede fallar de verdad (antes se resolvía siempre): si
+  // falla, el modal queda abierto con el error en vez de cerrarse como si
+  // hubiera salido todo bien.
   const handleSend = async () => {
     setEnviando(true)
-    await onSend(sede, null)
+    setErrorEnvio(null)
+    try {
+      await onSend(sede, null)
+    } catch (e) {
+      setErrorEnvio(e?.message || 'No se pudo enviar')
+      setEnviando(false)
+      return
+    }
     setEnviando(false)
     requestClose()
   }
@@ -331,8 +342,13 @@ function PreviewModal({ sede, campNombre, template, onClose, onSend }) {
         {/* Footer */}
         <div style={{
           padding: '12px 20px', borderTop: `1px solid ${C.rule}`,
-          display: 'flex', gap: 8, justifyContent: 'flex-end', flexShrink: 0,
+          display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center', flexShrink: 0,
         }}>
+          {errorEnvio && (
+            <div style={{ marginRight: 'auto', fontSize: 12, color: C.danger, fontFamily: F.body }}>
+              No salió: {errorEnvio}
+            </div>
+          )}
           <button onClick={requestClose} className="btn-press" style={{ padding: '9px 16px', borderRadius: 2, fontSize: 13, fontWeight: 600, background: C.paper, color: C.inkSoft, border: `1px solid ${C.rule}`, cursor: 'pointer', fontFamily: F.body }}>
             Cancelar
           </button>
@@ -379,7 +395,7 @@ function ConfirmModal({ tono = 'crimson', title, sub, items, footNote, onClose, 
   )
 }
 
-export default function Envio({ data, copied, onCopied, campanas, campanaActiva, guardarSemana }) {
+export default function Envio({ data, copied, onCopied, onUncopied, campanas, campanaActiva, guardarSemana }) {
   const [seleccion, setSeleccion] = useState({})
   const [log, setLog] = useState([])
   const [enviando, setEnviando] = useState(false)
@@ -495,28 +511,82 @@ export default function Envio({ data, copied, onCopied, campanas, campanaActiva,
     const resumenItems = []
     const campNom = camp?.nombre || ''
     const fechaRef = lista[0]?.fecha || new Date().toISOString().slice(0,10)
+    // Una sede no se manda dos veces en la misma tanda aunque venga repetida
+    // en la lista (el 03/08 Trenque Lauquen salió duplicado).
+    const yaMandadas = new Set()
+    const okCods = []
 
     for (let i = 0; i < lista.length; i++) {
       const d = lista[i]
+      const cod = String(d.cod_sede)
+      if (yaMandadas.has(cod)) {
+        addLog(`• ${d.sede} ya estaba en esta tanda, se saltea`, 'info')
+        setProgreso(Math.round((i + 1) / lista.length * 100))
+        continue
+      }
+      yaMandadas.add(cod)
       try {
         const htmlRich = buildEmailHTML(d, campNom, template)
         await enviarEmailViaScript({
           to: d.email, subject: 'Como Vamos — ' + campNom + ' — ' + fmtFecha(d.fecha || fechaRef),
-          html: htmlRich, sede: d.sede, cod: String(d.cod_sede), fecha: d.fecha || fechaRef, campana: campNom,
+          html: htmlRich, sede: d.sede, cod, fecha: d.fecha || fechaRef, campana: campNom,
         })
         onCopied(d.cod_sede)
+        okCods.push(cod)
         addLog(`✓ ${d.sede}${esReenvio ? ' (reenviado)' : ''}`, 'ok')
         resumenItems.push({ sede: d.sede, email: d.email, estado: 'enviado' })
-      } catch {
-        addLog(`✗ Error en ${d.sede}`, 'error')
+      } catch (e) {
+        addLog(`✗ Error en ${d.sede}${e?.message ? ' — ' + e.message : ''}`, 'error')
         resumenItems.push({ sede: d.sede, email: d.email, estado: 'error' })
       }
       setProgreso(Math.round((i + 1) / lista.length * 100))
     }
-    addLog(`Listo. ${lista.length} emails procesados.`, 'ok')
+
+    // Verificación contra el log real: el tilde verde vale solo si Apps Script
+    // dejó la fila en log_envios. Si no quedó registrada, se saca el tilde acá
+    // mismo en vez de que la sede aparezca como enviada hasta el próximo F5.
+    const noRegistradas = await verificarContraLog(okCods, fechaRef, campNom, lista)
+    lista.forEach(d => {
+      const cod = String(d.cod_sede)
+      if (!noRegistradas.includes(cod)) return
+      const item = resumenItems.find(it => it.sede === d.sede)
+      if (item) item.estado = 'error'
+    })
+
+    addLog(`Listo. ${yaMandadas.size} emails procesados.`, 'ok')
     setEnviando(false); setSeleccion({})
     // Un solo resumen consolidado a Cele con toda la tanda
     enviarResumenCele(campNom, fechaRef, resumenItems).catch(() => {})
+  }
+
+  // Compara lo que el front cree que mandó contra lo que Apps Script realmente
+  // registró en log_envios. Devuelve los códigos que no aparecen registrados.
+  const verificarContraLog = async (okCods, fechaRef, campNom, lista) => {
+    if (!okCods.length) return []
+    let registro
+    try {
+      registro = await obtenerLogEnvios(300)
+    } catch {
+      addLog('No se pudo verificar contra el log de envíos — revisá el historial a mano.', 'error')
+      return []
+    }
+    const registradas = new Set(
+      registro
+        .filter(r => String(r.fecha).slice(0,10) === String(fechaRef).slice(0,10) &&
+                     r.estado === 'enviado' &&
+                     (!campNom || String(r.campana || '').indexOf(campNom) >= 0))
+        .map(r => String(r.cod_sede))
+    )
+    const faltantes = okCods.filter(c => !registradas.has(c))
+    faltantes.forEach(cod => {
+      const d = lista.find(x => String(x.cod_sede) === cod)
+      addLog(`✗ ${d?.sede || cod}: no quedó registrada, hay que reenviarla`, 'error')
+      if (onUncopied) onUncopied(d ? d.cod_sede : cod)
+    })
+    if (faltantes.length) {
+      addLog(`${faltantes.length} sede(s) quedaron sin registrar y volvieron a pendientes.`, 'error')
+    }
+    return faltantes
   }
 
   const enviarTodos = () => enviarLote(aEnviar)

@@ -28,7 +28,7 @@ export function onAuthExpired(fn) {
 // Enviar email via Apps Script (evita CORS del browser con Make)
 export function enviarEmailViaScript(payload) {
   return new Promise((resolve, reject) => {
-    const cb = '_cb_email_' + Date.now()
+    const cb = '_cb_email_' + Date.now() + '_' + Math.random().toString(36).slice(2)
     const url = API + '?action=enviar_email&callback=' + cb +
       '&token='    + encodeURIComponent(getToken()) +
       '&to='       + encodeURIComponent(payload.to) +
@@ -39,10 +39,35 @@ export function enviarEmailViaScript(payload) {
       '&fecha='    + encodeURIComponent(payload.fecha) +
       '&campana='  + encodeURIComponent(payload.campana || '')
 
-    const timeout = setTimeout(() => { cleanup(); resolve({ ok: true }) }, 10000)
+    // Antes esto resolvía { ok: true } a los 10 segundos: si Apps Script no
+    // contestaba, el front inventaba un éxito, pintaba el tilde verde y seguía
+    // con la sede siguiente. Ese era el bug del envío del 03/08 (San Nicolás y
+    // Tres Arroyos quedaron "enviadas" en pantalla sin fila en log_envios).
+    // Ahora un timeout es un error de verdad, y 10s era además demasiado poco:
+    // Apps Script tiene que llamar al webhook de Make antes de contestar.
+    const timeout = setTimeout(() => {
+      cleanup()
+      reject(new Error('Timeout: el envío no respondió a tiempo'))
+    }, 30000)
     window[cb] = (data) => {
       cleanup()
-      if (data?.error === 'AUTH_REQUIRED') { setToken(''); notifyAuthExpired(); return }
+      if (data?.error === 'AUTH_REQUIRED') {
+        setToken(''); notifyAuthExpired()
+        reject(new Error('AUTH_REQUIRED'))
+        return
+      }
+      if (data && data.ok === false) {
+        reject(new Error(data.error || 'Error al enviar'))
+        return
+      }
+      // enviarEmailMake devuelve el status HTTP del webhook de Make. Apps Script
+      // lo registra como 'error' en log_envios si no es 2xx, así que el front
+      // tampoco lo puede dar por enviado.
+      const status = data?.data?.status
+      if (status != null && (status < 200 || status >= 300)) {
+        reject(new Error('El webhook de envío respondió ' + status))
+        return
+      }
       resolve(data)
     }
     function cleanup() { clearTimeout(timeout); delete window[cb]; if (el?.parentNode) el.parentNode.removeChild(el) }
@@ -235,6 +260,17 @@ export function useSheets() {
     setCopied(prev => ({ ...prev, [cod]: true }))
   }, [])
 
+  // Sacar el tilde de una sede — se usa cuando la verificación contra
+  // log_envios muestra que el envío nunca quedó registrado.
+  const markUncopied = useCallback((cod) => {
+    setCopied(prev => {
+      if (!prev[cod]) return prev
+      const next = { ...prev }
+      delete next[cod]
+      return next
+    })
+  }, [])
+
   // Reemplaza el estado completo (útil para desmarcar también)
   const markAllCopied = useCallback((cods) => {
     if (Array.isArray(cods)) {
@@ -336,6 +372,7 @@ export function useSheets() {
     stats,
     cargarCampana,
     markCopied,
+    markUncopied,
     markAllCopied,
     guardarSemana,
     subirExcel,

@@ -107,7 +107,7 @@ function AppShell({ onLogout }) {
 
   const {
     loading, error, campanas, sedes, campanaActiva, data, historial,
-    copied, stats, cargarCampana, markCopied, markAllCopied,
+    copied, stats, cargarCampana, markCopied, markUncopied, markAllCopied,
     guardarSemana, subirExcel, refrescarSedes,
   } = useSheets()
 
@@ -169,7 +169,7 @@ function AppShell({ onLogout }) {
           )}
           {view === 'envio' && (
             <Envio
-              data={data} copied={copied} onCopied={markCopied}
+              data={data} copied={copied} onCopied={markCopied} onUncopied={markUncopied}
               campanas={campanas} campanaActiva={campanaActiva}
               guardarSemana={guardarSemana}
             />
