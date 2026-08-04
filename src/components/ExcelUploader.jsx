@@ -16,11 +16,27 @@ function parseExcelData(arrayBuffer) {
 
   if (!rows.length) throw new Error('El archivo está vacío')
 
-  const headerRaw = rows[0]
+  // La fila de encabezado no siempre es la primera: el 03/08/2026 vino con
+  // la fila 1 vacía y los títulos en la fila 2, y eso tiró "error de
+  // formato" porque el código asumía rows[0] a ciegas. Ahora se busca entre
+  // las primeras filas cuál tiene pinta de encabezado real (una celda con
+  // "cod" y otra con "sede"/"nombre") en vez de asumir la posición.
+  const pareceHeader = (row) => {
+    const cells = (row || []).map(h => String(h || '').toLowerCase().trim())
+    return cells.some(h => h.includes('cod')) && cells.some(h => h.includes('sede') || h.includes('nombre'))
+  }
+  let headerRowIdx0 = rows.slice(0, 20).findIndex(pareceHeader) // índice dentro de `rows` (0 = primera fila del archivo)
+  if (headerRowIdx0 === -1) headerRowIdx0 = 0 // no se encontró: se sigue con la fila 1 para no romper, el chequeo de abajo va a avisar
+
+  const headerRaw = rows[headerRowIdx0]
   const header = headerRaw.map(h => String(h || '').toLowerCase().trim())
 
   const iCod  = header.findIndex(h => h.includes('cod'))
-  const iSede = header.findIndex(h => h.includes('sede') || h.includes('nombre'))
+  // Con "Cod Sede" en una sola columna, buscar "sede" sin excluir iCod
+  // matchea esa misma columna dos veces y la columna real del nombre (la
+  // de al lado) queda sin detectar — el código de sede termina apareciendo
+  // como si fuera el nombre en la vista previa. Se excluye iCod acá.
+  const iSede = header.findIndex((h, idx) => idx !== iCod && (h.includes('sede') || h.includes('nombre')))
 
   // Detectar columna de totales — orden de prioridad:
   // 1. Header explícito (total/ingresado/acumulado)
@@ -72,7 +88,7 @@ function parseExcelData(arrayBuffer) {
   // saber si de verdad es una fecha nativa (sin ambigüedad posible) o texto
   // suelto (donde sí puede haber ambigüedad DD/MM vs MM/DD).
   const range = XLSX.utils.decode_range(ws['!ref'])
-  const headerRowIdx = range.s.r // fila real del encabezado en la planilla
+  const headerRowIdx = range.s.r + headerRowIdx0 // fila real del encabezado en la planilla (puede no ser la primera)
   const headerCellRef = ws[XLSX.utils.encode_cell({ r: headerRowIdx, c: iTotal })]
   const esFechaNativa = headerCellRef?.t === 'd' // tipo 'd' = fecha real de Excel, con cellDates:true
 
@@ -117,19 +133,31 @@ function parseExcelData(arrayBuffer) {
   }
 
   const sedes = []
-  for (let i = 1; i < rows.length; i++) {
+  const filasInvalidas = [] // cod presente pero total no numérico — antes se descartaban sin avisar
+  const vistos = new Map() // cod → índice en `sedes`, para detectar filas repetidas dentro del mismo archivo
+  const duplicados = [] // cods que aparecieron más de una vez (ej: Trenque Lauquén salió dos veces por esto en un envío)
+  for (let i = headerRowIdx0 + 1; i < rows.length; i++) {
     const row = rows[i]
     if (!row || row.every(c => c === undefined || c === '' || c === null)) continue
     const cod = String(row[iCod] ?? '').trim().replace(/\.0$/, '') // sacar ".0" si vino como número
     if (!cod || cod === 'undefined') continue
+    const sede = iSede >= 0 ? String(row[iSede] || '').trim() : `Sede ${cod}`
     const totalRaw = String(row[iTotal] ?? '').replace(',', '.')
     const total = Number(totalRaw)
-    if (isNaN(total)) continue
-    sedes.push({
-      cod,
-      sede: iSede >= 0 ? String(row[iSede] || '').trim() : `Sede ${cod}`,
-      total,
-    })
+    if (isNaN(total)) {
+      filasInvalidas.push({ cod, sede, valor: String(row[iTotal] ?? '(vacío)') })
+      continue
+    }
+    if (vistos.has(cod)) {
+      // Mismo código dos veces en el archivo: se queda con la última fila
+      // (la más probable de ser la corrección) y se avisa — antes las dos
+      // se mandaban tal cual, duplicando esa sede en el corte.
+      sedes[vistos.get(cod)] = { cod, sede, total }
+      if (!duplicados.includes(cod)) duplicados.push(cod)
+    } else {
+      vistos.set(cod, sedes.length)
+      sedes.push({ cod, sede, total })
+    }
   }
 
   if (!sedes.length) throw new Error('No se encontraron datos válidos en el archivo')
@@ -141,6 +169,8 @@ function parseExcelData(arrayBuffer) {
       detectadoPorFecha,
       fechaCorte, // fecha extraída del header, null si no se pudo
       fechaAmbigua, // true si día/mes son ambos <=12: no se sabe con certeza
+      duplicados, // cods repetidos dentro del archivo (se quedó con la última fila de cada uno)
+      filasInvalidas, // filas con cod válido pero total no numérico (se descartaron)
       totalFilas: sedes.length,
     },
   }
@@ -324,6 +354,50 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
                 {preview.meta.sinMatch.map(s => (
                   <span key={s.cod} style={{ fontSize: 11, background: '#fff', border: '1px solid #fecdd3', color: '#9f1239', padding: '3px 9px', borderRadius: 20, fontWeight: 600 }}>
                     {s.cod} · {s.sede || '(sin nombre)'}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Aviso de sedes repetidas dentro del mismo archivo — se guarda solo la última fila de cada una */}
+          {preview.meta.duplicados?.length > 0 && (
+            <div style={{
+              background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10,
+              padding: '12px 16px', marginBottom: 14, fontSize: 13,
+            }}>
+              <div style={{ fontWeight: 700, color: '#92400e', marginBottom: 6 }}>
+                ⚠️ {preview.meta.duplicados.length} código{preview.meta.duplicados.length > 1 ? 's' : ''} de sede aparece{preview.meta.duplicados.length > 1 ? 'n' : ''} más de una vez en el archivo
+              </div>
+              <div style={{ color: '#78350f', marginBottom: 8 }}>
+                Se guarda solo la última fila de cada uno. Si no era lo esperado, revisá el Excel antes de confirmar.
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {preview.meta.duplicados.map(cod => (
+                  <span key={cod} style={{ fontSize: 11, background: '#fff', border: '1px solid #fde68a', color: '#92400e', padding: '3px 9px', borderRadius: 20, fontWeight: 600 }}>
+                    {cod}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Aviso de filas con código válido pero un total que no se pudo leer como número */}
+          {preview.meta.filasInvalidas?.length > 0 && (
+            <div style={{
+              background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 10,
+              padding: '12px 16px', marginBottom: 14, fontSize: 13,
+            }}>
+              <div style={{ fontWeight: 700, color: '#9C2B34', marginBottom: 6 }}>
+                ⚠️ {preview.meta.filasInvalidas.length} fila{preview.meta.filasInvalidas.length > 1 ? 's' : ''} con un total que no se pudo leer como número
+              </div>
+              <div style={{ color: '#9f1239', marginBottom: 8 }}>
+                Estas filas <strong>no se van a guardar</strong> si seguís.
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {preview.meta.filasInvalidas.map((s, i) => (
+                  <span key={s.cod + '-' + i} style={{ fontSize: 11, background: '#fff', border: '1px solid #fecdd3', color: '#9f1239', padding: '3px 9px', borderRadius: 20, fontWeight: 600 }}>
+                    {s.cod} · {s.sede || '(sin nombre)'} · "{s.valor}"
                   </span>
                 ))}
               </div>

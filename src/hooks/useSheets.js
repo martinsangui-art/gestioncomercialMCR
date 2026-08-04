@@ -331,19 +331,21 @@ export function useSheets() {
       if (matchFecha) fecha = matchFecha[1].replace(/_/g, '-')
     }
 
+    // Match únicamente por código — es el mismo criterio que usa la vista
+    // previa (ExcelUploader → sinMatch) para avisar qué filas se van a
+    // descartar. Antes había además dos fallbacks por nombre (exacto y por
+    // prefijo de 8 caracteres) que quedaban efectivamente inactivos porque
+    // el nombre que llegaba del Excel era en realidad el código de sede (ver
+    // fix de iSede en ExcelUploader.jsx). Ahora que ese nombre es real, esos
+    // fallbacks empezarían a matchear filas "por las dudas" que la vista
+    // previa ya le dijo al usuario que se iban a descartar — mismo tipo de
+    // sorpresa silenciosa que el resto de los arreglos de hoy. Se sacan: si
+    // el código no matchea, la fila se descarta tal cual avisa la preview.
     const sedesSheet = state.sedes || []
     const sedesConCod = sedesData
       .map(s => {
-        // Match por código exacto (prioritario), luego por nombre completo,
-        // luego por prefijo de 8 caracteres (más conservador que 6)
-        let match = sedesSheet.find(sh => String(sh.cod_sede) === String(s.cod))
-        if (!match) match = sedesSheet.find(sh =>
-          sh.sede?.toLowerCase() === s.sede?.toLowerCase()
-        )
-        if (!match) match = sedesSheet.find(sh =>
-          sh.sede?.toLowerCase().includes(s.sede?.toLowerCase().slice(0, 8))
-        )
-        if (!match) return null // sede fuera de Buenos Aires — se descarta
+        const match = sedesSheet.find(sh => String(sh.cod_sede) === String(s.cod))
+        if (!match) return null
         return { cod: match.cod_sede, sede: match.sede, total: s.total }
       })
       .filter(s => s !== null && s.total !== undefined)
