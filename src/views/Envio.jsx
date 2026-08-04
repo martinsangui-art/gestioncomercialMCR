@@ -68,10 +68,8 @@ function buildTablaHTML(d, campNombre) {
 }
 
 function buildEmailHTML(d, campNombre, template) {
-  // Morón (cod 57) no tiene contacto personalizado — saludo genérico sin nombre
-  const saludo = String(d.cod_sede) === '57' ? 'Estimados' : d.saludo
   return renderTemplate(template || DEFAULT_TEMPLATE, {
-    saludo: esc(saludo),
+    saludo: esc(d.saludo),
     fecha: fmtFecha(d.fecha),
     tabla: buildTablaHTML(d, campNombre),
   })
