@@ -245,6 +245,24 @@ function isActiva(s) {
 
 const inputStyle = { width: '100%', padding: '5px 8px', border: `1px solid ${C.rule}`, borderRadius: 2, fontSize: 12, fontFamily: F.body }
 
+const EMAIL_RE = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/
+
+// Normaliza el campo de email de una sede: acepta 1 o varios destinatarios
+// separados por coma, punto y coma, o espacios/saltos de línea (formatos
+// comunes al pegar o tipear rápido). Devuelve siempre "a@x.com, b@y.com" —
+// el formato que Gmail y el webhook de Make interpretan como múltiples
+// destinatarios sin romper el envío. Si algún token no es un email válido,
+// devuelve error en vez de guardar algo que rompa el escenario de Make.
+function normalizarEmails(raw) {
+  const tokens = raw.split(/[,;\s]+/).map(t => t.trim()).filter(Boolean)
+  if (tokens.length === 0) return { error: 'El email no puede estar vacío' }
+  const invalidos = tokens.filter(t => !EMAIL_RE.test(t))
+  if (invalidos.length > 0) {
+    return { error: `No parece${invalidos.length > 1 ? 'n' : ''} email${invalidos.length > 1 ? 's' : ''} válido${invalidos.length > 1 ? 's' : ''}: ${invalidos.join(', ')}` }
+  }
+  return { value: tokens.join(', ') }
+}
+
 function FilaSedeEditable({ s, onGuardado }) {
   const [editando, setEditando] = useState(false)
   const [form, setForm] = useState({ sede: s.sede || '', email: s.email || '', saludo: s.saludo || '' })
@@ -253,9 +271,11 @@ function FilaSedeEditable({ s, onGuardado }) {
   const activa = isActiva(s)
 
   const guardar = async () => {
+    const emailCheck = normalizarEmails(form.email)
+    if (emailCheck.error) { setError(emailCheck.error); return }
     setGuardando(true); setError(null)
     try {
-      await editarSede({ cod_sede: s.cod_sede, ...form })
+      await editarSede({ cod_sede: s.cod_sede, ...form, email: emailCheck.value })
       setEditando(false)
       onGuardado()
     } catch (e) { setError(e.message) }
@@ -336,9 +356,13 @@ function GestionSedesModal({ onClose, onChanged }) {
     if (!nueva.cod_sede.trim() || !nueva.sede.trim()) {
       setErrorNueva('Cod. sede y nombre son obligatorios'); return
     }
+    const emailCheck = normalizarEmails(nueva.email || '')
+    if (nueva.email.trim() && emailCheck.error) {
+      setErrorNueva(emailCheck.error); return
+    }
     setAgregando(true); setErrorNueva(null)
     try {
-      await agregarSede(nueva)
+      await agregarSede({ ...nueva, email: emailCheck.value ?? '' })
       setNueva({ cod_sede: '', sede: '', email: '', saludo: '' })
       handleGuardado()
     } catch (e) { setErrorNueva(e.message) }
@@ -377,7 +401,7 @@ function GestionSedesModal({ onClose, onChanged }) {
             style={{ ...inputStyle, width: 90 }} />
           <input placeholder="Nombre" value={nueva.sede} onChange={e => setNueva(n => ({ ...n, sede: e.target.value }))}
             style={{ ...inputStyle, flex: 1, minWidth: 140, width: 'auto' }} />
-          <input placeholder="Email" value={nueva.email} onChange={e => setNueva(n => ({ ...n, email: e.target.value }))}
+          <input placeholder="Email (varios: separados por coma)" value={nueva.email} onChange={e => setNueva(n => ({ ...n, email: e.target.value }))}
             style={{ ...inputStyle, flex: 1, minWidth: 140, width: 'auto' }} />
           <input placeholder="Saludo (ej: Estimados)" value={nueva.saludo} onChange={e => setNueva(n => ({ ...n, saludo: e.target.value }))}
             style={{ ...inputStyle, flex: 1, minWidth: 140, width: 'auto' }} />
