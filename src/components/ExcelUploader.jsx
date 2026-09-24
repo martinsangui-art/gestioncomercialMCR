@@ -414,7 +414,7 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
                 ⚠️ Ya existe un corte para esta fecha
               </div>
               <div style={{ color: '#78350f', marginBottom: 12 }}>
-                ¿Querés reemplazar los datos existentes con los del nuevo archivo? Esta acción no se puede deshacer.
+                ¿Querés reemplazar los datos existentes con los del nuevo archivo? Si te equivocás, lo podés revertir con "Deshacer" arriba del Dashboard.
               </div>
               <div style={{ display: 'flex', gap: 10 }}>
                 <button

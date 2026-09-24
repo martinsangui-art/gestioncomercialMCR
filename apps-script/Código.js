@@ -171,6 +171,8 @@ function okData(data) { return { ok: true, data: data }; }
 //     { campana_id?, nueva?: { nombre, fin, objetivos: [{cod_sede, objetivo}] } }
 //   deshacer         → revierte la última operación registrada en 'deshacer'
 //     { id }  (el id que devolvió ultimo_deshacer, para no deshacer otra cosa)
+//   restaurar_backup → reemplaza campanas/objetivos/historial por los de un backup
+//     { hojas: { campanas: [[header...], [fila...]], objetivos: [...], historial: [...] } }
 // ════════════════════════════════════════════════════════════════════════
 function doPost(e) {
   try {
@@ -195,6 +197,7 @@ function doPost(e) {
     if (action === 'agregar_nota') return ok(agregarNotaSede(body));
     if (action === 'cerrar_campana') return ok(cerrarCampana(body));
     if (action === 'deshacer') return ok(deshacerUltimo(body));
+    if (action === 'restaurar_backup') return ok(restaurarBackup(body));
 
     return err('action no reconocida: ' + action);
   } catch(ex) {
@@ -1187,6 +1190,72 @@ function getBackup() {
     sedes: hoja('sedes'),
     log_envios: hoja('log_envios'),
   };
+}
+
+// Vuelve campañas, objetivos e historial al estado de un Excel de backup
+// (el que genera getBackup). Sedes y log de envíos no se tocan: son datos de
+// contacto y registro de lo que ya se mandó, no el estado de las campañas.
+// Todo se valida antes de escribir la primera hoja.
+var HOJAS_RESTAURABLES = {
+  campanas:  ['id', 'nombre', 'estado'],
+  objetivos: ['campana_id', 'cod_sede', 'objetivo'],
+  historial: ['fecha', 'cod_sede', 'total'],
+};
+
+function restaurarBackup(body) {
+  var hojas = body.hojas || {};
+  Object.keys(HOJAS_RESTAURABLES).forEach(function(nombre) {
+    var filas = hojas[nombre];
+    if (!filas || !filas.length) throw new Error('El backup no tiene la hoja "' + nombre + '"');
+    var header = filas[0].map(String);
+    HOJAS_RESTAURABLES[nombre].forEach(function(col) {
+      if (header.indexOf(col) === -1) throw new Error('La hoja "' + nombre + '" del backup no tiene la columna "' + col + '"');
+    });
+    if (nombre === 'campanas' && filas.length < 2) throw new Error('El backup no tiene ninguna campaña');
+  });
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var resumen = {};
+    Object.keys(HOJAS_RESTAURABLES).forEach(function(nombre) {
+      var filas = hojas[nombre];
+      var header = filas[0].map(String);
+      var ancho = header.length;
+      var datos = filas.slice(1).map(function(f) {
+        var fila = [];
+        for (var c = 0; c < ancho; c++) fila.push(f[c] === null || f[c] === undefined ? '' : f[c]);
+        return fila;
+      });
+      // El % del historial se guarda como texto '62%', igual que al cargar
+      var idxPct = nombre === 'historial' ? header.indexOf('pct') : -1;
+      if (idxPct === -1 && nombre === 'historial' && ancho >= 7) idxPct = 6;
+      if (idxPct !== -1) {
+        var iTot = header.indexOf('total'), iObj = header.indexOf('objetivo');
+        datos.forEach(function(f) {
+          var tot = Number(f[iTot]) || 0, ob = iObj !== -1 ? Number(f[iObj]) || 0 : 0;
+          f[idxPct] = ob > 0 ? Math.round(tot / ob * 100) + '%' : '0%';
+        });
+      }
+      var h = SS.getSheetByName(nombre);
+      h.clearContents();
+      h.getRange(1, 1, 1, ancho).setValues([header]);
+      if (datos.length) h.getRange(2, 1, datos.length, ancho).setValues(datos);
+      resumen[nombre] = datos.length;
+    });
+
+    // Las operaciones pendientes de deshacer ya no aplican al estado restaurado
+    var hD = getDeshacerSheet();
+    var rowsD = hD.getDataRange().getValues();
+    for (var i = 1; i < rowsD.length; i++) {
+      if (!rowsD[i][5]) hD.getRange(i + 1, 6).setValue('anulada por restauración de backup');
+    }
+
+    SpreadsheetApp.flush();
+    return resumen;
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════════

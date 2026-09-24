@@ -22,11 +22,55 @@ export async function descargarBackupExcel() {
   const X = xlsx()
   const data = await obtenerBackup()
   const wb = X.utils.book_new()
+  const ahora = new Date()
+  X.utils.book_append_sheet(wb, X.utils.aoa_to_sheet([
+    ['generado', ahora.toLocaleString('es-AR')],
+    ['nota', 'Backup de Gestión Comercial. Para volver a este punto: Dashboard → Restaurar backup.'],
+  ]), '_info')
   ;['campanas', 'objetivos', 'historial', 'sedes', 'log_envios'].forEach(nombre => {
     const rows = data[nombre] || []
     X.utils.book_append_sheet(wb, X.utils.json_to_sheet(rows.length ? rows : [{}]), nombre)
   })
-  X.writeFile(wb, `Backup Gestion Comercial ${hoy()}.xlsx`)
+  const hora = ahora.toTimeString().slice(0, 5).replace(':', '.')
+  X.writeFile(wb, `Backup Gestion Comercial ${hoy()} ${hora}.xlsx`)
+}
+
+// Lee un Excel de backup para restaurarlo. Devuelve las hojas como matrices
+// (header + filas), listas para mandar al backend, y un resumen para mostrar
+// antes de confirmar.
+export async function leerBackupExcel(file) {
+  const X = xlsx()
+  const wb = X.read(await file.arrayBuffer(), { type: 'array', cellDates: true })
+  const aIso = (v) => {
+    // Si alguien abrió y guardó el backup en Excel, las fechas vuelven como Date
+    if (v instanceof Date) {
+      const p = n => String(n).padStart(2, '0')
+      return `${v.getFullYear()}-${p(v.getMonth() + 1)}-${p(v.getDate())}`
+    }
+    return v
+  }
+  const hojas = {}
+  for (const nombre of ['campanas', 'objetivos', 'historial']) {
+    const ws = wb.Sheets[nombre]
+    if (!ws) throw new Error(`Este archivo no es un backup: falta la hoja "${nombre}"`)
+    const filas = X.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' })
+      .filter(f => f.some(v => v !== ''))
+      .map(f => f.map(aIso))
+    hojas[nombre] = filas
+  }
+  const info = wb.Sheets._info ? X.utils.sheet_to_json(wb.Sheets._info, { header: 1, raw: false }) : []
+  const generado = info.find(f => f[0] === 'generado')?.[1] || null
+
+  const hCamp = hojas.campanas[0] || []
+  const campanas = hojas.campanas.slice(1).map(f => ({
+    nombre: f[hCamp.indexOf('nombre')], estado: f[hCamp.indexOf('estado')],
+  }))
+  const hHist = hojas.historial[0] || []
+  const fechas = [...new Set(hojas.historial.slice(1).map(f => String(f[hHist.indexOf('fecha')])))].sort()
+  return {
+    hojas,
+    resumen: { generado, campanas, cortes: fechas.length, ultimoCorte: fechas[fechas.length - 1] || null },
+  }
 }
 
 // Resultados de una campaña: el corte final por sede + la evolución de cada

@@ -461,6 +461,10 @@ export function deshacerUltimo(id) {
 export function obtenerBackup() {
   return jsonp('backup')
 }
+// hojas: { campanas, objetivos, historial } — cada una [[header...], [fila...]]
+export function restaurarBackup(hojas) {
+  return post({ action: 'restaurar_backup', hojas })
+}
 
 // ── Configuración editable (plantilla de email, etc.) ───────────────────────
 export function obtenerConfig() {

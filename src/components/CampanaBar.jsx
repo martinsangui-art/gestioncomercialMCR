@@ -1,7 +1,7 @@
-import { useState, useEffect, useMemo } from 'react'
-import { obtenerObjetivos, cerrarCampana, obtenerUltimoDeshacer, deshacerUltimo } from '../hooks/useSheets'
+import { useState, useEffect, useMemo, useRef } from 'react'
+import { obtenerObjetivos, cerrarCampana, obtenerUltimoDeshacer, deshacerUltimo, restaurarBackup } from '../hooks/useSheets'
 import { C, F } from '../lib/theme'
-import { descargarBackupExcel, descargarResultadosExcel } from '../lib/excel'
+import { descargarBackupExcel, descargarResultadosExcel, leerBackupExcel } from '../lib/excel'
 import ModalShell from './ModalShell'
 import { generarInformeCierre } from './InformesPDF'
 
@@ -60,6 +60,7 @@ function CierreModal({ campanas, campanaActiva, data, stats, sedes, historial, o
 
   const [paso, setPaso] = useState(cerrando ? 'resumen' : 'nueva')
   const [abrirNueva, setAbrirNueva] = useState(true)
+  const [cortesOk, setCortesOk] = useState(false)
   const [nombre, setNombre] = useState('')
   const [fin, setFin] = useState('')
   const [base, setBase] = useState(campanaActiva || campanas[campanas.length - 1]?.id || '')
@@ -99,6 +100,16 @@ function CierreModal({ campanas, campanaActiva, data, stats, sedes, historial, o
 
   const confirmar = async () => {
     setGuardando(true); setError(null)
+    // Backup obligatorio antes de cerrar: es lo que permite volver atrás con
+    // "Restaurar backup" si algo quedó mal. Si no se pudo bajar, no se cierra.
+    if (cerrando) {
+      try { await descargarBackupExcel() }
+      catch (e) {
+        setError('No se pudo descargar el backup, así que no se cerró nada: ' + e.message)
+        setGuardando(false)
+        return
+      }
+    }
     try {
       const payload = {}
       if (cerrando) payload.campana_id = cerrando.id
@@ -128,6 +139,21 @@ function CierreModal({ campanas, campanaActiva, data, stats, sedes, historial, o
 
   const cuerpo = { flex: 1, overflow: 'auto', padding: '18px 20px', fontFamily: F.body, color: C.ink }
 
+  // Cortes cargados y huecos: dos cortes separados por más de 10 días, o un
+  // último corte muy anterior al fin de la campaña, sugieren un Excel que no
+  // se subió. Una vez cerrada ya no se pueden cargar, así que se revisa acá.
+  const cortes = [...new Set((historial || []).map(r => String(r.fecha).slice(0, 10)))].sort()
+  const avisosCortes = []
+  for (let i = 1; i < cortes.length; i++) {
+    const dias = Math.round((new Date(cortes[i]) - new Date(cortes[i - 1])) / 86400000)
+    if (dias > 10) avisosCortes.push(`Pasaron ${dias} días entre el corte del ${fmtFecha(cortes[i - 1])} y el del ${fmtFecha(cortes[i])}`)
+  }
+  const finCamp = cerrando?.fin ? String(cerrando.fin).slice(0, 10) : null
+  if (finCamp && cortes.length) {
+    const dias = Math.round((new Date(finCamp) - new Date(cortes[cortes.length - 1])) / 86400000)
+    if (dias > 10) avisosCortes.push(`El último corte es del ${fmtFecha(cortes[cortes.length - 1])} y la campaña terminó el ${fmtFecha(finCamp)}`)
+  }
+
   if (paso === 'resumen') {
     const fechaCorte = data[0]?.fecha
     return (
@@ -153,6 +179,24 @@ function CierreModal({ campanas, campanaActiva, data, stats, sedes, historial, o
             Todo su historial se conserva, y la podés comparar contra la nueva desde <strong style={{ color: C.ink }}>Historial → Comparar campañas</strong>.
           </div>
 
+          <div style={{ marginBottom: 16 }}>
+            <div style={labelStyle}>Cortes cargados ({cortes.length})</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: avisosCortes.length ? 10 : 0 }}>
+              {cortes.map(f => (
+                <span key={f} style={{ fontFamily: F.mono, fontSize: 11, padding: '3px 7px', background: C.paper, border: `1px solid ${C.ruleSoft}` }}>{fmtFecha(f)}</span>
+              ))}
+            </div>
+            {avisosCortes.map(a => (
+              <div key={a} style={{ fontSize: 12.5, color: '#6b4d1a', background: 'rgba(168,117,42,0.08)', borderLeft: `3px solid ${C.warn}`, padding: '6px 10px', marginBottom: 6 }}>
+                ⚠️ {a} — ¿falta subir algún Excel?
+              </div>
+            ))}
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, cursor: 'pointer', marginTop: 10, fontWeight: 600 }}>
+              <input type="checkbox" checked={cortesOk} onChange={e => setCortesOk(e.target.checked)} style={{ marginTop: 3 }} />
+              Confirmo que están subidos todos los Excel de la campaña (después de cerrarla ya no se pueden cargar)
+            </label>
+          </div>
+
           {data.length > 0 && (
             <div style={{ marginBottom: 18 }}>
               <div style={labelStyle}>Antes de cerrar (opcional)</div>
@@ -171,7 +215,7 @@ function CierreModal({ campanas, campanaActiva, data, stats, sedes, historial, o
         </div>
         {footer(<>
           <Boton tone="ghost" onClick={onClose}>Cancelar</Boton>
-          <Boton onClick={() => setPaso(abrirNueva ? 'nueva' : 'confirmar')}>Siguiente</Boton>
+          <Boton onClick={() => setPaso(abrirNueva ? 'nueva' : 'confirmar')} disabled={!cortesOk}>Siguiente</Boton>
         </>)}
       </ModalShell>
     )
@@ -250,6 +294,7 @@ function CierreModal({ campanas, campanaActiva, data, stats, sedes, historial, o
           {cerrando && <li>Se cierra <strong>{cerrando.nombre}</strong>{data.length ? <> con <strong>{stats.pctGlobal}%</strong> de cumplimiento</> : null}.</li>}
           {abre && <li>Se abre <strong>{nombre.trim()}</strong> con <strong>{sedesConObjetivo}</strong> sedes y objetivo total <strong>{totalObjetivo}</strong>{fin ? <> (fin {fmtFecha(fin)})</> : null}.</li>}
           {abre && <li>Desde ahí, los Excel que subas cargan los cortes de la campaña nueva.</li>}
+          {cerrando && <li>Antes de aplicar se descarga un <strong>backup completo</strong> — guardalo: con "Restaurar backup" se vuelve a este punto.</li>}
         </ul>
         {error && <div style={{ color: C.crimson, fontSize: 12.5, marginTop: 14 }}>❌ {error}</div>}
       </div>
@@ -308,6 +353,71 @@ function DeshacerModal({ op, onClose, onDone }) {
   )
 }
 
+function RestaurarModal({ onClose, onDone }) {
+  const inputRef = useRef(null)
+  const [leido, setLeido] = useState(null) // { hojas, resumen, fileName }
+  const [paso, setPaso] = useState('elegir') // elegir | aplicando
+  const [error, setError] = useState(null)
+
+  const elegir = async (file) => {
+    if (!file) return
+    setError(null); setLeido(null)
+    try { setLeido({ ...(await leerBackupExcel(file)), fileName: file.name }) }
+    catch (e) { setError(e.message) }
+  }
+
+  const aplicar = async () => {
+    setPaso('aplicando'); setError(null)
+    // Primero un backup del estado actual: así la restauración también se
+    // puede revertir (restaurando ese archivo).
+    try { await descargarBackupExcel() }
+    catch (e) {
+      setError('No se pudo descargar el backup del estado actual, así que no se restauró nada: ' + e.message)
+      setPaso('elegir'); return
+    }
+    try {
+      await restaurarBackup(leido.hojas)
+      await onDone()
+      onClose()
+    } catch (e) { setError(e.message); setPaso('elegir') }
+  }
+
+  const r = leido?.resumen
+  return (
+    <ModalShell onClose={paso === 'aplicando' ? () => {} : onClose} title="Restaurar backup" sub="Volver campañas, objetivos y cortes a como estaban en un backup" maxWidth={520}>
+      <div style={{ padding: '18px 20px', fontFamily: F.body, color: C.ink, fontSize: 13.5, lineHeight: 1.6, overflow: 'auto' }}>
+        <input ref={inputRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={e => elegir(e.target.files?.[0])} />
+        <Boton tone="ghost" onClick={() => inputRef.current?.click()} disabled={paso === 'aplicando'}>
+          📂 {leido ? 'Elegir otro archivo' : 'Elegir el Excel de backup'}
+        </Boton>
+
+        {r && (
+          <div style={{ marginTop: 14, background: C.paper, border: `1px solid ${C.ruleSoft}`, padding: '12px 14px', fontSize: 13 }}>
+            <div style={{ fontFamily: F.mono, fontSize: 11, color: C.inkSoft, marginBottom: 6 }}>{leido.fileName}</div>
+            {r.generado && <div>Generado: <strong>{r.generado}</strong></div>}
+            <div>Campañas: {r.campanas.map(c => `${c.nombre} (${c.estado})`).join(' · ')}</div>
+            <div>{r.cortes} cortes en total{r.ultimoCorte ? <> · último: <strong>{fmtFecha(r.ultimoCorte)}</strong></> : null}</div>
+          </div>
+        )}
+
+        {r && (
+          <div style={{ marginTop: 14, borderLeft: `3px solid ${C.crimson}`, background: 'rgba(156,43,52,0.05)', padding: '10px 14px', fontSize: 12.5, color: C.ink }}>
+            Todo lo que se haya cargado o cerrado <strong>después</strong> de este backup se reemplaza por lo que tiene el archivo.
+            Las sedes (emails, saludos) y el registro de envíos no se tocan. Antes de restaurar se descarga un backup del estado actual, por si hay que volver.
+          </div>
+        )}
+        {error && <div style={{ color: C.crimson, fontSize: 12.5, marginTop: 12 }}>❌ {error}</div>}
+      </div>
+      <div style={{ padding: '14px 20px', borderTop: `1px solid ${C.rule}`, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <Boton tone="ghost" onClick={onClose} disabled={paso === 'aplicando'}>Cancelar</Boton>
+        <Boton tone="crimson" onClick={aplicar} disabled={!leido || paso === 'aplicando'}>
+          {paso === 'aplicando' ? 'Restaurando…' : 'Restaurar este backup'}
+        </Boton>
+      </div>
+    </ModalShell>
+  )
+}
+
 function diasEntre(desdeIso, hastaIso) {
   return Math.round((new Date(hastaIso) - new Date(desdeIso)) / 86400000)
 }
@@ -316,7 +426,7 @@ function diasEntre(desdeIso, hastaIso) {
 // campaña y las acciones de mantenimiento — cerrar (el botón protagonista),
 // deshacer la última carga/cierre, backup, e informes de la campaña cerrada.
 export default function CampanaBar({ campanas, campanaActiva, data, stats, sedes, historial, onCampanasChanged, onRecargarCampana }) {
-  const [modal, setModal] = useState(null) // 'cierre' | 'deshacer'
+  const [modal, setModal] = useState(null) // 'cierre' | 'deshacer' | 'restaurar'
   const [ultimaOp, setUltimaOp] = useState(null)
   const [informePorSede, setInformePorSede] = useState(false)
 
@@ -339,6 +449,16 @@ export default function CampanaBar({ campanas, campanaActiva, data, stats, sedes
     const id = res.campana_id || campanaActiva
     await onCampanasChanged(id)
     if (id === campanaActiva) onRecargarCampana(id)
+  }
+
+  // Después de restaurar, la campaña que se estaba viendo puede no existir
+  // más: se vuelve a la activa del backup (o la última).
+  const onRestaurado = async () => {
+    const lista = await onCampanasChanged()
+    const destino = lista.find(c => c.id === campanaActiva) ? campanaActiva
+      : (lista.find(c => c.estado === 'activa') || lista[lista.length - 1])?.id
+    if (destino === campanaActiva) onRecargarCampana(destino)
+    else await onCampanasChanged(destino)
   }
 
   let detalle
@@ -381,6 +501,7 @@ export default function CampanaBar({ campanas, campanaActiva, data, stats, sedes
             </button>
           )}
           <BotonBackup />
+          <Boton tone="ghost" onClick={() => setModal('restaurar')}>⤒ Restaurar backup</Boton>
           {cerrada && data.length > 0 && (
             <>
               <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: C.inkSoft, cursor: 'pointer' }}>
@@ -418,6 +539,9 @@ export default function CampanaBar({ campanas, campanaActiva, data, stats, sedes
           campanas={campanas} campanaActiva={campanaActiva} data={data} stats={stats} sedes={sedes} historial={historial}
           onClose={() => setModal(null)} onDone={onCampanasChanged}
         />
+      )}
+      {modal === 'restaurar' && (
+        <RestaurarModal onClose={() => setModal(null)} onDone={onRestaurado} />
       )}
       {modal === 'deshacer' && ultimaOp && (
         <DeshacerModal op={ultimaOp} onClose={() => setModal(null)} onDone={onDeshecho} />
