@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useRef, useLayoutEffect } from 'react'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, ReferenceLine } from 'recharts'
 import { useCountUp } from '../hooks/useCountUp'
 import { useIsMobile } from '../hooks/useIsMobile'
@@ -36,6 +36,12 @@ const REGLA_MAX = 150
 
 function Regla({ data, pctZona, onAbrir }) {
   const [hover, setHover] = useState(null)
+  // La etiqueta de la sede señalada se ubica midiendo el espacio real: se
+  // corre para no salirse por los costados (las pilas del 0% y del 150%+
+  // están pegadas a los bordes) y pasa debajo del punto si arriba no entra.
+  const contRef = useRef(null)
+  const tipRef = useRef(null)
+  const [tipPos, setTipPos] = useState(null)
   // En pantallas chicas el SVG se achica demasiado para leer nombres: las
   // rezagadas se listan debajo en vez de etiquetarse sobre la regla.
   const compacta = useIsMobile()
@@ -80,8 +86,22 @@ function Regla({ data, pctZona, onAbrir }) {
   const sobreMax = puntos.filter(p => p.d.pct > REGLA_MAX)
   const pilaTope = sobreMax.length ? cy(Math.max(...sobreMax.map(p => p.fila))) : 0
 
+  useLayoutEffect(() => {
+    if (!hover || !contRef.current || !tipRef.current) return
+    const svg = contRef.current.querySelector('svg')
+    const cw = contRef.current.clientWidth
+    const sh = svg ? svg.getBoundingClientRect().height : 0
+    const tw = tipRef.current.offsetWidth
+    const th = tipRef.current.offsetHeight
+    const cx = hover.px / W * cw
+    const cy = hover.y / H * sh
+    const left = Math.min(Math.max(cx - tw / 2, 0), Math.max(0, cw - tw))
+    const arriba = cy - th - 14 >= -20
+    setTipPos({ left, top: arriba ? cy - th - 14 : cy + 14 })
+  }, [hover]) // eslint-disable-line
+
   return (
-    <div style={{ position: 'relative' }}>
+    <div ref={contRef} style={{ position: 'relative' }}>
       <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: 'block', overflow: 'visible' }} role="group"
         aria-label={`Las ${data.length} sedes ubicadas según su cumplimiento. Tocá una para abrir su ficha.`}>
         <rect x={x(0)} y={TOP - 4} width={x(50) - x(0)} height={EJE_Y - TOP + 4} fill="rgba(245,184,61,0.06)" />
@@ -129,9 +149,9 @@ function Regla({ data, pctZona, onAbrir }) {
               aria-label={`${corto(d.sede)}: ${d.pct}%, ${d.total} de ${d.objetivo}. Abrir ficha`}
               style={{ cursor: 'pointer', transition: 'r .12s', '--dx': `${x(0) - px}px`, animationDelay: `${120 + i * 14}ms` }}
               onMouseEnter={() => setHover({ d, px, y: cy(fila) })}
-              onMouseLeave={() => setHover(null)}
+              onMouseLeave={() => { setHover(null); setTipPos(null) }}
               onFocus={() => setHover({ d, px, y: cy(fila) })}
-              onBlur={() => setHover(null)}
+              onBlur={() => { setHover(null); setTipPos(null) }}
               onClick={() => onAbrir(d)}
               onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onAbrir(d) } }}
             />
@@ -152,9 +172,9 @@ function Regla({ data, pctZona, onAbrir }) {
         </div>
       )}
       {hover && (
-        <div style={{
-          position: 'absolute', left: `${(hover.px / W) * 100}%`, top: `${(hover.y / H) * 100}%`,
-          transform: 'translate(-50%, calc(-100% - 12px))', pointerEvents: 'none',
+        <div ref={tipRef} role="tooltip" style={{
+          position: 'absolute', left: tipPos?.left ?? 0, top: tipPos?.top ?? 0,
+          visibility: tipPos ? 'visible' : 'hidden', pointerEvents: 'none',
           background: '#fff', color: C.ink, borderRadius: 8, padding: '7px 10px', whiteSpace: 'nowrap',
           boxShadow: '0 10px 28px -10px rgba(0,0,0,0.5)', fontFamily: F.body, fontSize: 12.5, zIndex: 5,
         }}>

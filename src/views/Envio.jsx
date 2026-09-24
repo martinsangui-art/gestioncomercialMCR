@@ -231,7 +231,7 @@ function TooltipHelp({ text }) {
         }}>?</button>
       {show && (
         <span role="tooltip" id={id} style={{
-          position: 'absolute', bottom: 'calc(100% + 8px)', left: '50%', transform: 'translateX(-50%)',
+          position: 'absolute', top: 'calc(100% + 8px)', left: -10,
           background: C.ink, color: '#fff', fontSize: 12.5, fontFamily: F.body, fontWeight: 400,
           padding: '8px 12px', borderRadius: 8, zIndex: 99, width: 270, textAlign: 'left', lineHeight: 1.5,
           boxShadow: '0 10px 28px -10px rgba(0,0,0,.5)',
