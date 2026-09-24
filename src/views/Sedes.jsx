@@ -62,15 +62,15 @@ function NotasSeccion({ d }) {
         <input value={nueva} onChange={e => setNueva(e.target.value)}
           placeholder="Ej: hablé con Fulano, dijo que cargan el lunes…"
           onKeyDown={e => e.key === 'Enter' && handleAgregar()}
-          style={{ flex: 1, padding: '8px 12px', border: `1px solid ${C.rule}`, borderRadius: 2, fontSize: 13, fontFamily: F.body }} />
+          style={{ flex: 1, padding: '8px 12px', border: `1px solid ${C.rule}`, borderRadius: 8, fontSize: 13, fontFamily: F.body }} />
         <button onClick={handleAgregar} disabled={guardando} style={{
-          padding: '8px 16px', borderRadius: 2, fontSize: 13, fontWeight: 600, fontFamily: F.body,
+          padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, fontFamily: F.body,
           background: C.ink, color: '#fff', border: 'none', cursor: 'pointer', opacity: guardando ? 0.6 : 1,
         }}>
           {guardando ? '…' : 'Agregar'}
         </button>
       </div>
-      {error && <div style={{ color: C.crimson, fontSize: 12, marginTop: 8 }}>❌ {error}</div>}
+      {error && <div style={{ color: C.crimson, fontSize: 12, marginTop: 8 }}>{error}</div>}
     </div>
   )
 }
@@ -181,37 +181,37 @@ function SedeRow({ d, historial }) {
       onMouseEnter={e2 => e2.currentTarget.style.background = C.paper}
       onMouseLeave={e2 => e2.currentTarget.style.background = 'transparent'}
     >
-      <td style={{ padding: '10px 16px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 10, fontWeight: 600, color: C.inkSoft, border: `1px solid ${C.rule}`, padding: '1px 6px', flexShrink: 0, fontFamily: F.mono }}>{d.cod_sede}</span>
-          <div>
-            <div style={{ fontWeight: 600, fontSize: 13, color: C.ink, fontFamily: F.body }}>{d.sede}</div>
-            <div style={{ fontSize: 11, color: C.inkSoft, marginTop: 1, fontFamily: F.mono }}>{d.email}</div>
+      <td style={{ padding: '11px 18px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontWeight: 700, fontSize: 13.5, color: C.ink }}>{d.sede}</div>
+            <div style={{ fontSize: 12, color: C.inkSoft, marginTop: 2 }}>
+              <span style={{ fontFamily: F.mono, fontSize: 11 }}>{d.cod_sede}</span> · {d.email || 'sin email'}
+            </div>
           </div>
-          {noav && <span style={{ fontSize: 10, fontWeight: 600, color: C.warn, border: `1px solid ${C.warn}55`, padding: '1px 7px', flexShrink: 0, fontFamily: F.mono }}>⚠ Sin avance</span>}
+          {noav && <span style={{ fontSize: 11.5, fontWeight: 600, color: '#8A5D00', background: '#FBF0D9', padding: '3px 8px', borderRadius: 20, flexShrink: 0 }}>Sin avance</span>}
         </div>
       </td>
-      <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 600, color: C.inkSoft, fontFamily: F.mono }}>{d.objetivo}</td>
-      <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 600, color: C.ink, fontFamily: F.mono }}>{d.total}</td>
-      <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 600, color: C.inkSoft, fontFamily: F.mono }}>{Math.max(0, d.objetivo - d.total)}</td>
-      <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 600, color: varColor, fontFamily: F.mono }}>{varTxt}</td>
-      <td style={{ padding: '10px 16px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ flex: 1, height: 4, background: C.ruleSoft, overflow: 'hidden', minWidth: 80 }}>
-            <div style={{ width: `${Math.min(100, d.pct)}%`, height: '100%', background: e.color, transition: 'width 0.6s' }} />
+      <td style={{ padding: '11px 12px', textAlign: 'right', color: C.inkSoft, fontFamily: F.mono }}>{d.objetivo}</td>
+      <td style={{ padding: '11px 12px', textAlign: 'right', fontWeight: 700, color: C.ink, fontFamily: F.mono }}>{d.total}</td>
+      <td style={{ padding: '11px 12px', textAlign: 'right', color: C.inkSoft, fontFamily: F.mono }}>{Math.max(0, d.objetivo - d.total) || '—'}</td>
+      <td style={{ padding: '11px 12px', textAlign: 'right', fontWeight: 600, color: varColor, fontFamily: F.mono }}>{varTxt}</td>
+      <td style={{ padding: '11px 18px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ flex: 1, height: 6, background: C.ruleSoft, borderRadius: 3, overflow: 'hidden', minWidth: 90 }}>
+            <div style={{ width: `${Math.min(100, d.pct)}%`, height: '100%', background: e.color, borderRadius: 3, transition: 'width 0.6s' }} />
           </div>
-          <span style={{ fontSize: 12, fontWeight: 600, color: e.color, width: 40, textAlign: 'right', fontFamily: F.mono }}>{d.pct}%</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: C.ink, width: 44, textAlign: 'right', fontFamily: F.mono }}>{d.pct}%</span>
         </div>
       </td>
       <td style={{ padding: '10px 16px', textAlign: 'center' }}>
-        <EstadoTag color={e.color}>{e.label}</EstadoTag>
-      </td>
-      <td style={{ padding: '10px 16px', textAlign: 'center' }}>
-        <button onClick={e2 => { e2.stopPropagation(); setMostrarDetalle(true) }} title="Ver detalle y notas" style={{
-          border: `1px solid ${C.rule}`, background: '#fff', color: C.inkSoft,
-          borderRadius: 2, padding: '4px 10px', fontSize: 12, cursor: 'pointer',
+        <button onClick={e2 => { e2.stopPropagation(); setMostrarDetalle(true) }} title="Ver detalle y notas" aria-label="Ver detalle y notas" style={{
+          border: `1px solid ${C.rule}`, background: '#fff', color: C.navy,
+          borderRadius: 8, width: 32, height: 32, display: 'inline-grid', placeItems: 'center', cursor: 'pointer',
         }}>
-          📝
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 4h14v16H5z" /><path d="M9 9h6M9 13h6M9 17h3" />
+          </svg>
         </button>
         {mostrarDetalle && <SedeDetalleModal d={d} historial={historial} onClose={() => setMostrarDetalle(false)} />}
       </td>
@@ -226,7 +226,7 @@ function isActiva(s) {
   return !(str === 'FALSE' || str === 'FALSO' || str === '0' || str === 'NO')
 }
 
-const inputStyle = { width: '100%', padding: '5px 8px', border: `1px solid ${C.rule}`, borderRadius: 2, fontSize: 12, fontFamily: F.body }
+const inputStyle = { width: '100%', padding: '5px 8px', border: `1px solid ${C.rule}`, borderRadius: 8, fontSize: 12, fontFamily: F.body }
 
 const EMAIL_RE = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/
 
@@ -307,7 +307,7 @@ function FilaSedeEditable({ s, onGuardado }) {
             <button onClick={() => setEditando(false)} disabled={guardando} style={{ fontSize: 11, color: C.inkSoft, background: 'none', border: 'none', cursor: 'pointer' }}>Cancelar</button>
           </>
         ) : (
-          <button onClick={() => setEditando(true)} style={{ fontSize: 11, fontWeight: 600, color: C.ink, background: 'none', border: 'none', cursor: 'pointer' }}>✏️ Editar</button>
+          <button onClick={() => setEditando(true)} style={{ fontSize: 11, fontWeight: 600, color: C.ink, background: 'none', border: 'none', cursor: 'pointer' }}>Editar</button>
         )}
         {error && <div style={{ color: C.crimson, fontSize: 10, marginTop: 2 }}>{error}</div>}
       </td>
@@ -358,7 +358,7 @@ function GestionSedesModal({ onClose, onChanged }) {
         {cargando ? (
           <div style={{ textAlign: 'center', padding: 32, color: C.inkSoft, fontFamily: F.body }}>Cargando…</div>
         ) : error ? (
-          <div style={{ color: C.crimson, fontSize: 13, fontFamily: F.body }}>❌ {error}</div>
+          <div style={{ color: C.crimson, fontSize: 13, fontFamily: F.body }}>{error}</div>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
@@ -389,15 +389,15 @@ function GestionSedesModal({ onClose, onChanged }) {
           <input placeholder="Saludo (ej: Estimados)" value={nueva.saludo} onChange={e => setNueva(n => ({ ...n, saludo: e.target.value }))}
             style={{ ...inputStyle, flex: 1, minWidth: 140, width: 'auto' }} />
           <button onClick={handleAgregar} disabled={agregando} style={{
-            padding: '7px 16px', borderRadius: 2, fontSize: 12, fontWeight: 600, fontFamily: F.body,
+            padding: '7px 16px', borderRadius: 8, fontSize: 12, fontWeight: 600, fontFamily: F.body,
             background: C.ink, color: '#fff', border: 'none', cursor: 'pointer', opacity: agregando ? 0.6 : 1,
           }}>
             {agregando ? 'Agregando…' : 'Agregar'}
           </button>
         </div>
-        {errorNueva && <div style={{ color: C.crimson, fontSize: 12, marginTop: 8 }}>❌ {errorNueva}</div>}
+        {errorNueva && <div style={{ color: C.crimson, fontSize: 12, marginTop: 8 }}>{errorNueva}</div>}
         <div style={{ fontSize: 11, color: C.inkSoft, marginTop: 8, fontFamily: F.body }}>
-          💡 Después de agregar una sede nueva, cargale un objetivo en la hoja "objetivos" de Sheets para que aparezca con datos en el dashboard.
+          Después de agregar una sede nueva, cargale un objetivo en la hoja "objetivos" de Sheets para que aparezca con datos en el dashboard.
         </div>
       </div>
     </ModalShell>
@@ -432,45 +432,58 @@ export default function Sedes({ data, historial, campanas, campanaActiva, onSede
   }
 
   const thead = (
-    <tr style={{ background: C.paper, borderBottom: `1px solid ${C.rule}` }}>
-      {['Sede', 'Objetivo', 'Actual', 'Faltan', 'Var.', 'Cumplimiento', 'Estado', 'Notas'].map(h => (
-        <th key={h} style={{
-          padding: '10px ' + (h === 'Sede' || h === 'Cumplimiento' || h === 'Estado' ? '16px' : '12px'),
-          textAlign: h === 'Sede' || h === 'Cumplimiento' ? 'left' : 'center',
-          fontSize: 10, fontWeight: 600, color: C.inkSoft,
-          textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: F.mono,
+    <tr style={{ borderBottom: `1px solid ${C.rule}` }}>
+      {[['Sede', 'left'], ['Objetivo', 'right'], ['Inscriptos', 'right'], ['Faltan', 'right'], ['Var.', 'right'], ['Cumplimiento', 'left'], ['', 'center']].map(([h, al]) => (
+        <th key={h || 'notas'} style={{
+          padding: '11px ' + (h === 'Sede' || h === 'Cumplimiento' ? '18px' : '12px'),
+          textAlign: al, fontSize: 12, fontWeight: 600, color: C.inkSoft,
         }}>{h}</th>
       ))}
     </tr>
   )
 
+  const cuenta = {
+    '': data.length,
+    green: data.filter(d => getEstado(d) === 'green').length,
+    amber: data.filter(d => getEstado(d) === 'amber').length,
+    red: data.filter(d => getEstado(d) === 'red').length,
+    noav: data.filter(d => d.var === 0).length,
+  }
+  const FILTROS = [['', 'Todas'], ['green', 'En objetivo'], ['amber', 'En progreso'], ['red', 'Sin ingresos'], ['noav', 'Sin avance']]
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, fontFamily: F.body }}>
 
-      {/* Toolbar */}
-      <div style={{
-        background: C.paperRaised, border: `1px solid ${C.rule}`,
-        padding: '10px 16px', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap',
-      }}>
-        <input type="text" value={busq} onChange={e => setBusq(e.target.value)}
-          placeholder="Buscar sede…"
-          style={{ padding: '7px 12px', border: `1px solid ${C.rule}`, borderRadius: 2, fontSize: 13, outline: 'none', width: 200, fontFamily: F.body }} />
-        <select value={filtro} onChange={e => setFiltro(e.target.value)}
-          style={{ padding: '7px 10px', border: `1px solid ${C.rule}`, borderRadius: 2, fontSize: 13, background: '#fff', outline: 'none', fontFamily: F.body }}>
-          <option value="">Todas las sedes</option>
-          <option value="green">En objetivo (≥50%)</option>
-          <option value="amber">En progreso (1–49%)</option>
-          <option value="red">Sin ingresos</option>
-          <option value="noav">Sin avance vs anterior</option>
-        </select>
+      {/* Filtros */}
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative' }}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={C.inkSoft} strokeWidth="2" strokeLinecap="round" style={{ position: 'absolute', left: 12, top: 12 }}>
+            <circle cx="11" cy="11" r="7" /><path d="M20 20l-4-4" />
+          </svg>
+          <input type="search" value={busq} onChange={e => setBusq(e.target.value)} placeholder="Buscar sede" aria-label="Buscar sede"
+            style={{ height: 40, padding: '0 12px 0 34px', border: `1px solid ${C.rule}`, borderRadius: 10, fontSize: 14, outline: 'none', width: 220, fontFamily: F.body, background: '#fff' }} />
+        </div>
+        <div role="group" aria-label="Filtrar por estado" style={{ display: 'flex', gap: 4, background: '#fff', border: `1px solid ${C.rule}`, borderRadius: 10, padding: 3, flexWrap: 'wrap' }}>
+          {FILTROS.map(([k, l]) => {
+            const sel = filtro === k
+            return (
+              <button key={k} onClick={() => setFiltro(k)} aria-pressed={sel} style={{
+                height: 32, padding: '0 12px', borderRadius: 7, border: 'none', cursor: 'pointer', fontFamily: F.body,
+                fontSize: 13, fontWeight: sel ? 700 : 500, background: sel ? C.ink : 'transparent', color: sel ? '#fff' : C.ink,
+                display: 'flex', alignItems: 'center', gap: 6,
+              }}>
+                {l}<span style={{ fontFamily: F.mono, fontSize: 11, opacity: 0.6 }}>{cuenta[k]}</span>
+              </button>
+            )
+          })}
+        </div>
         <div style={{ flex: 1 }} />
-        <button onClick={() => setMostrarGestion(true)} style={{
-          padding: '7px 14px', borderRadius: 2, fontSize: 12, fontWeight: 600, fontFamily: F.body,
-          background: 'transparent', color: C.ink, border: `1px solid ${C.ink}`, cursor: 'pointer',
+        <button onClick={() => setMostrarGestion(true)} className="btn-press" style={{
+          height: 40, padding: '0 16px', borderRadius: 10, fontSize: 13.5, fontWeight: 700, fontFamily: F.body,
+          background: '#fff', color: C.navy, border: `1px solid ${C.rule}`, cursor: 'pointer',
         }}>
           Gestionar sedes
         </button>
-        <div style={{ fontSize: 12, color: C.inkSoft, fontFamily: F.mono }}>{filtered.length} sedes</div>
       </div>
 
       {mostrarGestion && (
@@ -486,16 +499,12 @@ export default function Sedes({ data, historial, campanas, campanaActiva, onSede
         const e = E[key]
         return (
           <div key={key}>
-            <div style={{
-              padding: '6px 4px 6px 12px', marginBottom: 8,
-              borderLeft: `3px solid ${e.color}`,
-              display: 'flex', alignItems: 'center', gap: 8,
-            }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: e.color, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: F.mono }}>
-                {e.label} · {items.length} sedes
-              </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '6px 0 10px' }}>
+              <span style={{ width: 10, height: 10, borderRadius: 3, background: e.color }} />
+              <span style={{ fontSize: 16, fontWeight: 800, fontStretch: '105%', color: C.ink }}>{e.label}</span>
+              <span style={{ fontFamily: F.mono, fontSize: 12.5, color: C.inkSoft }}>{items.length}</span>
             </div>
-            <div style={{ background: C.paperRaised, border: `1px solid ${C.rule}`, overflow: 'hidden' }}>
+            <div style={{ background: C.paperRaised, border: `1px solid ${C.rule}`, borderRadius: 12, overflow: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>{thead}</thead>
                 <tbody>

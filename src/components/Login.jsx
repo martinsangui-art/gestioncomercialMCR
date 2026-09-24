@@ -1,25 +1,40 @@
 import { useState } from 'react'
 import { ISOTIPO_B64 } from '../assets/isotipo'
-import { C, F } from '../lib/theme'
+import { C, F, cifra, rotulo } from '../lib/theme'
+import { useIsMobile } from '../hooks/useIsMobile'
 
-// Sello/medallón — el elemento de firma del sistema visual, usado acá como
-// portada de un "folio" sellado. Se repite (más chico) en el membrete de la
-// app para el estado de campaña.
-function Seal({ size = 76 }) {
+// Eco de "la regla" del tablero: una fila de marcas sobre una escala con la
+// línea del 100%. Acá es solo el motivo de la marca (no hay datos todavía).
+function ReglaMotivo() {
+  const marcas = [8, 17, 23, 31, 36, 44, 47, 52, 55, 58, 61, 63, 66, 68, 71, 74, 77, 79, 82, 86, 88, 91, 95, 98, 103, 108, 114, 122, 131, 140]
+  const x = v => 10 + (v / 150) * 380
+  const filas = []
+  const pts = marcas.map(v => {
+    let f = 0
+    while ((filas[f] || []).some(o => Math.abs(o - x(v)) < 11)) f++
+    ;(filas[f] = filas[f] || []).push(x(v))
+    return { v, f }
+  })
   return (
-    <svg width={size} height={size} viewBox="0 0 100 100" style={{ flexShrink: 0 }}>
-      <circle cx="50" cy="50" r="47" fill="none" stroke={C.brass} strokeWidth="1.5" opacity="0.9" />
-      <circle cx="50" cy="50" r="41" fill="none" stroke={C.brass} strokeWidth="1" opacity="0.5" />
-      <circle cx="50" cy="50" r="35" fill={C.ink} />
-      <foreignObject x="21" y="21" width="58" height="58">
-        <img src={ISOTIPO_B64} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-      </foreignObject>
+    <svg viewBox="0 0 400 70" width="100%" style={{ display: 'block', maxWidth: 420 }} aria-hidden="true">
+      <line x1={x(100)} x2={x(100)} y1={4} y2={56} stroke={C.celeste} strokeWidth="1.5" />
+      <line x1={x(50)} x2={x(50)} y1={4} y2={56} stroke="rgba(255,255,255,0.3)" strokeDasharray="3 4" />
+      <line x1={x(0)} x2={x(150)} y1={56} y2={56} stroke="rgba(255,255,255,0.4)" />
+      {Array.from({ length: 16 }, (_, i) => i * 10).map(v => (
+        <line key={v} x1={x(v)} x2={x(v)} y1={56} y2={v % 50 === 0 ? 63 : 60} stroke="rgba(255,255,255,0.4)" />
+      ))}
+      {pts.map(({ v, f }, i) => (
+        <circle key={i} cx={x(v)} cy={48 - f * 11} r={4.5}
+          fill={v < 50 ? '#F5B83D' : '#3DD598'} stroke={C.ink} strokeWidth="1.2"
+          className="animate-fadeIn" style={{ animationDelay: `${i * 25}ms` }} />
+      ))}
     </svg>
   )
 }
 
 export default function Login({ onLogin, error, loading }) {
   const [password, setPassword] = useState('')
+  const isMobile = useIsMobile()
 
   const handleSubmit = (e) => {
     e.preventDefault()
@@ -28,90 +43,83 @@ export default function Login({ onLogin, error, loading }) {
 
   return (
     <div style={{
-      position: 'fixed', inset: 0,
-      background: `radial-gradient(ellipse 900px 600px at 50% -10%, #223055 0%, ${C.ink} 55%), ${C.ink}`,
-      backgroundImage: `
-        repeating-linear-gradient(0deg, rgba(255,255,255,0.025) 0px, rgba(255,255,255,0.025) 1px, transparent 1px, transparent 28px),
-        radial-gradient(ellipse 900px 600px at 50% -10%, #223055 0%, ${C.ink} 55%)
-      `,
-      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 0,
-      padding: 20,
+      position: 'fixed', inset: 0, overflow: 'auto',
+      display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.15fr 1fr',
+      background: C.paper, fontFamily: F.body,
     }}>
-      <Seal />
-
-      <div style={{ textAlign: 'center', margin: '18px 0 28px' }}>
-        <div style={{ fontFamily: F.display, color: '#fff', fontWeight: 600, fontSize: 26, letterSpacing: '0.01em' }}>UCASAL</div>
-        <div style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12.5, marginTop: 5, fontFamily: F.mono, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-          Gestión Comercial
-        </div>
-        <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: 11.5, marginTop: 3, fontFamily: F.mono }}>
-          Dirección Operativa SEAD · Buenos Aires
-        </div>
-      </div>
-
-      <form onSubmit={handleSubmit} style={{
-        background: C.paperRaised,
-        border: `1px solid rgba(169,129,46,0.4)`,
-        borderRadius: 3,
-        padding: '30px 30px 26px',
-        width: '100%',
-        maxWidth: 340,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 16,
-        boxShadow: '0 24px 60px -12px rgba(0,0,0,0.45)',
+      <section style={{
+        background: C.ink, color: '#fff', position: 'relative',
+        padding: isMobile ? '32px 24px 28px' : '48px 56px',
+        display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 32,
+        borderBottom: isMobile ? `3px solid ${C.crimson}` : 'none',
+        borderRight: isMobile ? 'none' : `3px solid ${C.crimson}`,
       }}>
-        <label style={{
-          fontSize: 10.5, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase',
-          letterSpacing: '0.1em', fontFamily: F.mono, borderBottom: `1px solid ${C.rule}`, paddingBottom: 10,
-        }}>
-          Acceso privado
-        </label>
-        <input
-          type="password"
-          autoFocus
-          autoComplete="current-password"
-          value={password}
-          onChange={e => setPassword(e.target.value)}
-          placeholder="Contraseña"
-          disabled={loading}
-          style={{
-            padding: '11px 2px', borderRadius: 0, fontSize: 15, fontFamily: F.body,
-            border: 'none', borderBottom: `1.5px solid ${C.rule}`,
-            background: 'transparent', color: C.ink,
-            outline: 'none',
-          }}
-          onFocus={e => e.target.style.borderBottomColor = C.crimson}
-          onBlur={e => e.target.style.borderBottomColor = C.rule}
-        />
-        {error && (
-          <div style={{
-            fontSize: 12.5, color: C.crimson, background: 'rgba(156,43,52,0.08)',
-            border: `1px solid rgba(156,43,52,0.25)`, borderRadius: 3, padding: '9px 12px', fontFamily: F.body,
-          }}>
-            {error}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <img src={ISOTIPO_B64} alt="UCASAL" style={{ width: 34, height: 'auto' }} />
+          <div style={{ lineHeight: 1.1 }}>
+            <div style={{ fontWeight: 800, fontStretch: '112%', fontSize: 16 }}>UCASAL</div>
+            <div style={{ fontFamily: F.mono, fontSize: 11, color: 'rgba(255,255,255,0.55)' }}>Dirección Operativa SEAD · Zona Buenos Aires</div>
           </div>
-        )}
-        <button
-          type="submit"
-          disabled={loading || !password.trim()}
-          className="btn-press"
-          style={{
-            padding: '12px', borderRadius: 3, fontSize: 13, fontWeight: 600, fontFamily: F.body,
-            background: loading ? 'rgba(156,43,52,0.55)' : C.crimson,
-            color: '#fff', border: 'none', cursor: loading ? 'wait' : 'pointer',
-            opacity: !password.trim() ? 0.45 : 1,
-            textTransform: 'uppercase', letterSpacing: '0.08em',
-            transition: 'opacity 0.15s',
-          }}
-        >
-          {loading ? 'Verificando…' : 'Ingresar'}
-        </button>
-      </form>
+        </div>
 
-      <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.25)', textAlign: 'center', marginTop: 22, fontFamily: F.mono, letterSpacing: '0.04em' }}>
-        Acceso restringido · Sistema interno UCASAL
-      </div>
+        <div>
+          <div style={{ ...rotulo, color: C.celeste, marginBottom: 14 }}>Gestión comercial</div>
+          <h1 style={{ ...cifra(isMobile ? 46 : 76), margin: 0, color: '#fff', fontWeight: 850, letterSpacing: '-0.03em', lineHeight: 0.95 }}>
+            ¿Cómo<br />vamos?
+          </h1>
+          <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.7)', maxWidth: 380, lineHeight: 1.5, margin: '18px 0 26px' }}>
+            Inscripciones de cada sede contra su objetivo, corte a corte.
+          </p>
+          <ReglaMotivo />
+        </div>
+
+        <div style={{ fontFamily: F.mono, fontSize: 11, color: 'rgba(255,255,255,0.35)' }} className="hide-mobile">
+          Sistema interno · acceso restringido
+        </div>
+      </section>
+
+      <section style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: isMobile ? '28px 20px 40px' : 48 }}>
+        <form onSubmit={handleSubmit} style={{ width: '100%', maxWidth: 340 }}>
+          <h2 style={{ margin: 0, fontSize: 24, fontWeight: 800, fontStretch: '108%', color: C.ink, letterSpacing: '-0.01em' }}>Ingresar</h2>
+          <p style={{ margin: '6px 0 26px', fontSize: 14, color: C.inkSoft }}>Usá la contraseña del equipo.</p>
+
+          <label htmlFor="pw" style={{ ...rotulo, display: 'block', marginBottom: 8 }}>Contraseña</label>
+          <input
+            id="pw"
+            type="password"
+            autoFocus
+            autoComplete="current-password"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            disabled={loading}
+            style={{
+              width: '100%', height: 46, padding: '0 14px', borderRadius: 10, fontSize: 15, fontFamily: F.body,
+              border: `1.5px solid ${error ? C.crimson : C.rule}`, background: '#fff', color: C.ink, outline: 'none',
+              transition: 'border-color .15s, box-shadow .15s',
+            }}
+            onFocus={e => { e.target.style.borderColor = C.navy; e.target.style.boxShadow = `0 0 0 4px ${C.celesteSoft}` }}
+            onBlur={e => { e.target.style.borderColor = error ? C.crimson : C.rule; e.target.style.boxShadow = 'none' }}
+          />
+          {error && (
+            <div role="alert" style={{ fontSize: 13, color: C.crimson, marginTop: 8 }}>
+              {error === 'Contraseña incorrecta' ? 'La contraseña no es correcta. Revisala y probá de nuevo.' : error}
+            </div>
+          )}
+          <button
+            type="submit"
+            disabled={loading || !password.trim()}
+            className="btn-press"
+            style={{
+              width: '100%', height: 46, marginTop: 18, borderRadius: 10, fontSize: 15, fontWeight: 800, fontFamily: F.body,
+              background: C.navy, color: '#fff', border: 'none',
+              cursor: loading ? 'wait' : password.trim() ? 'pointer' : 'default',
+              opacity: !password.trim() ? 0.5 : 1, transition: 'opacity 0.15s',
+            }}
+          >
+            {loading ? 'Verificando…' : 'Ingresar'}
+          </button>
+        </form>
+      </section>
     </div>
   )
 }

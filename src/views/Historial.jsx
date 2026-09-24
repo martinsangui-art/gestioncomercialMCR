@@ -132,24 +132,23 @@ export default function Historial({ historial, data, campanas, campanaActiva, on
   }
 
   const tabBtn = (n, label) => (
-    <button onClick={() => setTab(n)} style={{
-      flex: 1, padding: '11px 16px', border: 'none', cursor: 'pointer',
-      background: tab === n ? C.paperRaised : C.paper,
-      color: tab === n ? C.ink : C.inkSoft,
-      fontWeight: tab === n ? 600 : 500, fontSize: 12, fontFamily: F.body,
-      borderBottom: tab === n ? `2px solid ${C.crimson}` : '2px solid transparent',
-      transition: 'all 0.15s',
+    <button onClick={() => setTab(n)} aria-pressed={tab === n} style={{
+      height: 34, padding: '0 16px', border: 'none', borderRadius: 7, cursor: 'pointer',
+      background: tab === n ? C.ink : 'transparent',
+      color: tab === n ? '#fff' : C.ink,
+      fontWeight: tab === n ? 700 : 500, fontSize: 13.5, fontFamily: F.body,
+      transition: 'background 0.15s, color 0.15s',
     }}>{label}</button>
   )
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, fontFamily: F.body }}>
-      <div style={{ background: C.paperRaised, border: `1px solid ${C.rule}`, overflow: 'hidden' }}>
-        <div style={{ display: 'flex', borderBottom: `1px solid ${C.rule}` }}>
-          {tabBtn(1, 'Evolución por sede')}
-          {tabBtn(2, 'Comparar sedes')}
-          {tabBtn(3, 'Comparar campañas')}
-        </div>
+      <div role="group" aria-label="Vista del historial" style={{ display: 'flex', gap: 4, background: '#fff', border: `1px solid ${C.rule}`, borderRadius: 10, padding: 3, alignSelf: 'flex-start', flexWrap: 'wrap' }}>
+        {tabBtn(1, 'Evolución por sede')}
+        {tabBtn(2, 'Comparar sedes')}
+        {tabBtn(3, 'Comparar campañas')}
+      </div>
+      <div style={{ background: C.paperRaised, border: `1px solid ${C.rule}`, borderRadius: 12, overflow: 'hidden' }}>
 
         {/* TAB 1: tabla de evolución histórica */}
         {tab === 1 && (
@@ -171,7 +170,7 @@ export default function Historial({ historial, data, campanas, campanaActiva, on
                             {f.slice(5).replace('-','/')}
                           </th>
                         ))}
-                        <th style={{ padding: '8px 12px', textAlign: 'center', fontSize: 10, fontWeight: 700, color: C.ink, textTransform: 'uppercase', borderBottom: `2px solid ${C.brass}`, whiteSpace: 'nowrap', background: 'rgba(169,129,46,0.1)', fontFamily: F.mono }}>Hoy</th>
+                        <th style={{ padding: '8px 12px', textAlign: 'center', fontSize: 10, fontWeight: 700, color: C.ink, textTransform: 'uppercase', borderBottom: `2px solid ${C.brass}`, whiteSpace: 'nowrap', background: 'rgba(127,178,240,0.1)', fontFamily: F.mono }}>Hoy</th>
                         <th style={{ padding: '8px 12px', textAlign: 'center', fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', borderBottom: `2px solid ${C.rule}`, fontFamily: F.mono }}>Tendencia</th>
                       </tr>
                     </thead>
@@ -194,7 +193,7 @@ export default function Historial({ historial, data, campanas, campanaActiva, on
                           <tr key={cod} style={{ borderBottom: `1px solid ${C.ruleSoft}` }}>
                             <td style={{ padding: '7px 14px', position: 'sticky', left: 0, background: '#fff', zIndex: 1 }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <span style={{ fontSize: 10, color: C.inkSoft, border: `1px solid ${C.rule}`, padding: '1px 5px', fontFamily: F.mono }}>{cod}</span>
+                                <span style={{ fontSize: 10, color: C.inkSoft, fontFamily: F.mono }}>{cod}</span>
                                 <span style={{ fontSize: 12, fontWeight: 600, color: C.ink }}>{nombre.replace(/ - BUENOS AIRES.*/, '').replace(/ - BS AS$/, '')}</span>
                               </div>
                             </td>
@@ -203,7 +202,7 @@ export default function Historial({ historial, data, campanas, campanaActiva, on
                               const col = v === 0 ? C.danger : v < 3 ? C.warn : C.ok
                               return <td key={i} style={{ padding: '7px 12px', textAlign: 'center', color: col, fontWeight: 700, fontFamily: F.mono }}>{v}</td>
                             })}
-                            <td style={{ padding: '7px 12px', textAlign: 'center', background: 'rgba(169,129,46,0.08)', color: C.ink, fontWeight: 700, fontFamily: F.mono }}>
+                            <td style={{ padding: '7px 12px', textAlign: 'center', background: 'rgba(127,178,240,0.08)', color: C.ink, fontWeight: 700, fontFamily: F.mono }}>
                               {curr ? curr.total : '—'}
                             </td>
                             <td style={{ padding: '7px 12px', textAlign: 'center', fontFamily: F.mono }}>{tendencia || '—'}</td>
@@ -231,7 +230,7 @@ export default function Historial({ historial, data, campanas, campanaActiva, on
                 const shortName = nombre.replace(/ - BUENOS AIRES.*/, '').replace(/ - BS AS$/, '')
                 return (
                   <button key={cod} onClick={() => toggleSede(cod)} style={{
-                    padding: '5px 12px', borderRadius: 2, fontSize: 12, fontWeight: 500, fontFamily: F.body,
+                    padding: '5px 12px', borderRadius: 8, fontSize: 12, fontWeight: 500, fontFamily: F.body,
                     cursor: 'pointer', transition: 'all 0.15s',
                     border: sel ? `1.5px solid ${COLORS[ci]}` : `1px solid ${C.rule}`,
                     background: sel ? COLORS[ci] + '14' : '#fff',
@@ -255,7 +254,7 @@ export default function Historial({ historial, data, campanas, campanaActiva, on
                     <YAxis tick={{ fontSize: 10, fill: C.inkSoft, fontFamily: F.mono }} tickLine={false} axisLine={false}
                       tickFormatter={v => v + '%'} domain={[0, 110]} />
                     <Tooltip
-                      contentStyle={{ fontSize: 12, border: `1px solid ${C.rule}`, borderRadius: 2, background: '#fff', fontFamily: F.body }}
+                      contentStyle={{ fontSize: 12, border: `1px solid ${C.rule}`, borderRadius: 8, background: '#fff', fontFamily: F.body }}
                       formatter={(v, name) => [v !== undefined ? v + '%' : '—', sedeNombre(name)]}
                       labelStyle={{ color: C.inkSoft, fontSize: 11, marginBottom: 6 }}
                     />
@@ -322,18 +321,18 @@ export default function Historial({ historial, data, campanas, campanaActiva, on
             </div>
             <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
               <select value={campA} onChange={e => setCampA(e.target.value)}
-                style={{ padding: '7px 10px', border: `1px solid ${C.rule}`, borderRadius: 2, fontSize: 13, background: '#fff', fontFamily: F.body }}>
+                style={{ padding: '7px 10px', border: `1px solid ${C.rule}`, borderRadius: 8, fontSize: 13, background: '#fff', fontFamily: F.body }}>
                 <option value="">Campaña A…</option>
                 {campanas?.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
               </select>
               <select value={campB} onChange={e => setCampB(e.target.value)}
-                style={{ padding: '7px 10px', border: `1px solid ${C.rule}`, borderRadius: 2, fontSize: 13, background: '#fff', fontFamily: F.body }}>
+                style={{ padding: '7px 10px', border: `1px solid ${C.rule}`, borderRadius: 8, fontSize: 13, background: '#fff', fontFamily: F.body }}>
                 <option value="">Campaña B…</option>
                 {campanas?.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
               </select>
               <select value={sedeComp3} onChange={e => setSedeComp3(e.target.value)}
                 disabled={!campA || !campB}
-                style={{ padding: '7px 10px', border: `1px solid ${C.rule}`, borderRadius: 2, fontSize: 13, background: '#fff', fontFamily: F.body, color: sedeComp3 ? C.ink : C.inkSoft, opacity: (!campA || !campB) ? 0.5 : 1 }}>
+                style={{ padding: '7px 10px', border: `1px solid ${C.rule}`, borderRadius: 8, fontSize: 13, background: '#fff', fontFamily: F.body, color: sedeComp3 ? C.ink : C.inkSoft, opacity: (!campA || !campB) ? 0.5 : 1 }}>
                 <option value="">General · todas las sedes</option>
                 {sedesComp3.map(([cod, nombre]) => (
                   <option key={cod} value={cod}>{nombre.replace(/ - BUENOS AIRES.*/, '').replace(/ - BS AS$/, '')}</option>
@@ -362,7 +361,7 @@ export default function Historial({ historial, data, campanas, campanaActiva, on
                     <YAxis tick={{ fontSize: 10, fill: C.inkSoft, fontFamily: F.mono }} tickLine={false} axisLine={false}
                       tickFormatter={v => v + '%'} domain={[0, 110]} />
                     <Tooltip
-                      contentStyle={{ fontSize: 12, border: `1px solid ${C.rule}`, borderRadius: 2, background: '#fff', fontFamily: F.body }}
+                      contentStyle={{ fontSize: 12, border: `1px solid ${C.rule}`, borderRadius: 8, background: '#fff', fontFamily: F.body }}
                       formatter={(v, name) => [v !== undefined ? v + '%' : '—', nombreCampana(name)]}
                     />
                     <Legend formatter={nombreCampana} wrapperStyle={{ fontSize: 12, paddingTop: 12, fontFamily: F.body }} />

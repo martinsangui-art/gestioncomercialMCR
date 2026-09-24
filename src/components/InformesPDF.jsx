@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { LOGO_B64 } from '../assets/logo'
 import { FIRMA_B64 } from '../assets/firma'
+import { C, F } from '../lib/theme'
+import ModalShell from './ModalShell'
 
 function fmtFecha(iso) {
   if (!iso) return ''
@@ -107,10 +109,10 @@ function abrirVentanaPDF(html, onToast) {
     document.body.removeChild(a)
     // Se libera después de que la pestaña nueva tuvo tiempo de cargar el HTML
     setTimeout(() => URL.revokeObjectURL(url), 60000)
-    onToast('📄 PDF listo — usá Ctrl+P (o Cmd+P en Mac) y elegí "Guardar como PDF"')
+    onToast('Informe listo: usá Ctrl+P (o Cmd+P en Mac) y elegí "Guardar como PDF"')
     return true
   } catch (e) {
-    onToast('⚠️ No se pudo generar el PDF: ' + e.message)
+    onToast('No se pudo generar el informe: ' + e.message)
     return false
   }
 }
@@ -431,36 +433,26 @@ export default function InformesPDF({ data, historial, campanas, campanaActiva, 
     <>
       {toast && (
         <div style={{
-          position: 'fixed', bottom: 24, right: 24, background: '#0f172a', color: '#fff',
+          position: 'fixed', bottom: 24, right: 24, background: C.ink, color: '#fff',
           padding: '10px 18px', borderRadius: 10, fontSize: 13, fontWeight: 600,
           zIndex: 9999, maxWidth: 320, lineHeight: 1.4,
         }}>{toast}</div>
       )}
 
-      <button onClick={() => setOpen(true)} style={{
-        padding: '7px 16px', borderRadius: 8, fontSize: 13, fontWeight: 700,
-        background: '#fff1f2', color: '#C8102E', border: '1.5px solid #fecdd3', cursor: 'pointer',
+      <button onClick={() => setOpen(true)} className="btn-press" style={{
+        height: 38, padding: '0 14px', borderRadius: 8, fontSize: 13.5, fontWeight: 700, fontFamily: F.body,
+        background: '#fff', color: C.navy, border: `1px solid ${C.rule}`, cursor: 'pointer',
+        display: 'flex', alignItems: 'center', gap: 8,
       }}>
-        📄 Informe PDF
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M6 9V3h12v6" /><rect x="3" y="9" width="18" height="8" rx="2" /><path d="M6 14h12v7H6z" />
+        </svg>
+        Informes
       </button>
 
       {open && (
-        <div style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)',
-          zIndex: 9500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
-        }}>
-          <div style={{
-            background: '#fff', borderRadius: 14, width: '100%', maxWidth: 480,
-            overflow: 'hidden', boxShadow: '0 24px 64px rgba(0,0,0,.3)',
-          }}>
-            <div style={{ background: 'linear-gradient(135deg,#1B2A6B,#0f1d4a)', padding: '16px 22px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <div style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>Generar informe PDF</div>
-                <div style={{ color: 'rgba(255,255,255,.6)', fontSize: 11, marginTop: 2 }}>Selecciona el tipo de reporte</div>
-              </div>
-              <button onClick={() => setOpen(false)} style={{ background: 'rgba(255,255,255,.15)', border: 'none', color: '#fff', width: 28, height: 28, borderRadius: '50%', cursor: 'pointer', fontSize: 13 }}>✕</button>
-            </div>
-
+        <ModalShell onClose={() => setOpen(false)} title="Generar informe" sub="Se abre en una pestaña nueva, lista para imprimir o guardar como PDF" maxWidth={500}>
+          <div style={{ overflow: 'auto' }}>
             <div style={{ padding: 20 }}>
               {/* Tipo de informe */}
               <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
@@ -468,16 +460,16 @@ export default function InformesPDF({ data, historial, campanas, campanaActiva, 
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 18 }}>
                 {[
-                  ['cierre', camp?.estado === 'cerrada' ? '🏁 Informe de cierre' : '🏁 Informe de campaña (parcial)', 'Resultado final, evolución, ranking y destacados'],
-                  ['general', '📊 Resumen general', 'Todas las sedes, ordenadas por estado'],
-                  ['sede', '🏢 Informe por sede', 'Detalle individual con evolución histórica'],
-                  ['comparacion', '🔄 Comparación de sedes', `${sedesSeleccionadas.length} sedes seleccionadas`],
+                  ['cierre', camp?.estado === 'cerrada' ? 'Informe de cierre' : 'Informe de campaña (parcial)', 'Resultado final, evolución, ranking y destacados'],
+                  ['general', 'Resumen general', 'Todas las sedes, ordenadas por estado'],
+                  ['sede', 'Informe por sede', 'Detalle individual con evolución histórica'],
+                  ['comparacion', 'Comparación de sedes', `${sedesSeleccionadas.length} sedes seleccionadas`],
                 ].map(([val, label, desc]) => (
                   <label key={val} style={{
                     display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 12px',
-                    border: `1.5px solid ${tipo === val ? '#1B2A6B' : '#e2e8f0'}`,
+                    border: `1.5px solid ${tipo === val ? C.navy : C.rule}`,
                     borderRadius: 10, cursor: 'pointer',
-                    background: tipo === val ? '#eef0f8' : '#fff',
+                    background: tipo === val ? C.celesteSoft : '#fff',
                   }}>
                     <input type="radio" checked={tipo === val} onChange={() => setTipo(val)} style={{ marginTop: 3 }} />
                     <div>
@@ -515,19 +507,19 @@ export default function InformesPDF({ data, historial, campanas, campanaActiva, 
 
               {tipo === 'comparacion' && sedesSeleccionadas.length === 0 && (
                 <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 16, background: '#f8fafc', padding: '10px 12px', borderRadius: 8 }}>
-                  💡 Para comparar sedes, primero seleccionalas en la pestaña Historial → Comparar sedes.
+                  Para comparar sedes, primero seleccionalas en la pestaña Historial → Comparar sedes.
                 </div>
               )}
 
               <button onClick={handleGenerar} style={{
                 width: '100%', padding: '11px', borderRadius: 8, fontSize: 14, fontWeight: 700,
-                background: 'linear-gradient(135deg,#1B2A6B,#0f1d4a)', color: '#fff', border: 'none', cursor: 'pointer',
+                background: C.navy, color: '#fff', border: 'none', cursor: 'pointer', fontFamily: F.body,
               }}>
-                📄 Generar y abrir PDF
+                Generar informe
               </button>
             </div>
           </div>
-        </div>
+        </ModalShell>
       )}
     </>
   )

@@ -1,5 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
 
+// Modo demo (solo en `npm run dev`, abriendo con ?demo): datos inventados y
+// sin tocar la planilla — para revisar el diseño sin contraseña.
+const DEMO = import.meta.env.DEV && typeof location !== 'undefined' && new URLSearchParams(location.search).has('demo')
+
 const API = 'https://script.google.com/macros/s/AKfycbyqeOBpxtYxavx-Uc8mTVRhsqb6HhY6N1RETcvNNVorRuuHMb111XLh_pVYhbSBry4/exec'
 const TOKEN_KEY = 'ucasal_session_token'
 
@@ -80,6 +84,7 @@ export function enviarEmailViaScript(payload) {
 
 // JSONP helper — única forma confiable de llamar Apps Script desde el browser
 function jsonp(action, params = {}) {
+  if (DEMO) return import('../dev/demoData').then(m => m.demoJsonp(action, params))
   return new Promise((resolve, reject) => {
     const cb = '_cb_' + Date.now() + '_' + Math.random().toString(36).slice(2)
     let url = `${API}?action=${action}&callback=${cb}`
@@ -117,6 +122,7 @@ function jsonp(action, params = {}) {
 }
 
 function post(body) {
+  if (DEMO) return Promise.reject(new Error('Modo demo: no se guardan cambios'))
   return fetch(API, { method: 'POST', body: JSON.stringify({ ...body, token: getToken() }) })
     .then(r => r.text())
     .then(t => {
@@ -131,7 +137,7 @@ function post(body) {
 
 // ── Hook de autenticación ───────────────────────────────────────────────────
 export function useAuth() {
-  const [authed, setAuthed] = useState(!!getToken())
+  const [authed, setAuthed] = useState(DEMO || !!getToken())
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [sessionExpired, setSessionExpired] = useState(false)

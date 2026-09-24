@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useIsMobile } from './hooks/useIsMobile'
 import { useSheets, useAuth } from './hooks/useSheets'
-import { C, F, useClosingTransition, pageBackgroundStyle } from './lib/theme'
-import Sidebar from './components/Sidebar'
+import { C, F, useClosingTransition, pageBackgroundStyle, rotulo } from './lib/theme'
+import TopBar from './components/TopBar'
 import ExcelUploader from './components/ExcelUploader'
 import InformesPDF from './components/InformesPDF'
 import CampanaBar from './components/CampanaBar'
@@ -32,14 +32,14 @@ function LoadingScreen({ error }) {
         <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12.5, fontFamily: F.mono }}>Dirección Operativa SEAD · Buenos Aires</div>
       </div>
       {error ? (
-        <div style={{ background: 'rgba(156,43,52,0.15)', border: `1px solid rgba(156,43,52,0.35)`, borderRadius: 3, padding: '12px 20px', maxWidth: 400, textAlign: 'center' }}>
-          <div style={{ color: '#e8828a', fontSize: 13, lineHeight: 1.5, fontFamily: F.body }}>❌ {error}</div>
+        <div style={{ background: 'rgba(200,16,46,0.15)', border: `1px solid rgba(200,16,46,0.35)`, borderRadius: 8, padding: '12px 20px', maxWidth: 400, textAlign: 'center' }}>
+          <div style={{ color: '#e8828a', fontSize: 13, lineHeight: 1.5, fontFamily: F.body }}>{error}</div>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
           <div style={{
             width: 34, height: 34, borderRadius: '50%',
-            border: `3px solid rgba(169,129,46,0.2)`, borderTopColor: C.brass,
+            border: `3px solid rgba(127,178,240,0.2)`, borderTopColor: C.brass,
             animation: 'spin 0.8s linear infinite',
           }} />
           <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12.5, fontFamily: F.mono }}>Conectando con Google Sheets…</div>
@@ -50,60 +50,38 @@ function LoadingScreen({ error }) {
   )
 }
 
-function Tag({ children, tone = 'ink' }) {
-  const tones = {
-    ink:    { border: 'rgba(23,35,63,0.25)', color: C.ink,     bg: 'transparent' },
-    ok:     { border: 'rgba(47,109,79,0.35)', color: C.ok,      bg: 'rgba(47,109,79,0.06)' },
-    solid:  { border: C.ink,                  color: '#fff',    bg: C.ink },
-  }
-  const t = tones[tone]
+// Encabezado de cada sección: la campaña como contexto arriba, el nombre
+// de la sección grande y los datos del corte en una línea.
+function PageHeader({ title, campana, fecha, sedes, children }) {
+  const meta = [fecha && `Corte del ${fmtFecha(fecha)}`, sedes !== undefined && `${sedes} sedes`].filter(Boolean)
   return (
     <div style={{
-      padding: '5px 11px', borderRadius: 2, background: t.bg,
-      border: `1px solid ${t.border}`, fontSize: 10.5, fontWeight: 600, color: t.color,
-      fontFamily: F.mono, letterSpacing: '0.05em', textTransform: 'uppercase',
+      display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between',
+      marginBottom: 24, flexWrap: 'wrap', gap: 14,
     }}>
-      {children}
-    </div>
-  )
-}
-
-function PageHeader({ title, sub, campana, fecha, sedes, children }) {
-  return (
-    <div style={{
-      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      paddingBottom: 18, marginBottom: 26, position: 'relative',
-      flexWrap: 'wrap', gap: 12,
-    }}>
-      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, ...ledgerRuleStyle() }} />
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
-        <h1 style={{ margin: 0, fontFamily: F.display, fontSize: 25, fontWeight: 600, color: C.ink, letterSpacing: '0.001em' }}>{title}</h1>
-        {sub && <p style={{ margin: 0, fontSize: 12.5, color: C.inkSoft, fontFamily: F.body }}>{sub}</p>}
+      <div>
+        {campana && <div style={{ ...rotulo, color: C.navy, marginBottom: 6 }}>{campana}</div>}
+        <h1 style={{ margin: 0, fontFamily: F.display, fontSize: 34, fontWeight: 800, fontStretch: '112%', color: C.ink, letterSpacing: '-0.02em', lineHeight: 1 }}>{title}</h1>
+        {meta.length > 0 && <div style={{ marginTop: 8, fontSize: 13.5, color: C.inkSoft, fontFamily: F.body }}>{meta.join(' · ')}</div>}
       </div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        {campana && <Tag tone="ok">{campana}</Tag>}
-        {fecha && <Tag tone="ink">Corte · {fmtFecha(fecha)}</Tag>}
-        {sedes !== undefined && <Tag tone="solid">{sedes} sedes</Tag>}
         {children}
       </div>
     </div>
   )
 }
 
-function ledgerRuleStyle() {
-  return { height: 1, background: `linear-gradient(90deg, ${C.ink} 0%, ${C.ink} 55%, ${C.crimson} 100%)`, opacity: 0.55 }
-}
-
 const VIEW_META = {
-  dashboard: { title: 'Dashboard',  sub: 'Visión general de la campaña activa' },
-  sedes:     { title: 'Sedes',      sub: 'Estado individual por sede' },
-  historial: { title: 'Historial',  sub: 'Evolución semanal y comparación de sedes' },
-  envio:     { title: 'Envío',      sub: 'Gestión de emails semanales' },
+  dashboard: { title: 'Cómo vamos' },
+  sedes:     { title: 'Sedes' },
+  historial: { title: 'Historial' },
+  envio:     { title: 'Envío semanal' },
 }
 
 function AppShell({ onLogout }) {
   const [view, setView] = useState('dashboard')
   const [sedesComparacion, setSedesComparacion] = useState([])
+  const [uploaderAbierto, setUploaderAbierto] = useState(null) // null = automático
   const isMobile = useIsMobile()
 
   const {
@@ -119,23 +97,32 @@ function AppShell({ onLogout }) {
   const meta = VIEW_META[view]
 
   return (
-    <div style={{
-      display: 'flex', minHeight: '100vh',
-      ...pageBackgroundStyle(),
-    }}>
-      <Sidebar
+    <div style={{ minHeight: '100vh', ...pageBackgroundStyle() }}>
+      <TopBar
         view={view} onView={setView}
         campanaActiva={campanaActiva} campanas={campanas}
         onCampana={cargarCampana}
         onLogout={onLogout}
       />
 
-      <main style={{ flex: 1, minWidth: 0, padding: isMobile ? '16px 14px' : '28px 32px', overflowY: 'auto' }}>
+      <main style={{ maxWidth: 1320, margin: '0 auto', padding: isMobile ? '20px 14px 48px' : '32px 24px 64px' }}>
         <PageHeader
-          title={meta.title} sub={meta.sub}
+          title={meta.title}
           campana={camp?.nombre} fecha={fecha}
           sedes={view === 'dashboard' || view === 'sedes' ? data.length : undefined}
         >
+          {view === 'dashboard' && camp?.estado === 'activa' && data.length > 0 && !uploaderAbierto && (
+            <button onClick={() => setUploaderAbierto(true)} className="btn-press" style={{
+              height: 38, padding: '0 16px', borderRadius: 8, border: 'none', cursor: 'pointer',
+              background: C.navy, color: '#fff', fontSize: 13.5, fontWeight: 700, fontFamily: F.body,
+              display: 'flex', alignItems: 'center', gap: 8,
+            }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 16V4" /><path d="M7 9l5-5 5 5" /><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" />
+              </svg>
+              Cargar Excel del corte
+            </button>
+          )}
           {data.length > 0 && (
             <InformesPDF
               data={data} historial={historial}
@@ -165,6 +152,7 @@ function AppShell({ onLogout }) {
               campanas={campanas}
               campanaActiva={campanaActiva}
               sedesConocidas={sedes}
+              abierto={uploaderAbierto} onAbierto={setUploaderAbierto}
             />
           )}
 
@@ -194,20 +182,20 @@ function SessionExpiredModal({ onDismiss }) {
   const [closing, requestClose] = useClosingTransition(onDismiss)
   return (
     <div className={`modal-overlay ${closing ? 'modal-closing' : ''}`} style={{
-      position: 'fixed', inset: 0, background: 'rgba(23,35,63,0.65)',
+      position: 'fixed', inset: 0, background: 'rgba(14,23,51,0.65)',
       zIndex: 20000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
     }}>
       <div className={`modal-panel ${closing ? 'modal-closing' : ''}`} style={{
-        background: C.paperRaised, borderRadius: 3, padding: '30px 28px', maxWidth: 380, width: '100%',
+        background: C.paperRaised, borderRadius: 8, padding: '30px 28px', maxWidth: 380, width: '100%',
         boxShadow: '0 24px 64px rgba(0,0,0,.35)', textAlign: 'center', border: `1px solid ${C.rule}`,
       }}>
-        <div style={{ fontSize: 30, marginBottom: 14 }}>⏰</div>
+        <div style={{ fontSize: 30, marginBottom: 14 }}></div>
         <div style={{ fontFamily: F.display, fontSize: 18, fontWeight: 600, color: C.ink, marginBottom: 8 }}>Tu sesión expiró</div>
         <div style={{ fontSize: 13, color: C.inkSoft, marginBottom: 22, lineHeight: 1.55, fontFamily: F.body }}>
           Iniciá sesión de nuevo para continuar. Si estabas cargando una semana manualmente, tus valores quedaron guardados y se restauran al volver a entrar.
         </div>
         <button onClick={requestClose} className="btn-press" style={{
-          padding: '11px 24px', borderRadius: 3, fontSize: 13, fontWeight: 600, fontFamily: F.body,
+          padding: '11px 24px', borderRadius: 8, fontSize: 13, fontWeight: 600, fontFamily: F.body,
           background: C.crimson, color: '#fff', border: 'none', cursor: 'pointer', width: '100%',
           textTransform: 'uppercase', letterSpacing: '0.05em',
         }}>

@@ -13,17 +13,17 @@ function fmtFecha(iso) {
 }
 
 const labelStyle = { fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6, fontFamily: F.mono }
-const inputStyle = { width: '100%', padding: '7px 9px', border: `1px solid ${C.rule}`, borderRadius: 2, fontSize: 13, fontFamily: F.body, background: '#fff' }
+const inputStyle = { width: '100%', padding: '7px 9px', border: `1px solid ${C.rule}`, borderRadius: 8, fontSize: 13, fontFamily: F.body, background: '#fff' }
 
 function Boton({ children, onClick, disabled, tone = 'ink' }) {
   const tones = {
-    ink:     { background: C.ink, color: '#fff', border: 'none' },
+    ink:     { background: C.navy, color: '#fff', border: 'none' },
     crimson: { background: C.crimson, color: '#fff', border: 'none' },
-    ghost:   { background: 'transparent', color: C.ink, border: `1px solid ${C.rule}` },
+    ghost:   { background: '#fff', color: C.navy, border: `1px solid ${C.rule}` },
   }
   return (
     <button onClick={onClick} disabled={disabled} className="btn-press" style={{
-      padding: '9px 18px', borderRadius: 2, fontSize: 12.5, fontWeight: 600, fontFamily: F.body,
+      height: 38, padding: '0 16px', borderRadius: 8, fontSize: 13.5, fontWeight: 700, fontFamily: F.body,
       cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.55 : 1, ...tones[tone],
     }}>
       {children}
@@ -171,7 +171,7 @@ function CierreModal({ campanas, campanaActiva, data, stats, sedes, historial, o
               </div>
             </>
           ) : (
-            <div style={{ fontSize: 13, color: C.warn, marginBottom: 16 }}>⚠️ Esta campaña no tiene cortes cargados.</div>
+            <div style={{ fontSize: 13, color: C.warn, marginBottom: 16 }}>Esta campaña no tiene cortes cargados.</div>
           )}
 
           <div style={{ background: C.paper, borderLeft: `3px solid ${C.inkSoft}`, padding: '10px 14px', fontSize: 12.5, lineHeight: 1.55, color: C.inkSoft, marginBottom: 16 }}>
@@ -188,7 +188,7 @@ function CierreModal({ campanas, campanaActiva, data, stats, sedes, historial, o
             </div>
             {avisosCortes.map(a => (
               <div key={a} style={{ fontSize: 12.5, color: '#6b4d1a', background: 'rgba(168,117,42,0.08)', borderLeft: `3px solid ${C.warn}`, padding: '6px 10px', marginBottom: 6 }}>
-                ⚠️ {a} — ¿falta subir algún Excel?
+                {a} — ¿falta subir algún Excel?
               </div>
             ))}
             <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, cursor: 'pointer', marginTop: 10, fontWeight: 600 }}>
@@ -201,8 +201,8 @@ function CierreModal({ campanas, campanaActiva, data, stats, sedes, historial, o
             <div style={{ marginBottom: 18 }}>
               <div style={labelStyle}>Antes de cerrar (opcional)</div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <Boton tone="ghost" onClick={() => generarInformeCierre({ camp: cerrando, data, historial })}>🖨 Informe final</Boton>
-                <Boton tone="ghost" onClick={() => descargarResultadosExcel(cerrando.nombre, data, historial)}>⤓ Resultados en Excel</Boton>
+                <Boton tone="ghost" onClick={() => generarInformeCierre({ camp: cerrando, data, historial })}>Informe final</Boton>
+                <Boton tone="ghost" onClick={() => descargarResultadosExcel(cerrando.nombre, data, historial)}>Resultados en Excel</Boton>
                 <BotonBackup />
               </div>
             </div>
@@ -235,7 +235,7 @@ function CierreModal({ campanas, campanaActiva, data, stats, sedes, historial, o
               <input type="date" value={fin} onChange={e => setFin(e.target.value)} style={inputStyle} />
             </div>
           </div>
-          {choque && <div style={{ color: C.crimson, fontSize: 12, marginTop: -8, marginBottom: 12 }}>❌ {errorNueva}</div>}
+          {choque && <div style={{ color: C.crimson, fontSize: 12, marginTop: -8, marginBottom: 12 }}>{errorNueva}</div>}
 
           <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
             <div>
@@ -296,7 +296,7 @@ function CierreModal({ campanas, campanaActiva, data, stats, sedes, historial, o
           {abre && <li>Desde ahí, los Excel que subas cargan los cortes de la campaña nueva.</li>}
           {cerrando && <li>Antes de aplicar se descarga un <strong>backup completo</strong> — guardalo: con "Restaurar backup" se vuelve a este punto.</li>}
         </ul>
-        {error && <div style={{ color: C.crimson, fontSize: 12.5, marginTop: 14 }}>❌ {error}</div>}
+        {error && <div style={{ color: C.crimson, fontSize: 12.5, marginTop: 14 }}>{error}</div>}
       </div>
       {footer(<>
         <Boton tone="ghost" onClick={() => setPaso(abre && cerrando ? 'nueva' : cerrando ? 'resumen' : 'nueva')} disabled={guardando}>Atrás</Boton>
@@ -317,8 +317,48 @@ function BotonBackup({ tone = 'ghost' }) {
   }
   return (
     <Boton tone={tone} onClick={bajar} disabled={estado === 'cargando'}>
-      {estado === 'cargando' ? 'Generando…' : '⤓ Backup completo'}
+      {estado === 'cargando' ? 'Generando…' : 'Backup completo'}
     </Boton>
+  )
+}
+
+// Backup y restauración juntos en un menú: se usan poco, no merecen dos
+// botones permanentes al lado de "Cerrar campaña".
+function MenuRespaldo({ onRestaurar }) {
+  const [abierto, setAbierto] = useState(false)
+  const [bajando, setBajando] = useState(false)
+  const ref = useRef(null)
+  useEffect(() => {
+    if (!abierto) return
+    const cerrar = (e) => { if (ref.current && !ref.current.contains(e.target)) setAbierto(false) }
+    document.addEventListener('mousedown', cerrar)
+    return () => document.removeEventListener('mousedown', cerrar)
+  }, [abierto])
+  const bajar = async () => {
+    setAbierto(false); setBajando(true)
+    try { await descargarBackupExcel() } catch (e) { alert('No se pudo generar el backup: ' + e.message) }
+    setBajando(false)
+  }
+  const item = { display: 'block', width: '100%', textAlign: 'left', padding: '10px 12px', borderRadius: 7, border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: F.body }
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <Boton tone="ghost" onClick={() => setAbierto(a => !a)} disabled={bajando}>{bajando ? 'Generando backup…' : 'Respaldo ▾'}</Boton>
+      {abierto && (
+        <div className="animate-fadeIn" style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', width: 280, zIndex: 40, background: '#fff', border: `1px solid ${C.rule}`, borderRadius: 10, padding: 5, boxShadow: '0 16px 40px -12px rgba(14,23,51,0.35)' }}>
+          {[
+            ['Descargar backup completo', 'Excel con campañas, objetivos, cortes y sedes', bajar],
+            ['Restaurar desde un backup', 'Volver la base al punto de un Excel de backup', () => { setAbierto(false); onRestaurar() }],
+          ].map(([t, d, fn]) => (
+            <button key={t} onClick={fn} style={item}
+              onMouseEnter={e => { e.currentTarget.style.background = C.ruleSoft }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
+              <div style={{ fontSize: 13.5, fontWeight: 700, color: C.ink }}>{t}</div>
+              <div style={{ fontSize: 12, color: C.inkSoft, marginTop: 2 }}>{d}</div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -343,7 +383,7 @@ function DeshacerModal({ op, onClose, onDone }) {
             ? 'La campaña cerrada vuelve a quedar activa y se elimina la campaña nueva con sus objetivos (solo si todavía no se le cargaron cortes).'
             : 'Se borran los datos de ese corte y, si reemplazó a uno anterior, se restauran los valores que había antes.'}
         </div>
-        {error && <div style={{ color: C.crimson, fontSize: 12.5, marginTop: 12 }}>❌ {error}</div>}
+        {error && <div style={{ color: C.crimson, fontSize: 12.5, marginTop: 12 }}>{error}</div>}
       </div>
       <div style={{ padding: '14px 20px', borderTop: `1px solid ${C.rule}`, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
         <Boton tone="ghost" onClick={onClose} disabled={aplicando}>Cancelar</Boton>
@@ -393,7 +433,7 @@ function RestaurarModal({ onClose, onDone }) {
       <div style={{ padding: '18px 20px', fontFamily: F.body, color: C.ink, fontSize: 13.5, lineHeight: 1.6, overflow: 'auto' }}>
         <input ref={inputRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={e => elegir(e.target.files?.[0])} />
         <Boton tone="ghost" onClick={() => inputRef.current?.click()} disabled={paso === 'aplicando'}>
-          📂 {leido ? 'Elegir otro archivo' : 'Elegir el Excel de backup'}
+          {leido ? 'Elegir otro archivo' : 'Elegir el Excel de backup'}
         </Boton>
 
         {r && (
@@ -427,12 +467,12 @@ function RestaurarModal({ onClose, onDone }) {
         })()}
 
         {r && (
-          <div style={{ marginTop: 14, borderLeft: `3px solid ${C.crimson}`, background: 'rgba(156,43,52,0.05)', padding: '10px 14px', fontSize: 12.5, color: C.ink }}>
+          <div style={{ marginTop: 14, borderLeft: `3px solid ${C.crimson}`, background: 'rgba(200,16,46,0.05)', padding: '10px 14px', fontSize: 12.5, color: C.ink }}>
             Todo lo que se haya cargado o cerrado <strong>después</strong> de este backup se reemplaza por lo que tiene el archivo.
             Las sedes (emails, saludos) y el registro de envíos no se tocan. Antes de restaurar se descarga un backup del estado actual, por si hay que volver.
           </div>
         )}
-        {error && <div style={{ color: C.crimson, fontSize: 12.5, marginTop: 12 }}>❌ {error}</div>}
+        {error && <div style={{ color: C.crimson, fontSize: 12.5, marginTop: 12 }}>{error}</div>}
       </div>
       <div style={{ padding: '14px 20px', borderTop: `1px solid ${C.rule}`, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
         <Boton tone="ghost" onClick={onClose} disabled={paso === 'aplicando'}>Cancelar</Boton>
@@ -500,59 +540,52 @@ export default function CampanaBar({ campanas, campanaActiva, data, stats, sedes
   return (
     <>
       <div style={{
-        background: C.paperRaised, border: `1px solid ${vencida ? 'rgba(156,43,52,0.45)' : C.rule}`,
-        borderLeft: `4px solid ${activa ? (vencida ? C.crimson : C.ok) : C.inkSoft}`,
-        borderRadius: 3, padding: '12px 16px', marginBottom: 20,
+        background: vencida ? '#FDF2F4' : C.paperRaised, border: `1px solid ${vencida ? 'rgba(200,16,46,0.35)' : C.rule}`,
+        borderRadius: 12, padding: '14px 14px 14px 18px', marginBottom: 18,
         display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', fontFamily: F.body,
       }}>
         <div style={{ flex: 1, minWidth: 220 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ width: 8, height: 8, borderRadius: '50%', background: activa ? '#4CA678' : C.inkSoft, flexShrink: 0 }} />
-            <span style={{ fontFamily: F.display, fontSize: 16, fontWeight: 600, color: C.ink }}>{camp?.nombre || 'Sin campaña'}</span>
-            <span style={{ fontFamily: F.mono, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: activa ? C.ok : C.inkSoft }}>
-              {activa ? 'activa' : cerrada ? '🔒 cerrada' : ''}
-            </span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>{activa ? 'Campaña activa' : cerrada ? 'Campaña cerrada' : 'Sin campaña activa'}</span>
           </div>
-          {detalle && <div style={{ fontSize: 12.5, color: C.inkSoft, marginTop: 3, marginLeft: 16 }}>{detalle}</div>}
+          {detalle && <div style={{ fontSize: 13, color: C.inkSoft, marginTop: 3, marginLeft: 16 }}>{detalle}</div>}
         </div>
 
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           {ultimaOp && (
             <button onClick={() => setModal('deshacer')} className="btn-press" title={`${ultimaOp.descripcion} (${ultimaOp.fecha_hora})`} style={{
-              padding: '8px 12px', borderRadius: 2, fontSize: 12, fontWeight: 600, fontFamily: F.body, cursor: 'pointer',
-              background: 'transparent', color: C.ink, border: `1px solid ${C.rule}`, maxWidth: 280,
+              height: 38, padding: '0 14px', borderRadius: 8, fontSize: 13, fontWeight: 600, fontFamily: F.body, cursor: 'pointer',
+              background: '#fff', color: C.ink, border: `1px solid ${C.rule}`, maxWidth: 300,
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             }}>
-              ↶ Deshacer: {ultimaOp.descripcion}
+              {ultimaOp.accion === 'cerrar_campana' ? 'Deshacer cierre' : 'Deshacer última carga'}
             </button>
           )}
-          <BotonBackup />
-          <Boton tone="ghost" onClick={() => setModal('restaurar')}>⤒ Restaurar backup</Boton>
+          <MenuRespaldo onRestaurar={() => setModal('restaurar')} />
           {cerrada && data.length > 0 && (
             <>
               <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: C.inkSoft, cursor: 'pointer' }}>
                 <input type="checkbox" checked={informePorSede} onChange={e => setInformePorSede(e.target.checked)} />
                 con hoja por sede
               </label>
-              <Boton onClick={() => generarInformeCierre({ camp, data, historial, porSede: informePorSede })}>🖨 Imprimir informe de cierre</Boton>
-              <Boton tone="ghost" onClick={() => descargarResultadosExcel(camp.nombre, data, historial)}>⤓ Resultados Excel</Boton>
+              <Boton onClick={() => generarInformeCierre({ camp, data, historial, porSede: informePorSede })}>Imprimir informe de cierre</Boton>
+              <Boton tone="ghost" onClick={() => descargarResultadosExcel(camp.nombre, data, historial)}>Resultados Excel</Boton>
             </>
           )}
           {activa && (
             <button onClick={() => setModal('cierre')} className="btn-press" style={{
-              padding: '10px 20px', borderRadius: 2, fontSize: 13, fontWeight: 700, fontFamily: F.body,
-              letterSpacing: '0.04em', textTransform: 'uppercase', cursor: 'pointer',
-              background: C.crimson, color: '#fff', border: 'none',
-              boxShadow: vencida ? `0 0 0 3px rgba(156,43,52,0.2)` : 'none',
+              height: 38, padding: '0 18px', borderRadius: 8, fontSize: 13.5, fontWeight: 800, fontFamily: F.body,
+              cursor: 'pointer', background: C.crimson, color: '#fff', border: 'none',
+              boxShadow: vencida ? `0 0 0 3px rgba(200,16,46,0.2)` : 'none',
             }}>
-              🏁 Cerrar campaña
+              Cerrar campaña
             </button>
           )}
           {!hayActiva && (
             <button onClick={() => setModal('cierre')} className="btn-press" style={{
-              padding: '10px 20px', borderRadius: 2, fontSize: 13, fontWeight: 700, fontFamily: F.body,
-              letterSpacing: '0.04em', textTransform: 'uppercase', cursor: 'pointer',
-              background: C.ink, color: '#fff', border: 'none',
+              height: 38, padding: '0 18px', borderRadius: 8, fontSize: 13.5, fontWeight: 800, fontFamily: F.body,
+              cursor: 'pointer', background: C.navy, color: '#fff', border: 'none',
             }}>
               + Nueva campaña
             </button>

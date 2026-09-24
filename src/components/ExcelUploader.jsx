@@ -192,11 +192,33 @@ function fechaEnPalabras(fechaISO) {
   return `${d} de ${MESES[mo - 1]} de ${yyyy}`
 }
 
-export default function ExcelUploader({ data, onUpload, campanas, campanaActiva, sedesConocidas = [] }) {
+function IconoPlanilla() {
+  return (
+    <span style={{ width: 38, height: 38, borderRadius: 9, background: '#E4EFFC', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#1B2A6B" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="4" y="3" width="16" height="18" rx="2" /><path d="M4 9h16M4 15h16M10 3v18" />
+      </svg>
+    </span>
+  )
+}
+
+function fmtCorto(iso) {
+  if (!iso) return ''
+  const p = String(iso).slice(0, 10).split('-')
+  return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : iso
+}
+
+export default function ExcelUploader({ data, onUpload, campanas, campanaActiva, sedesConocidas = [], abierto, onAbierto }) {
   const [dragging, setDragging] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
-  const [minimized, setMinimized] = useState(false)
+  // null = automático: plegado si la campaña ya tiene cortes. Si el padre
+  // pasa `abierto`/`onAbierto`, el botón para abrirlo vive afuera (en el
+  // encabezado) y plegado no se muestra nada.
+  const controlado = abierto !== undefined
+  const [minLocal, setMinLocal] = useState(null)
+  const minimized = controlado ? (abierto === null ? null : !abierto) : minLocal
+  const setMinimized = (v) => controlado ? onAbierto(!v) : setMinLocal(v)
   const [preview, setPreview] = useState(null) // { sedes, meta, fileName }
   const [confirmando, setConfirmando] = useState(false)
   const [modoReemplazar, setModoReemplazar] = useState(false) // cuando ya existe la fecha
@@ -280,31 +302,31 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
 
     return (
       <div style={{
-        background: '#fff', border: '1px solid #DCD4BE', borderTop: '3px solid #17233F',
+        background: '#fff', border: '1px solid #DCE1EA', borderTop: '3px solid #0E1733',
         borderRadius: 14, overflow: 'hidden', marginBottom: 4,
       }}>
-        <div style={{ padding: '14px 20px', borderBottom: '1px solid #EAE4D3' }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: '#17233F' }}>👀 Confirmá antes de guardar</div>
-          <div style={{ fontSize: 12, color: '#5C6478', marginTop: 1 }}>Archivo: {preview.fileName}</div>
+        <div style={{ padding: '14px 20px', borderBottom: '1px solid #E9EDF3' }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#0E1733' }}>Revisá antes de guardar</div>
+          <div style={{ fontSize: 12, color: '#5A6480', marginTop: 1 }}>Archivo: {preview.fileName}</div>
         </div>
 
         <div style={{ padding: '16px 20px' }}>
           <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-            <div style={{ background: '#F3EFE3', border: '1px solid #A9812E', borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 700, color: '#17233F' }}>
+            <div style={{ background: '#EDF0F5', border: '1px solid #7FB2F0', borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 700, color: '#0E1733' }}>
               {preview.meta.totalFilas} sedes detectadas
             </div>
             <div style={{
               background: preview.meta.detectadoPorFecha ? '#ecfdf5' : '#fffbeb',
               border: `1px solid ${preview.meta.detectadoPorFecha ? '#6ee7b7' : '#fde68a'}`,
               borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 600,
-              color: preview.meta.detectadoPorFecha ? '#2F6D4F' : '#92400e',
+              color: preview.meta.detectadoPorFecha ? '#0F8A5F' : '#92400e',
             }}>
               Columna de totales: "{preview.meta.columnaTotal}"
-              {!preview.meta.detectadoPorFecha && ' ⚠ verificá que sea correcta'}
+              {!preview.meta.detectadoPorFecha && ' verificá que sea correcta'}
             </div>
             {preview.meta.fechaCorte && !preview.meta.fechaAmbigua && (
               <div style={{ background: '#f0f9ff', border: '1px solid #7dd3fc', borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 600, color: '#0369a1' }}>
-                📅 Corte: {preview.meta.fechaCorte}
+                Corte: {preview.meta.fechaCorte}
               </div>
             )}
           </div>
@@ -318,7 +340,7 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
               padding: '12px 16px', marginBottom: 14, fontSize: 13,
             }}>
               <div style={{ fontWeight: 700, color: '#991b1b', marginBottom: 6 }}>
-                🚨 Fecha de corte ambigua — confirmá cuál es la correcta
+                La fecha del corte es ambigua: elegí la correcta
               </div>
               <div style={{ color: '#7f1d1d', marginBottom: 10 }}>
                 El encabezado "{preview.meta.columnaTotal}" se puede leer de dos formas distintas.
@@ -331,7 +353,7 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
                     background: '#dc2626', color: '#fff', border: 'none',
                     cursor: confirmando ? 'wait' : 'pointer', opacity: confirmando ? 0.6 : 1,
                   }}>
-                    📅 {fechaEnPalabras(opcion)}
+                    {fechaEnPalabras(opcion)}
                   </button>
                 ))}
               </div>
@@ -344,8 +366,8 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
               background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 10,
               padding: '12px 16px', marginBottom: 14, fontSize: 13,
             }}>
-              <div style={{ fontWeight: 700, color: '#9C2B34', marginBottom: 6 }}>
-                ⚠️ {preview.meta.sinMatch.length} fila{preview.meta.sinMatch.length > 1 ? 's' : ''} del Excel no coincide{preview.meta.sinMatch.length > 1 ? 'n' : ''} con ninguna sede registrada
+              <div style={{ fontWeight: 700, color: '#C8102E', marginBottom: 6 }}>
+                {preview.meta.sinMatch.length} fila{preview.meta.sinMatch.length > 1 ? 's' : ''} del Excel no coincide{preview.meta.sinMatch.length > 1 ? 'n' : ''} con ninguna sede registrada
               </div>
               <div style={{ color: '#9f1239', marginBottom: 8 }}>
                 Estas filas <strong>no se van a guardar</strong> si seguís. Si son sedes nuevas o cambiaron de nombre, agregalas primero en Sedes → Gestionar sedes.
@@ -367,7 +389,7 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
               padding: '12px 16px', marginBottom: 14, fontSize: 13,
             }}>
               <div style={{ fontWeight: 700, color: '#92400e', marginBottom: 6 }}>
-                ⚠️ {preview.meta.duplicados.length} código{preview.meta.duplicados.length > 1 ? 's' : ''} de sede aparece{preview.meta.duplicados.length > 1 ? 'n' : ''} más de una vez en el archivo
+                {preview.meta.duplicados.length} código{preview.meta.duplicados.length > 1 ? 's' : ''} de sede aparece{preview.meta.duplicados.length > 1 ? 'n' : ''} más de una vez en el archivo
               </div>
               <div style={{ color: '#78350f', marginBottom: 8 }}>
                 Se guarda solo la última fila de cada uno. Si no era lo esperado, revisá el Excel antes de confirmar.
@@ -388,8 +410,8 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
               background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 10,
               padding: '12px 16px', marginBottom: 14, fontSize: 13,
             }}>
-              <div style={{ fontWeight: 700, color: '#9C2B34', marginBottom: 6 }}>
-                ⚠️ {preview.meta.filasInvalidas.length} fila{preview.meta.filasInvalidas.length > 1 ? 's' : ''} con un total que no se pudo leer como número
+              <div style={{ fontWeight: 700, color: '#C8102E', marginBottom: 6 }}>
+                {preview.meta.filasInvalidas.length} fila{preview.meta.filasInvalidas.length > 1 ? 's' : ''} con un total que no se pudo leer como número
               </div>
               <div style={{ color: '#9f1239', marginBottom: 8 }}>
                 Estas filas <strong>no se van a guardar</strong> si seguís.
@@ -411,7 +433,7 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
               padding: '12px 16px', marginBottom: 16, fontSize: 13,
             }}>
               <div style={{ fontWeight: 700, color: '#92400e', marginBottom: 6 }}>
-                ⚠️ Ya existe un corte para esta fecha
+                Ya existe un corte para esta fecha
               </div>
               <div style={{ color: '#78350f', marginBottom: 12 }}>
                 ¿Querés reemplazar los datos existentes con los del nuevo archivo? Si te equivocás, lo podés revertir con "Deshacer" arriba del Dashboard.
@@ -426,14 +448,14 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
                     opacity: confirmando ? 0.6 : 1,
                   }}
                 >
-                  {confirmando ? 'Reemplazando…' : '🔄 Sí, reemplazar'}
+                  {confirmando ? 'Reemplazando…' : 'Sí, reemplazar'}
                 </button>
                 <button
                   onClick={() => { setPreview(null); setModoReemplazar(false) }}
                   disabled={confirmando}
                   style={{
                     padding: '8px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600,
-                    background: '#F3EFE3', color: '#5C6478', border: '1px solid #DCD4BE', cursor: 'pointer',
+                    background: '#EDF0F5', color: '#5A6480', border: '1px solid #DCE1EA', cursor: 'pointer',
                   }}
                 >
                   Cancelar
@@ -442,22 +464,22 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
             </div>
           )}
 
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#5C6478', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#5A6480', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
             Primeras filas detectadas
           </div>
-          <div style={{ border: '1px solid #DCD4BE', borderRadius: 10, overflow: 'hidden', marginBottom: 16 }}>
+          <div style={{ border: '1px solid #DCE1EA', borderRadius: 10, overflow: 'hidden', marginBottom: 16 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
-                <tr style={{ background: '#F3EFE3' }}>
-                  <th style={{ padding: '8px 14px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#5C6478', textTransform: 'uppercase' }}>Cod</th>
-                  <th style={{ padding: '8px 14px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#5C6478', textTransform: 'uppercase' }}>Sede</th>
-                  <th style={{ padding: '8px 14px', textAlign: 'center', fontSize: 10, fontWeight: 700, color: '#5C6478', textTransform: 'uppercase' }}>Total</th>
+                <tr style={{ background: '#EDF0F5' }}>
+                  <th style={{ padding: '8px 14px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#5A6480', textTransform: 'uppercase' }}>Cod</th>
+                  <th style={{ padding: '8px 14px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#5A6480', textTransform: 'uppercase' }}>Sede</th>
+                  <th style={{ padding: '8px 14px', textAlign: 'center', fontSize: 10, fontWeight: 700, color: '#5A6480', textTransform: 'uppercase' }}>Total</th>
                 </tr>
               </thead>
               <tbody>
                 {top5.map(s => (
-                  <tr key={s.cod} style={{ borderTop: '1px solid #EAE4D3' }}>
-                    <td style={{ padding: '7px 14px', color: '#5C6478' }}>{s.cod}</td>
+                  <tr key={s.cod} style={{ borderTop: '1px solid #E9EDF3' }}>
+                    <td style={{ padding: '7px 14px', color: '#5A6480' }}>{s.cod}</td>
                     <td style={{ padding: '7px 14px', fontWeight: 600 }}>{s.sede}</td>
                     <td style={{ padding: '7px 14px', textAlign: 'center', fontWeight: 700 }}>{s.total}</td>
                   </tr>
@@ -465,7 +487,7 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
               </tbody>
             </table>
             {preview.sedes.length > 5 && (
-              <div style={{ padding: '8px 14px', fontSize: 11, color: '#5C6478', textAlign: 'center', borderTop: '1px solid #EAE4D3' }}>
+              <div style={{ padding: '8px 14px', fontSize: 11, color: '#5A6480', textAlign: 'center', borderTop: '1px solid #E9EDF3' }}>
                 + {preview.sedes.length - 5} sedes más
               </div>
             )}
@@ -479,16 +501,16 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
                 title={preview.meta.fechaAmbigua ? 'Elegí primero la fecha de corte correcta arriba' : undefined}
                 style={{
                   padding: '10px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700,
-                  background: preview.meta.fechaAmbigua ? '#9ca3af' : '#17233F', color: '#fff', border: 'none',
+                  background: preview.meta.fechaAmbigua ? '#9ca3af' : '#0E1733', color: '#fff', border: 'none',
                   cursor: (confirmando || preview.meta.fechaAmbigua) ? 'not-allowed' : 'pointer',
                   opacity: confirmando ? 0.6 : 1,
                 }}
               >
-                {confirmando ? 'Guardando…' : preview.meta.fechaAmbigua ? '⛔ Elegí la fecha primero' : '✅ Confirmar y guardar en Sheets'}
+                {confirmando ? 'Guardando…' : preview.meta.fechaAmbigua ? 'Elegí la fecha primero' : 'Confirmar y guardar en Sheets'}
               </button>
               <button onClick={() => setPreview(null)} disabled={confirmando} style={{
                 padding: '10px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600,
-                background: '#F3EFE3', color: '#5C6478', border: '1px solid #DCD4BE', cursor: 'pointer',
+                background: '#EDF0F5', color: '#5A6480', border: '1px solid #DCE1EA', cursor: 'pointer',
               }}>
                 Cancelar
               </button>
@@ -496,8 +518,8 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
           )}
 
           {error && (
-            <div style={{ marginTop: 12, background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#9C2B34' }}>
-              ❌ {error}
+            <div style={{ marginTop: 12, background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#C8102E' }}>
+              {error}
             </div>
           )}
         </div>
@@ -505,28 +527,31 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
     )
   }
 
-  // Versión minimizada
+  // Versión plegada: una línea con el último corte y el botón para cargar
+  if (isMinimized && controlado) return null
   if (isMinimized) {
     return (
       <div style={{
-        background: '#ecfdf5', border: '1px solid #6ee7b7', borderRadius: 12,
-        padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 10,
-        marginBottom: 4,
+        background: '#fff', border: '1px solid #DCE1EA', borderRadius: 12,
+        padding: '12px 14px 12px 18px', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap',
+        marginBottom: 18,
       }}>
-        <span style={{ fontSize: 14 }}>✅</span>
-        <div style={{ flex: 1 }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: '#065f46' }}>
-            Datos cargados · {fechaActual || 'semana actual'}
-          </span>
-          <span style={{ fontSize: 12, color: '#6ee7b7', marginLeft: 8 }}>
-            {data.length} sedes
-          </span>
+        <IconoPlanilla />
+        <div style={{ flex: 1, minWidth: 180 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#0E1733' }}>Carga semanal</div>
+          <div style={{ fontSize: 12.5, color: '#5A6480', marginTop: 2 }}>
+            Último corte cargado: <strong style={{ color: '#0E1733' }}>{fmtCorto(fechaActual) || '—'}</strong> · {data.length} sedes
+          </div>
         </div>
         <button
           onClick={() => { if (inputRef.current) inputRef.current.value = ''; setMinimized(false) }}
-          style={{ fontSize: 12, color: '#2F6D4F', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}
+          className="btn-press"
+          style={{
+            height: 38, padding: '0 16px', borderRadius: 8, border: 'none', cursor: 'pointer',
+            background: '#1B2A6B', color: '#fff', fontSize: 13.5, fontWeight: 700,
+          }}
         >
-          Cambiar / corregir
+          Cargar Excel del corte
         </button>
       </div>
     )
@@ -535,29 +560,29 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
   return (
     <div style={{
       background: '#fff',
-      border: '1px solid #DCD4BE',
-      borderTop: '3px solid #17233F',
-      borderRadius: 14,
+      border: '1px solid #DCE1EA',
+      borderRadius: 12,
       overflow: 'hidden',
-      marginBottom: 4,
+      marginBottom: 18,
     }}>
       <div style={{
-        padding: '14px 20px',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        borderBottom: '1px solid #EAE4D3',
+        padding: '14px 18px',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+        borderBottom: '1px solid #E9EDF3',
       }}>
-        <div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: '#17233F' }}>
-            📊 Cargar Excel semanal
-          </div>
-          <div style={{ fontSize: 12, color: '#5C6478', marginTop: 1 }}>
-            {camp ? `Campaña: ${camp.nombre}` : 'Seleccioná la campaña primero'} · Los datos se guardan automáticamente en Sheets
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <IconoPlanilla />
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#0E1733' }}>Cargar Excel del corte</div>
+            <div style={{ fontSize: 12.5, color: '#5A6480', marginTop: 2 }}>
+              {camp ? camp.nombre : 'Elegí la campaña primero'} · se guarda directo en la planilla
+            </div>
           </div>
         </div>
         {tieneData && (
           <button onClick={() => setMinimized(true)}
-            style={{ fontSize: 12, color: '#5C6478', background: 'none', border: 'none', cursor: 'pointer' }}>
-            Minimizar
+            style={{ fontSize: 13, color: '#5A6480', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
+            Cancelar
           </button>
         )}
       </div>
@@ -569,12 +594,12 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
         onClick={() => inputRef.current?.click()}
         style={{
           margin: 16,
-          border: `2px dashed ${dragging ? '#17233F' : loading ? '#6ee7b7' : '#DCD4BE'}`,
+          border: `2px dashed ${dragging ? '#1B2A6B' : loading ? '#7FB2F0' : '#C9D0DC'}`,
           borderRadius: 12,
           padding: '32px 20px',
           textAlign: 'center',
           cursor: loading ? 'wait' : 'pointer',
-          background: dragging ? '#F3EFE3' : loading ? '#f0fdf4' : '#F3EFE3',
+          background: dragging ? '#E4EFFC' : '#F6F8FB',
           transition: 'all 0.2s',
         }}
       >
@@ -585,15 +610,18 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
           style={{ display: 'none' }}
           onChange={e => handleFile(e.target.files[0])}
         />
-        <div style={{ fontSize: 32, marginBottom: 12 }}>
-          {loading ? '⏳' : dragging ? '📂' : '📊'}
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
+          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke={dragging ? '#1B2A6B' : '#5A6480'} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"
+            style={{ animation: loading ? 'pulse-ring 1s ease infinite' : 'none' }}>
+            <path d="M12 16V4" /><path d="M7 9l5-5 5 5" /><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" />
+          </svg>
         </div>
-        <div style={{ fontSize: 14, fontWeight: 600, color: '#17233F', marginBottom: 4 }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: '#0E1733', marginBottom: 4 }}>
           {loading ? 'Procesando archivo…' :
            dragging ? 'Soltá el archivo acá' :
            'Arrastrá el Excel acá o hacé click para seleccionar'}
         </div>
-        <div style={{ fontSize: 12, color: '#5C6478' }}>
+        <div style={{ fontSize: 12, color: '#5A6480' }}>
           Formatos aceptados: .xlsx · .xls · La columna de totales se detecta automáticamente
         </div>
       </div>
@@ -602,10 +630,9 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
         <div style={{
           margin: '0 16px 16px',
           background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 8,
-          padding: '10px 14px', fontSize: 12, color: '#9C2B34',
+          padding: '10px 14px', fontSize: 12, color: '#C8102E',
           display: 'flex', gap: 8, alignItems: 'flex-start',
         }}>
-          <span>❌</span>
           <div>
             <strong>Error al procesar el archivo</strong><br />
             {error}

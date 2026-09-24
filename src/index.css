@@ -4,12 +4,14 @@
 
 @layer base {
   * { box-sizing: border-box; }
-  html { font-family: 'IBM Plex Sans', system-ui, sans-serif; }
+  html { font-family: 'Archivo', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
   body {
     margin: 0;
-    background: #F3EFE3;
-    color: #17233F;
+    background: #EDF0F5;
+    color: #0E1733;
   }
+  :focus-visible { outline: 2px solid #7FB2F0; outline-offset: 2px; }
+  button { font-family: inherit; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -26,10 +28,10 @@
 }
 
 /* Scrollbar minimalista */
-::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #DCD4BE; border-radius: 2px; }
-::-webkit-scrollbar-thumb:hover { background: #A9812E; }
+::-webkit-scrollbar-thumb { background: #C9D0DC; border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: #9AA5B8; background-clip: padding-box; }
 
 /* Animaciones */
 @keyframes fadeUp {
@@ -57,10 +59,10 @@
    position:fixed de los modales (les pasó exactamente eso la primera vez).
    `clip-path` + opacity + margin no tienen ese efecto secundario. */
 @keyframes viewEnter {
-  0%   { opacity: 0; margin-top: 20px; clip-path: inset(0 0 8% 0); }
-  100% { opacity: 1; margin-top: 0;    clip-path: inset(0 0 0% 0); }
+  0%   { opacity: 0; margin-top: 10px; }
+  100% { opacity: 1; margin-top: 0; }
 }
-.view-enter { animation: viewEnter 0.46s cubic-bezier(0.16, 1, 0.3, 1); }
+.view-enter { animation: viewEnter 0.32s cubic-bezier(0.16, 1, 0.3, 1); }
 
 /* Modales: entrada marcada — escala de más lejos + leve giro al asentarse,
    y el fondo se desenfoca para separar el modal del resto de la app. La
@@ -68,12 +70,11 @@
    useClosingTransition en theme.js). */
 @keyframes modalOverlayIn { from { opacity: 0; backdrop-filter: blur(0px); } to { opacity: 1; backdrop-filter: blur(3px); } }
 @keyframes modalPanelIn {
-  0%   { opacity: 0; transform: scale(0.88) translateY(22px) rotate(-0.6deg); }
-  60%  { opacity: 1; transform: scale(1.015) translateY(-2px) rotate(0deg); }
-  100% { opacity: 1; transform: scale(1) translateY(0) rotate(0deg); }
+  0%   { opacity: 0; transform: translateY(14px) scale(0.98); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
 }
 .modal-overlay { animation: modalOverlayIn 0.22s ease both; transition: opacity 0.2s ease, backdrop-filter 0.2s ease; }
-.modal-panel { animation: modalPanelIn 0.36s cubic-bezier(0.2, 0.9, 0.25, 1) both; transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.4,0,0.2,1); }
+.modal-panel { animation: modalPanelIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) both; transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.4,0,0.2,1); }
 .modal-overlay.modal-closing { opacity: 0; backdrop-filter: blur(0px); }
 .modal-panel.modal-closing { opacity: 0; transform: scale(0.92) translateY(10px); }
 
@@ -84,11 +85,11 @@
 /* Micro-interacciones: botones responden al toque con más contundencia,
    paneles se levantan bien al pasar el mouse */
 .btn-press { transition: transform 0.14s cubic-bezier(0.4,0,0.2,1), opacity 0.12s ease, background 0.15s ease, color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease; }
-.btn-press:active { transform: scale(0.91); }
-.btn-press:hover { box-shadow: 0 3px 10px -4px rgba(23,35,63,0.4); }
+.btn-press:active { transform: scale(0.97); }
+.btn-press:hover { filter: brightness(1.06); }
 
 .card-hover { transition: transform 0.22s cubic-bezier(0.16,1,0.3,1), box-shadow 0.22s ease, border-color 0.22s ease; }
-.card-hover:hover { transform: translateY(-5px); box-shadow: 0 18px 36px -16px rgba(23,35,63,0.45); border-color: #A9812E88; }
+.card-hover:hover { transform: translateY(-2px); box-shadow: 0 10px 24px -14px rgba(14,23,51,0.35); border-color: #7FB2F0; }
 
 /* Stagger delays para listas */
 .stagger-1 { animation-delay: 0.05s; }
@@ -96,3 +97,9 @@
 .stagger-3 { animation-delay: 0.15s; }
 .stagger-4 { animation-delay: 0.20s; }
 .stagger-5 { animation-delay: 0.25s; }
+
+/* Barra superior: en pantallas chicas se esconde el nombre y las pestañas
+   se desplazan horizontalmente sin mostrar scrollbar */
+.topbar-nav::-webkit-scrollbar { display: none; }
+.topbar-nav { scrollbar-width: none; }
+@media (max-width: 720px) { .hide-mobile { display: none !important; } }
