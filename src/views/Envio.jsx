@@ -116,7 +116,7 @@ function parseTemplateToFields(template) {
   }
 }
 
-const campoLabelStyle = { display: 'block', fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6, fontFamily: F.mono }
+const campoLabelStyle = { display: 'block', fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6, fontFamily: F.body }
 const campoFieldStyle = { width: '100%', padding: '10px 12px', border: `1px solid ${C.rule}`, borderRadius: 8, fontSize: 13, fontFamily: F.body, lineHeight: 1.5, resize: 'vertical' }
 const linkBtnStyle = { fontSize: 11, color: C.inkSoft, fontFamily: F.body, background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0 }
 
@@ -216,7 +216,7 @@ function EditorPlantillaModal({ template, sedeEjemplo, campNombre, onClose, onGu
               </>
             ) : (
               <>
-                <div style={{ fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: F.mono }}>HTML de la plantilla</div>
+                <div style={{ fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: F.body }}>HTML de la plantilla</div>
                 <textarea value={texto} onChange={e => setTexto(e.target.value)} spellCheck={false} style={{
                   flex: 1, minHeight: 320, padding: 12, border: `1px solid ${C.rule}`, borderRadius: 8,
                   fontSize: 12, fontFamily: F.mono, lineHeight: 1.6, resize: 'vertical',
@@ -229,7 +229,7 @@ function EditorPlantillaModal({ template, sedeEjemplo, campNombre, onClose, onGu
             )}
           </div>
           <div style={{ flex: 1, padding: '16px 20px', background: C.paper }}>
-            <div style={{ fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8, fontFamily: F.mono }}>
+            <div style={{ fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8, fontFamily: F.body }}>
               Vista previa {sedeEjemplo ? `· ${sedeEjemplo.sede}` : ''}
             </div>
             {sedeEjemplo ? (
@@ -321,14 +321,14 @@ function PreviewModal({ sede, campNombre, template, onClose, onSend }) {
           {[['Objetivo', sede.objetivo], ['Total', sede.total], ['Cumplimiento', sede.pct + '%'], ['Variación', sede.var !== null ? (sede.var > 0 ? '+' + sede.var : sede.var) : '—']].map(([l, v]) => (
             <div key={l} style={{ flex: 1, padding: '10px 16px', textAlign: 'center', borderRight: `1px solid ${C.ruleSoft}` }}>
               <div style={{ fontSize: 18, fontWeight: 700, color: C.ink, fontFamily: F.mono }}>{v}</div>
-              <div style={{ fontSize: 10, color: C.inkSoft, marginTop: 1, fontFamily: F.mono, textTransform: 'uppercase' }}>{l}</div>
+              <div style={{ fontSize: 10, color: C.inkSoft, marginTop: 1, fontFamily: F.body, textTransform: 'uppercase' }}>{l}</div>
             </div>
           ))}
         </div>
 
         {/* Preview o editor */}
         <div style={{ flex: 1, overflow: 'auto', padding: '16px 20px' }}>
-          <div style={{ fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10, fontFamily: F.mono }}>
+          <div style={{ fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10, fontFamily: F.body }}>
             Vista previa · tabla HTML lista para Gmail
           </div>
           <div style={{
@@ -668,19 +668,25 @@ export default function Envio({ data, copied, onCopied, onUncopied, campanas, ca
         />
       )}
 
-      {/* Contadores */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12 }}>
-        {[
-          { l: 'Sedes',       v: data.length,      c: C.navy },
-          { l: 'Enviadas',    v: enviadas.length,   c: C.ok },
-          { l: 'Pendientes',  v: pendientes.length, c: pendientes.length > 0 ? C.warn : C.rule },
-        ].map(s => (
-          <div key={s.l} style={{ ...panel({ padding: '16px 18px 16px 22px' }), position: 'relative', overflow: 'hidden' }}>
-            <span style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 6, background: s.c }} />
-            <div style={rotulo}>{s.l}</div>
-            <div style={{ ...cifra(40), color: C.ink, marginTop: 10 }}>{s.v}</div>
-          </div>
-        ))}
+      {/* Casilleros: uno por sede, se llenan a medida que sale cada mail */}
+      <div style={{ ...panel({ padding: '18px 22px' }), display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+          <span style={{ ...cifra(40), color: C.ink }}>{enviadas.length}</span>
+          <span style={{ fontSize: 15, color: C.inkSoft }}>de <strong style={{ color: C.ink, fontFamily: F.mono }}>{data.length}</strong> mails enviados</span>
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, flex: 1, minWidth: 260 }} aria-hidden="true">
+          {[...enviadas, ...pendientes].map(d => {
+            const ok = copied[d.cod_sede]
+            return <span key={d.cod_sede} title={`${d.sede} · ${ok ? 'enviado' : 'pendiente'}`} style={{
+              width: 18, height: 18, borderRadius: 4,
+              background: ok ? C.ok : 'transparent', border: `2px solid ${ok ? C.ok : C.rule}`,
+              transition: 'background .3s, border-color .3s',
+            }} />
+          })}
+        </div>
+        {pendientes.length === 0 && data.length > 0 && (
+          <span style={{ fontSize: 13.5, fontWeight: 700, color: C.ok }}>Corte enviado completo</span>
+        )}
       </div>
 
       {/* Panel de envío */}
@@ -732,47 +738,51 @@ export default function Envio({ data, copied, onCopied, onUncopied, campanas, ca
           {pendientes.length > 0 && (
             <div style={{ padding: '16px 24px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-                <div style={{ fontSize: 11.5, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: F.mono }}>
-                  Pendientes de envío
+                <div style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>
+                  Pendientes <span style={{ fontFamily: F.mono, fontWeight: 500, color: C.inkSoft, fontSize: 12.5 }}>{pendientes.length}</span>
                 </div>
                 <TooltipHelp text="Seleccioná las sedes que querés enviar ahora. Sin selección se envían todas. Usá “Ver” para previsualizar el email — podés editarlo si necesitás." />
                 <div style={{ flex: 1 }} />
-                <button onClick={selAll} style={{ fontSize: 11, color: C.ink, background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, fontFamily: F.body }}>Sel. todas</button>
-                <button onClick={deselAll} style={{ fontSize: 11, color: C.inkSoft, background: 'none', border: 'none', cursor: 'pointer', fontFamily: F.body }}>Limpiar</button>
+                <button onClick={selAll} style={{ fontSize: 13, color: C.navy, background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, fontFamily: F.body }}>Seleccionar todas</button>
+                <button onClick={deselAll} style={{ fontSize: 13, color: C.inkSoft, background: 'none', border: 'none', cursor: 'pointer', fontFamily: F.body }}>Limpiar selección</button>
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 320, overflowY: 'auto' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', maxHeight: 360, overflowY: 'auto', border: `1px solid ${C.rule}`, borderRadius: 10 }}>
                 {pendientes.map(d => {
                   const sel = seleccion[d.cod_sede]
                   const pct = d.pct
                   const color = estadoColor(getEstado(d))
                   return (
                     <div key={d.cod_sede} style={{
-                      display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
-                      background: sel ? 'rgba(127,178,240,0.08)' : C.paper,
-                      border: `1px solid ${sel ? C.brass : C.ruleSoft}`,
-                      transition: 'all 0.15s',
+                      display: 'flex', alignItems: 'center', gap: 12, padding: '9px 14px',
+                      background: sel ? C.celesteSoft : '#fff',
+                      borderBottom: `1px solid ${C.ruleSoft}`,
+                      transition: 'background 0.15s',
                     }}>
-                      <div onClick={() => toggleSel(d.cod_sede)} style={{
-                        width: 16, height: 16, flexShrink: 0, cursor: 'pointer',
-                        border: `2px solid ${sel ? C.ink : C.rule}`,
-                        background: sel ? C.ink : '#fff',
+                      <div role="checkbox" aria-checked={!!sel} tabIndex={0} aria-label={`Seleccionar ${d.sede}`}
+                        onKeyDown={e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggleSel(d.cod_sede) } }}
+                        onClick={() => toggleSel(d.cod_sede)} style={{
+                        width: 18, height: 18, flexShrink: 0, cursor: 'pointer', borderRadius: 5,
+                        border: `2px solid ${sel ? C.navy : C.rule}`,
+                        background: sel ? C.navy : '#fff',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                       }}>
                         {sel && <span style={{ color: '#fff', fontSize: 10, lineHeight: 1 }}>✓</span>}
                       </div>
                       <span style={{ fontWeight: 600, fontSize: 13, flex: 1, color: C.ink, fontFamily: F.body }}>{d.sede}</span>
-                      <span style={{ fontSize: 12, color: C.inkSoft, fontFamily: F.mono }}>{d.email}</span>
-                      <span style={{ fontSize: 12, fontWeight: 600, color, minWidth: 36, textAlign: 'right', fontFamily: F.mono }}>{pct}%</span>
+                      <span style={{ fontSize: 12.5, color: C.inkSoft }}>{d.email}</span>
+                      <span style={{ fontSize: 12.5, fontWeight: 700, color: C.ink, minWidth: 44, textAlign: 'right', fontFamily: F.mono, display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
+                        <span style={{ width: 7, height: 7, borderRadius: '50%', background: color }} />{pct}%
+                      </span>
                       <button
                         onClick={() => setPreviewSede(d)}
                         style={{
-                          padding: '4px 10px', borderRadius: 8, fontSize: 11, fontWeight: 600, fontFamily: F.body,
-                          border: `1px solid ${C.rule}`, background: '#fff', color: C.inkSoft,
+                          height: 30, padding: '0 12px', borderRadius: 7, fontSize: 12.5, fontWeight: 700, fontFamily: F.body,
+                          border: `1px solid ${C.rule}`, background: '#fff', color: C.navy,
                           cursor: 'pointer', flexShrink: 0, transition: 'all 0.15s',
                         }}
                         onMouseEnter={e => { e.currentTarget.style.background = C.ink; e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderColor = C.ink }}
-                        onMouseLeave={e => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.color = C.inkSoft; e.currentTarget.style.borderColor = C.rule }}
+                        onMouseLeave={e => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.color = C.navy; e.currentTarget.style.borderColor = C.rule }}
                       >
                         Ver
                       </button>
@@ -786,8 +796,8 @@ export default function Envio({ data, copied, onCopied, onUncopied, campanas, ca
           {enviadas.length > 0 && (
             <div style={{ padding: '12px 24px', borderTop: `1px solid ${C.ruleSoft}` }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                <div style={{ fontSize: 11.5, fontWeight: 600, color: C.ok, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: F.mono }}>
-                  ✓ Enviadas esta sesión
+                <div style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>
+                  Enviadas <span style={{ fontFamily: F.mono, fontWeight: 500, color: C.inkSoft, fontSize: 12.5 }}>{enviadas.length}</span>
                 </div>
                 <TooltipHelp text="Por si el envío falló en el medio (ej: el escenario de Make estaba caído) y hay que mandarlos de nuevo." />
                 <div style={{ flex: 1 }} />

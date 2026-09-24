@@ -39,9 +39,12 @@ function estadoColorOscuro(d) {
 // quién quedó sola atrás. Por encima del 150% se agrupan en el borde.
 const REGLA_MAX = 150
 
-function Regla({ data }) {
+function Regla({ data, pctZona }) {
   const [hover, setHover] = useState(null)
-  const W = 720, PAD_X = 14, R = 6.5, BASE_Y = 0
+  // En pantallas chicas el SVG se achica demasiado para leer nombres: las
+  // rezagadas se listan debajo en vez de etiquetarse sobre la regla.
+  const compacta = useIsMobile()
+  const W = 720, PAD_X = 14, R = 6.5, LANE_H = 17
   const x = (pct) => PAD_X + (Math.min(pct, REGLA_MAX) / REGLA_MAX) * (W - PAD_X * 2)
 
   const puntos = useMemo(() => {
@@ -56,33 +59,74 @@ function Regla({ data }) {
     })
   }, [data]) // eslint-disable-line
 
+  // Las rezagadas (bajo 50%) llevan su nombre: son las que importan. Cada
+  // etiqueta ocupa el primer carril libre de arriba y baja con una línea guía.
+  const etiquetas = useMemo(() => {
+    const carriles = [] // borde derecho ocupado por carril
+    if (compacta) return []
+    return puntos.filter(p => p.d.pct < 50).sort((a, b) => a.px - b.px).map(p => {
+      const texto = corto(p.d.sede)
+      const ancho = texto.length * 6.3 + 10
+      const izq = Math.min(Math.max(p.px - 5, 0), W - ancho)
+      let carril = 0
+      while (carriles[carril] !== undefined && carriles[carril] > izq - 6) carril++
+      carriles[carril] = izq + ancho
+      return { ...p, texto, izq, carril }
+    })
+  }, [puntos, compacta])
+
+  const rezagadas = compacta ? puntos.filter(p => p.d.pct < 50) : []
+  const nCarriles = etiquetas.length ? Math.max(...etiquetas.map(e => e.carril)) + 1 : 0
+  const TOP = nCarriles * LANE_H + (nCarriles ? 10 : 4)
   const maxFila = Math.max(0, ...puntos.map(p => p.fila))
-  const altoPuntos = (maxFila + 1) * (R * 2 + 2)
-  const EJE_Y = altoPuntos + 10
-  const H = EJE_Y + 26
+  const EJE_Y = TOP + (maxFila + 1) * (R * 2 + 2) + 10
+  const H = EJE_Y + 42
   const cy = (fila) => EJE_Y - 8 - R - fila * (R * 2 + 2)
+  const sobreMax = puntos.filter(p => p.d.pct > REGLA_MAX)
+  const pilaTope = sobreMax.length ? cy(Math.max(...sobreMax.map(p => p.fila))) : 0
 
   return (
     <div style={{ position: 'relative' }}>
       <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: 'block', overflow: 'visible' }} role="img"
-        aria-label="Distribución de las sedes según su cumplimiento">
-        {/* Zonas: bajo 50 / 50–100 / objetivo cumplido */}
-        <rect x={x(0)} y={0} width={x(50) - x(0)} height={EJE_Y} fill="rgba(255,255,255,0.025)" />
-        <rect x={x(100)} y={0} width={x(REGLA_MAX) - x(100)} height={EJE_Y} fill="rgba(127,178,240,0.10)" />
-        {[50, 100].map(v => (
-          <g key={v}>
-            <line x1={x(v)} x2={x(v)} y1={0} y2={EJE_Y} stroke={v === 100 ? C.celeste : 'rgba(255,255,255,0.35)'} strokeWidth={v === 100 ? 1.5 : 1} strokeDasharray={v === 100 ? 'none' : '3 4'} />
-          </g>
-        ))}
-        {/* Eje con marcas cada 10% */}
+        aria-label={`Distribución de las ${data.length} sedes según su cumplimiento`}>
+        <rect x={x(0)} y={TOP - 4} width={x(50) - x(0)} height={EJE_Y - TOP + 4} fill="rgba(245,184,61,0.06)" />
+        <rect x={x(100)} y={TOP - 4} width={x(REGLA_MAX) - x(100)} height={EJE_Y - TOP + 4} fill="rgba(127,178,240,0.10)" />
+        <line x1={x(50)} x2={x(50)} y1={TOP - 4} y2={EJE_Y} stroke="rgba(255,255,255,0.35)" strokeDasharray="3 4" />
+        <line x1={x(100)} x2={x(100)} y1={TOP - 4} y2={EJE_Y} stroke={C.celeste} strokeWidth={1.5} />
+
+        {/* Etiquetas de las rezagadas */}
+        {etiquetas.map(e => {
+          const ly = 4 + e.carril * LANE_H
+          return (
+            <g key={'l' + e.d.cod_sede}>
+              <line x1={e.px} x2={e.px} y1={ly + 13} y2={cy(e.fila) - R - 1} stroke="rgba(255,255,255,0.28)" strokeWidth={1} />
+              <line x1={e.px} x2={e.izq + e.texto.length * 6.3 + 6} y1={ly + 13} y2={ly + 13} stroke="rgba(255,255,255,0.28)" strokeWidth={1} />
+              <text x={e.izq + (e.px - 5 < e.izq ? 0 : 5)} y={ly + 9} style={{ fontFamily: F.body, fontSize: 10.5, fontWeight: 600, fill: e.d.total === 0 ? '#FF9AA6' : '#F8CF7A', letterSpacing: '0.02em' }}>{e.texto}</text>
+            </g>
+          )
+        })}
+
+        {/* Eje */}
         <line x1={x(0)} x2={x(REGLA_MAX)} y1={EJE_Y} y2={EJE_Y} stroke="rgba(255,255,255,0.45)" strokeWidth={1} />
         {Array.from({ length: REGLA_MAX / 10 + 1 }, (_, i) => i * 10).map(v => (
           <line key={v} x1={x(v)} x2={x(v)} y1={EJE_Y} y2={EJE_Y + (v % 50 === 0 ? 7 : 4)} stroke="rgba(255,255,255,0.45)" strokeWidth={1} />
         ))}
         {[0, 50, 100].map(v => (
-          <text key={v} x={x(v)} y={EJE_Y + 20} textAnchor="middle" style={{ fontFamily: F.mono, fontSize: 10.5, fill: v === 100 ? C.celeste : 'rgba(255,255,255,0.6)' }}>{v}%</text>
+          <text key={v} x={x(v)} y={EJE_Y + 20} textAnchor={v === 0 ? 'start' : 'middle'} style={{ fontFamily: F.mono, fontSize: 10.5, fill: v === 100 ? C.celeste : 'rgba(255,255,255,0.6)' }}>{v === 100 ? '100% objetivo' : v + '%'}</text>
         ))}
         <text x={x(REGLA_MAX)} y={EJE_Y + 20} textAnchor="end" style={{ fontFamily: F.mono, fontSize: 10.5, fill: 'rgba(255,255,255,0.6)' }}>150%+</text>
+
+        {/* Dónde está la zona */}
+        {pctZona != null && (
+          <g>
+            <path d={`M ${x(pctZona)} ${EJE_Y + 26} l -5 8 h 10 z`} fill="#fff" />
+            <text x={x(pctZona)} y={EJE_Y + 42} textAnchor={x(pctZona) > W - 60 ? 'end' : 'middle'} style={{ fontFamily: F.body, fontSize: 10.5, fontWeight: 700, fill: '#fff' }}>zona {pctZona}%</text>
+          </g>
+        )}
+
+        {sobreMax.length > 0 && (
+          <text x={x(REGLA_MAX)} y={pilaTope - R - 5} textAnchor="middle" style={{ fontFamily: F.mono, fontSize: 10.5, fontWeight: 600, fill: '#3DD598' }}>+{sobreMax.length}</text>
+        )}
 
         {puntos.map(({ d, px, fila }) => {
           const activo = hover?.d.cod_sede === d.cod_sede
@@ -98,6 +142,12 @@ function Regla({ data }) {
           )
         })}
       </svg>
+      {rezagadas.length > 0 && (
+        <div style={{ marginTop: 14, fontSize: 13, color: 'rgba(255,255,255,0.75)', lineHeight: 1.6 }}>
+          <span style={{ color: '#F8CF7A', fontWeight: 700 }}>Bajo el 50%: </span>
+          {rezagadas.map(p => `${corto(p.d.sede)} (${p.d.pct}%)`).join(' · ')}
+        </div>
+      )}
       {hover && (
         <div style={{
           position: 'absolute', left: `${(hover.px / W) * 100}%`, top: `${(hover.y / H) * 100}%`,
@@ -113,17 +163,63 @@ function Regla({ data }) {
   )
 }
 
-// ── Cartel de estado ───────────────────────────────────────────────────────
-function Cartel({ label, value, color, sub, delay = 0 }) {
-  const animated = useCountUp(value, 800)
+// ── Tablero de casilleros ───────────────────────────────────────────────────
+// Un casillero por sede, agrupadas por estado, como el tablero de andenes de
+// una terminal: el tamaño de cada grupo se ve sin leer números. Las que no
+// sumaron nada desde el corte anterior llevan rayado.
+function Casilleros({ data }) {
+  const [hover, setHover] = useState(null)
+  const grupos = [
+    { k: 'ok',   label: 'En objetivo',  sub: '50% o más',        color: C.ok,     items: data.filter(d => d.total > 0 && d.pct >= 50) },
+    { k: 'prog', label: 'En progreso',  sub: 'entre 1% y 49%',   color: C.warn,   items: data.filter(d => d.total > 0 && d.pct < 50) },
+    { k: 'cero', label: 'Sin ingresos', sub: 'todavía en cero',  color: C.danger, items: data.filter(d => d.total === 0) },
+  ].map(g => ({ ...g, items: [...g.items].sort((a, b) => b.pct - a.pct) }))
+  const sinAvance = data.filter(d => d.var === 0).length
+
   return (
-    <div className="animate-fadeUp" style={{
-      animationDelay: `${delay}ms`, ...panel({ padding: '16px 18px 16px 22px' }), position: 'relative', overflow: 'hidden',
-    }}>
-      <span style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 6, background: color }} />
-      <div style={rotulo}>{label}</div>
-      <div style={{ ...cifra(40), color: C.ink, marginTop: 10 }}>{animated}</div>
-      {sub && <div style={{ fontSize: 12.5, color: C.inkSoft, marginTop: 6 }}>{sub}</div>}
+    <div className="animate-fadeUp" style={{ ...panel({ padding: '20px 22px 18px' }), animationDelay: '60ms' }}>
+      <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+        {grupos.map(g => (
+          <div key={g.k} style={{ flexGrow: Math.max(g.items.length, 4), flexBasis: 0, minWidth: 150 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 12 }}>
+              <span style={{ ...cifra(34), color: C.ink }}>{g.items.length}</span>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>{g.label}</div>
+                <div style={{ fontSize: 12, color: C.inkSoft }}>{g.sub}</div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+              {g.items.length === 0 && <div style={{ height: 22, fontSize: 12.5, color: C.inkSoft, display: 'flex', alignItems: 'center' }}>Ninguna</div>}
+              {g.items.map(d => {
+                const estancada = d.var === 0
+                return (
+                  <span key={d.cod_sede}
+                    onMouseEnter={() => setHover(d.cod_sede)} onMouseLeave={() => setHover(null)}
+                    onClick={() => setHover(h => h === d.cod_sede ? null : d.cod_sede)}
+                    title={`${corto(d.sede)} · ${d.pct}%${estancada ? ' · sin avance' : ''}`}
+                    style={{
+                      width: 22, height: 22, borderRadius: 5, cursor: 'default',
+                      background: estancada
+                        ? `repeating-linear-gradient(135deg, ${g.color} 0 3px, ${g.color}55 3px 6px)`
+                        : g.color,
+                      outline: hover === d.cod_sede ? `2px solid ${C.ink}` : 'none', outlineOffset: 1,
+                      transition: 'transform .12s', transform: hover === d.cod_sede ? 'scale(1.15)' : 'none',
+                    }} />
+                )
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 16, paddingTop: 14, borderTop: `1px solid ${C.ruleSoft}`, fontSize: 12.5, color: C.inkSoft }}>
+        <span style={{ width: 14, height: 14, borderRadius: 3, background: `repeating-linear-gradient(135deg, ${C.inkSoft} 0 3px, ${C.inkSoft}55 3px 6px)` }} />
+        {(() => {
+          const h = hover && data.find(d => d.cod_sede === hover)
+          return h
+            ? <span><strong style={{ color: C.ink }}>{corto(h.sede)}</strong> · <span style={{ fontFamily: F.mono }}>{h.pct}% · {h.total} de {h.objetivo}</span>{h.var === 0 ? ' · sin avance' : ''}</span>
+            : <span><strong style={{ color: C.ink, fontFamily: F.mono }}>{sinAvance}</strong> sin avance (mismo número que en el corte anterior). Pasá el mouse por un casillero, o tocalo, para ver la sede.</span>
+        })()}
+      </div>
     </div>
   )
 }
@@ -293,16 +389,11 @@ export default function Dashboard({ data, stats, historial, campanas, campanaAct
               <span style={{ color: '#F5B83D', fontWeight: 700 }}>{bajo50}</span> bajo el 50% · <span style={{ color: C.celeste, fontWeight: 700 }}>{cumplido}</span> ya cumplieron
             </div>
           </div>
-          <Regla data={data} />
+          <Regla data={data} pctZona={stats.pctGlobal} />
         </div>
       </section>
 
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: 12 }}>
-        <Cartel label="En objetivo" value={stats.enObj} sub="50% o más" color={C.ok} delay={60} />
-        <Cartel label="En progreso" value={stats.enProg} sub="entre 1% y 49%" color={C.warn} delay={100} />
-        <Cartel label="Sin ingresos" value={stats.sinIng} sub="todavía en cero" color={C.danger} delay={140} />
-        <Cartel label="Sin avance" value={stats.sinAv || 0} sub="igual que el corte anterior" color={C.inkSoft} delay={180} />
-      </div>
+      <Casilleros data={data} />
 
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '2fr 1fr', gap: 18, alignItems: 'stretch' }}>
         <Panel delay={100} style={{ padding: '22px 24px', display: 'flex', flexDirection: 'column' }}>

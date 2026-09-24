@@ -30,7 +30,7 @@ function SelectorCampana({ campanas, campanaActiva, onCampana }) {
     <div ref={ref} style={{ position: 'relative' }}>
       <button
         onClick={() => setAbierto(a => !a)}
-        aria-haspopup="listbox" aria-expanded={abierto}
+        aria-haspopup="listbox" aria-expanded={abierto} aria-label={`Campaña: ${actual?.nombre || 'elegir'}`}
         className="btn-press"
         style={{
           display: 'flex', alignItems: 'center', gap: 9, height: 36, padding: '0 12px 0 11px',

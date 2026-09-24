@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import { obtenerSedesTodas, agregarSede, editarSede, setSedeActiva, obtenerNotasSede, agregarNotaSede } from '../hooks/useSheets'
-import { C, F } from '../lib/theme'
+import { C, F, cifra } from '../lib/theme'
 import ModalShell from '../components/ModalShell'
 
 function getEstado(d) {
@@ -75,76 +75,109 @@ function NotasSeccion({ d }) {
   )
 }
 
-const campoLabelStyle = { fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8, fontFamily: F.mono }
+const campoLabelStyle = { fontSize: 11, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10, fontFamily: F.body }
 
-function StatBox({ label, value, color }) {
+// Recorrido de la sede: una fila por corte (arriba el primero), con su marca
+// sobre la misma escala de la regla del tablero y una línea que une un corte
+// con el siguiente — se lee como el trayecto de la sede hacia el objetivo.
+const RECORRIDO_MAX = 150
+function Recorrido({ filas }) {
+  const W = 300, FILA = 26
+  const x = pct => 6 + Math.min(pct, RECORRIDO_MAX) / RECORRIDO_MAX * (W - 12)
+  const H = filas.length * FILA
   return (
-    <div style={{ background: C.paper, border: `1px solid ${C.rule}`, padding: '10px 12px' }}>
-      <div style={{ fontSize: 10, color: C.inkSoft, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: F.mono, marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 18, fontWeight: 700, color: color || C.ink, fontFamily: F.mono }}>{value}</div>
+    <div style={{ display: 'grid', gridTemplateColumns: '48px 1fr 74px', columnGap: 12, alignItems: 'stretch' }}>
+      <div>
+        {filas.map(r => (
+          <div key={r.fecha} style={{ height: FILA, display: 'flex', alignItems: 'center', fontFamily: F.mono, fontSize: 11.5, color: C.inkSoft }}>{r.fecha.slice(8, 10)}/{r.fecha.slice(5, 7)}</div>
+        ))}
+      </div>
+      <div style={{ position: 'relative', height: H }}>
+        <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} preserveAspectRatio="none" style={{ display: 'block', overflow: 'visible' }} aria-hidden="true">
+          <rect x={x(0)} y={0} width={x(50) - x(0)} height={H} fill="rgba(201,138,11,0.06)" />
+          <rect x={x(100)} y={0} width={x(RECORRIDO_MAX) - x(100)} height={H} fill={C.celesteSoft} />
+          <line x1={x(50)} x2={x(50)} y1={0} y2={H} stroke={C.rule} strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />
+          <line x1={x(100)} x2={x(100)} y1={0} y2={H} stroke={C.navy} strokeWidth={1.5} opacity={0.6} vectorEffect="non-scaling-stroke" />
+          <polyline fill="none" stroke={C.ink} strokeWidth={1.5} opacity={0.35} vectorEffect="non-scaling-stroke"
+            points={filas.map((r, i) => `${x(r.pct)},${i * FILA + FILA / 2}`).join(' ')} />
+        </svg>
+      {/* Las marcas van en HTML encima del SVG para que queden redondas aunque el SVG se estire */}
+        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+        {filas.map((r, i) => {
+          const ultima = i === filas.length - 1
+          const color = r.total === 0 ? C.danger : r.pct >= 50 ? C.ok : C.warn
+          return (
+            <span key={r.fecha} style={{
+              position: 'absolute', left: `${x(r.pct) / W * 100}%`, top: i * FILA + FILA / 2,
+              width: ultima ? 14 : 9, height: ultima ? 14 : 9, borderRadius: '50%', transform: 'translate(-50%, -50%)',
+              background: color, border: '2px solid #fff', boxShadow: ultima ? `0 0 0 2px ${color}` : 'none',
+              opacity: ultima ? 1 : 0.55 + 0.45 * (i / filas.length),
+            }} />
+          )
+        })}
+      </div>
+      </div>
+      <div>
+        {filas.map(r => (
+          <div key={r.fecha} style={{ height: FILA, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, fontFamily: F.mono, fontSize: 12 }}>
+            <span style={{ color: C.inkSoft }}>{r.total}</span>
+            <strong style={{ color: C.ink, minWidth: 38, textAlign: 'right' }}>{r.pct}%</strong>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
 
-// Modal de detalle al clickear una sede — junta todo lo relacionado a esa
-// sede en un solo lugar: estado en la campaña activa, evolución histórica de
-// esta sede puntual (filtrando el historial general) y notas de seguimiento.
+// Ficha de la sede: su número del corte en grande, cómo viene respecto al
+// objetivo, el recorrido corte a corte y las notas de seguimiento.
 function SedeDetalleModal({ d, historial, onClose }) {
   const est = getEstado(d)
   const e = E[est]
-  const varTxt = d.var === null ? '—' : d.var > 0 ? `+${d.var}` : String(d.var)
-  const varColor = d.var > 0 ? C.ok : d.var < 0 ? C.danger : C.inkSoft
+  const faltan = Math.max(0, d.objetivo - d.total)
 
-  const evolucion = useMemo(() => {
+  const recorrido = useMemo(() => {
     return (historial || [])
       .filter(r => String(r.cod_sede) === String(d.cod_sede))
-      .sort((a, b) => b.fecha.localeCompare(a.fecha))
+      .sort((a, b) => a.fecha.localeCompare(b.fecha))
+      .map(r => {
+        const obj = Number(r.objetivo) || 0, tot = Number(r.total) || 0
+        return { fecha: String(r.fecha).slice(0, 10), total: tot, pct: obj > 0 ? Math.round(tot / obj * 100) : 0 }
+      })
   }, [historial, d.cod_sede])
 
+  const chip = (txt, fg, bg) => <span style={{ fontSize: 12.5, fontWeight: 600, color: fg, background: bg, padding: '4px 10px', borderRadius: 20 }}>{txt}</span>
+
   return (
-    <ModalShell onClose={onClose} title={d.sede} sub={`Cod. ${d.cod_sede} · ${d.email}`} maxWidth={560}>
-      <div style={{ flex: 1, overflow: 'auto', padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 18 }}>
-        <div>
-          <div style={campoLabelStyle}>Estado en la campaña activa</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 8 }}>
-            <StatBox label="Objetivo" value={d.objetivo} />
-            <StatBox label="Actual" value={d.total} color={C.ink} />
-            <StatBox label="Faltan" value={Math.max(0, d.objetivo - d.total)} />
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-            <StatBox label="Cumplimiento" value={`${d.pct}%`} color={e.color} />
-            <StatBox label="Var. semana" value={varTxt} color={varColor} />
-            <div style={{ background: C.paper, border: `1px solid ${C.rule}`, padding: '10px 12px', display: 'flex', alignItems: 'center' }}>
-              <EstadoTag color={e.color}>{e.label}</EstadoTag>
+    <ModalShell onClose={onClose} title={d.sede} sub={`Código ${d.cod_sede} · ${d.email || 'sin email'}`} maxWidth={580}>
+      <div style={{ flex: 1, overflow: 'auto', padding: '22px 22px 18px', display: 'flex', flexDirection: 'column', gap: 24, fontFamily: F.body }}>
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 18, flexWrap: 'wrap' }}>
+          <div style={{ ...cifra(60), color: e.color }}>{d.pct}<span style={{ fontSize: 30 }}>%</span></div>
+          <div style={{ paddingBottom: 4 }}>
+            <div style={{ fontSize: 15, color: C.ink }}><strong style={{ fontFamily: F.mono }}>{d.total}</strong> inscriptos de un objetivo de <strong style={{ fontFamily: F.mono }}>{d.objetivo}</strong></div>
+            <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+              {chip(e.label, '#fff', e.color)}
+              {d.var !== null && chip(d.var > 0 ? `+${d.var} en este corte` : d.var === 0 ? 'Sin avance en este corte' : `${d.var} en este corte`, d.var > 0 ? C.ok : d.var < 0 ? C.danger : '#8A5D00', d.var > 0 ? '#E3F4EC' : d.var < 0 ? '#FBE7EA' : '#FBF0D9')}
+              {chip(faltan > 0 ? `Faltan ${faltan}` : 'Objetivo cumplido', faltan > 0 ? C.ink : C.navy, faltan > 0 ? C.ruleSoft : C.celesteSoft)}
             </div>
           </div>
         </div>
 
         <div>
-          <div style={campoLabelStyle}>Evolución en esta campaña</div>
-          {evolucion.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: 14, color: C.inkSoft, fontSize: 13, fontFamily: F.body, border: `1px solid ${C.rule}` }}>
-              Sin historial todavía para esta sede
-            </div>
+          <div style={campoLabelStyle}>Recorrido en la campaña</div>
+          {recorrido.length === 0 ? (
+            <div style={{ padding: 14, color: C.inkSoft, fontSize: 13.5, background: C.ruleSoft, borderRadius: 8 }}>Todavía no hay cortes de esta sede.</div>
           ) : (
-            <div style={{ border: `1px solid ${C.rule}`, maxHeight: 140, overflowY: 'auto' }}>
-              {evolucion.map((r, i) => {
-                const obj = Number(r.objetivo) || 0
-                const tot = Number(r.total) || 0
-                const pct = obj > 0 ? Math.round(tot / obj * 100) : 0
-                return (
-                  <div key={i} style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    padding: '7px 12px', borderBottom: i < evolucion.length - 1 ? `1px solid ${C.ruleSoft}` : 'none',
-                    background: i % 2 === 0 ? '#fff' : C.paper,
-                  }}>
-                    <span style={{ fontSize: 12, color: C.inkSoft, fontFamily: F.mono }}>{r.fecha.slice(5).replace('-', '/')}</span>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: C.ink, fontFamily: F.mono }}>{tot}</span>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: pct >= 50 ? C.ok : pct > 0 ? C.warn : C.danger, fontFamily: F.mono }}>{pct}%</span>
-                  </div>
-                )
-              })}
-            </div>
+            <>
+              <Recorrido filas={recorrido} />
+              <div style={{ display: 'grid', gridTemplateColumns: '48px 1fr 74px', columnGap: 12, marginTop: 6 }}>
+                <span />
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: F.mono, fontSize: 10.5, color: C.inkSoft, position: 'relative' }}>
+                  <span>0%</span><span style={{ position: 'absolute', left: `${50 / 1.5}%`, transform: 'translateX(-50%)' }}>50%</span>
+                  <span style={{ position: 'absolute', left: `${100 / 1.5}%`, transform: 'translateX(-50%)', color: C.navy, fontWeight: 600 }}>100%</span><span>150%</span>
+                </div>
+              </div>
+            </>
           )}
         </div>
 
@@ -159,7 +192,7 @@ function EstadoTag({ color, children }) {
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px',
       fontSize: 10.5, fontWeight: 600, color, border: `1px solid ${color}55`,
-      fontFamily: F.mono, textTransform: 'uppercase', letterSpacing: '0.03em',
+      fontFamily: F.body, textTransform: 'uppercase', letterSpacing: '0.03em',
     }}>
       <span style={{ width: 5, height: 5, background: color, flexShrink: 0 }} />
       {children}
@@ -364,7 +397,7 @@ function GestionSedesModal({ onClose, onChanged }) {
             <thead>
               <tr style={{ background: C.paper, borderBottom: `1px solid ${C.rule}` }}>
                 {['Cod', 'Sede', 'Email', 'Saludo', 'Estado', ''].map(h => (
-                  <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', fontFamily: F.mono }}>{h}</th>
+                  <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', fontFamily: F.body }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -376,7 +409,7 @@ function GestionSedesModal({ onClose, onChanged }) {
       </div>
 
       <div style={{ padding: '14px 20px', borderTop: `1px solid ${C.rule}`, flexShrink: 0 }}>
-        <div style={{ fontSize: 10.5, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8, fontFamily: F.mono }}>
+        <div style={{ fontSize: 10.5, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8, fontFamily: F.body }}>
           Agregar sede nueva
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>

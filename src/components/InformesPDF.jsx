@@ -12,61 +12,69 @@ function fmtFecha(iso) {
 }
 
 // ── Estilos compartidos del documento ──────────────────────────────────────
+// Mismo sistema visual que la app ("señalética"): Archivo para texto y
+// cifras expandidas, Chivo Mono para datos, navy + rojo UCASAL, estado en
+// verde/ámbar/rojo. Pensado para imprimir en A4 en blanco y negro también.
 function estilosPDF() {
-  return `<style>
-    @page{margin:20mm 18mm}
-    body{font-family:Arial,Helvetica,sans-serif;margin:0;padding:28px 32px;color:#1a1a2e;font-size:12px;line-height:1.5}
-    .header{display:flex;align-items:center;gap:18px;border-bottom:3px solid #C8102E;padding-bottom:14px;margin-bottom:22px}
-    .header img{height:42px}
-    .header-txt h1{font-size:17px;font-weight:700;color:#1B2A6B;margin:0 0 2px}
-    .header-txt p{font-size:10px;color:#6b7280;margin:0}
-    .fecha-badge{margin-left:auto;background:#1B2A6B;color:#fff;padding:7px 14px;border-radius:7px;text-align:center;flex-shrink:0}
-    .fecha-badge .n{font-size:14px;font-weight:700}
-    .fecha-badge .l{font-size:9px;opacity:.65;text-transform:uppercase;letter-spacing:.5px}
-    .sede-title{background:#1B2A6B;color:#fff;padding:11px 16px;border-radius:7px;margin-bottom:16px}
-    .sede-title h2{font-size:15px;font-weight:700;margin:0 0 2px}
-    .sede-title p{font-size:10px;opacity:.65;margin:0}
-    .kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px}
-    .kpi{background:#f8fafc;border-radius:6px;padding:9px 8px;text-align:center;border-top:3px solid #e5e7eb}
-    .kpi.ok{border-top-color:#52b788}.kpi.warn{border-top-color:#f59e0b}.kpi.bad{border-top-color:#f43f5e}.kpi.bl{border-top-color:#1B2A6B}
-    .kpi .n{font-size:20px;font-weight:800;margin-bottom:2px}
-    .kpi .l{font-size:9px;color:#6b7280}
-    h3{font-size:11px;font-weight:700;color:#1B2A6B;text-transform:uppercase;letter-spacing:.5px;margin:14px 0 7px;padding-bottom:4px;border-bottom:1px solid #e5e7eb}
-    .alert{background:#fffbeb;border-left:4px solid #f59e0b;padding:8px 11px;font-size:11px;color:#78350f;margin-bottom:12px;border-radius:0 5px 5px 0}
-    table{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:12px}
-    th{background:#1B2A6B;color:#fff;padding:6px 10px;text-align:left;font-size:10px}
-    td{padding:5px 10px;border-bottom:1px solid #f1f5f9}
-    tr:nth-child(even) td{background:#fafafa}
-    .footer{margin-top:28px;padding-top:12px;border-top:1px solid #e5e7eb;display:flex;justify-content:space-between;font-size:9px;color:#9ca3af}
-    .tag-ok{background:#d1fae5;color:#065f46;padding:1px 6px;border-radius:10px;font-weight:700;font-size:10px}
-    .tag-w{background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:10px;font-weight:700;font-size:10px}
-    .tag-bad{background:#fee2e2;color:#991b1b;padding:1px 6px;border-radius:10px;font-weight:700;font-size:10px}
+  return `<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=Chivo+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    @page{size:A4;margin:16mm 15mm}
+    *{box-sizing:border-box}
+    body{font-family:'Archivo',Arial,sans-serif;margin:0;padding:0;color:#0E1733;font-size:11.5px;line-height:1.5;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .header{display:flex;align-items:stretch;margin-bottom:22px;border-bottom:3px solid #C8102E}
+    .header .marca{background:#0E1733;color:#fff;padding:14px 18px;display:flex;align-items:center;gap:12px}
+    .header .marca img{height:34px;background:#fff;padding:3px;border-radius:4px}
+    .header .marca b{font-weight:800;font-stretch:112%;font-size:15px;display:block;letter-spacing:.01em}
+    .header .marca span{font-family:'Chivo Mono',monospace;font-size:9px;opacity:.6}
+    .header-txt{padding:12px 18px;flex:1}
+    .header-txt h1{font-size:19px;font-weight:800;font-stretch:110%;margin:0;letter-spacing:-.01em}
+    .header-txt p{font-size:10px;color:#5A6480;margin:3px 0 0}
+    .fecha-badge{padding:12px 18px;text-align:right;display:flex;flex-direction:column;justify-content:center}
+    .fecha-badge .n{font-family:'Chivo Mono',monospace;font-size:14px;font-weight:600}
+    .fecha-badge .l{font-size:9px;color:#5A6480;text-transform:uppercase;letter-spacing:.08em}
+    .sede-title{border-left:6px solid #1B2A6B;padding:6px 0 6px 14px;margin-bottom:16px}
+    .sede-title h2{font-size:22px;font-weight:800;font-stretch:110%;margin:0;letter-spacing:-.01em}
+    .sede-title p{font-size:10.5px;color:#5A6480;margin:2px 0 0}
+    .kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:18px}
+    .kpi{border:1px solid #DCE1EA;border-left:5px solid #DCE1EA;border-radius:6px;padding:10px 12px}
+    .kpi.ok{border-left-color:#0F8A5F}.kpi.warn{border-left-color:#C98A0B}.kpi.bad{border-left-color:#C8102E}.kpi.bl{border-left-color:#1B2A6B}
+    .kpi .n{font-size:26px;font-weight:800;font-stretch:125%;letter-spacing:-.02em;line-height:1.05;font-variant-numeric:tabular-nums}
+    .kpi .l{font-size:9.5px;color:#5A6480;text-transform:uppercase;letter-spacing:.06em;margin-top:3px}
+    h3{font-size:12.5px;font-weight:800;font-stretch:105%;margin:18px 0 8px;padding-bottom:5px;border-bottom:1px solid #DCE1EA}
+    .alert{border-left:4px solid #C98A0B;background:#FBF0D9;padding:8px 12px;font-size:11px;margin-bottom:12px;border-radius:0 6px 6px 0}
+    table{width:100%;border-collapse:collapse;font-size:10.5px;margin-bottom:12px}
+    th{text-align:left;font-size:9.5px;font-weight:600;color:#5A6480;padding:6px 8px;border-bottom:2px solid #0E1733;text-transform:uppercase;letter-spacing:.05em}
+    td{padding:5px 8px;border-bottom:1px solid #E9EDF3;font-variant-numeric:tabular-nums}
+    tr{page-break-inside:avoid}
+    .tag-ok,.tag-w,.tag-bad{display:inline-block;padding:1px 8px;border-radius:10px;font-weight:700;font-size:9.5px;color:#fff}
+    .tag-ok{background:#0F8A5F}.tag-w{background:#C98A0B}.tag-bad{background:#C8102E}
     .salto{page-break-before:always;break-before:page}
+    .footer{margin-top:28px}
     @media print{.no-print{display:none}}
   </style>`
 }
 
-function headerPDF(fecha, campNombre, titulo = 'Informe de Cumplimiento de Ingreso') {
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8">${estilosPDF()}</head><body>
+function headerPDF(fecha, campNombre, titulo = 'Informe de cumplimiento') {
+  return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>${titulo} · ${campNombre}</title>${estilosPDF()}</head><body>
     <div class="header">
-      <img src="${LOGO_B64}" alt="UCASAL">
+      <div class="marca"><img src="${LOGO_B64}" alt="UCASAL"><span>Gestión comercial<br>Zona Buenos Aires</span></div>
       <div class="header-txt">
-        <h1>UCASAL – ${titulo}</h1>
-        <p>Coordinación Nacional de Sedes · Coordinadora Zonal Bs. As. · Dirección Operativa SEAD | Vicerrectorado Académico</p>
+        <h1>${titulo}</h1>
+        <p>${campNombre ? campNombre + ' · ' : ''}Coordinación Zonal Buenos Aires · Dirección Operativa SEAD</p>
       </div>
-      <div class="fecha-badge"><div class="n">${fmtFecha(fecha)}</div><div class="l">Fecha del reporte</div></div>
+      <div class="fecha-badge"><div class="n">${fmtFecha(fecha)}</div><div class="l">Corte</div></div>
     </div>`
 }
 
 function footerPDF(fecha) {
-  return `<div style="margin-top:32px;border-top:2px solid #C8102E;padding-top:14px">
-      <img src="${FIRMA_B64}" alt="Firma Ing. Maria Celeste Rossi" style="max-width:520px;width:100%;display:block;margin-bottom:10px">
-      <div style="display:flex;justify-content:space-between;font-size:9px;color:#9ca3af;margin-top:6px">
-        <span>Documento generado por el sistema de seguimiento UCASAL · Zona Buenos Aires</span>
-        <span>${fmtFecha(fecha)}</span>
+  return `<div class="footer" style="margin-top:32px;border-top:3px solid #C8102E;padding-top:14px">
+      <img src="${FIRMA_B64}" alt="Firma Ing. Maria Celeste Rossi" style="max-width:480px;width:100%;display:block;margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;font-family:'Chivo Mono',monospace;font-size:8.5px;color:#5A6480;margin-top:6px">
+        <span>Sistema de seguimiento UCASAL · Zona Buenos Aires</span>
+        <span>Corte del ${fmtFecha(fecha)}</span>
       </div>
     </div>
-    <scr` + `ipt>window.onload=function(){setTimeout(function(){window.print();},400);}</scr` + `ipt>
+    <scr` + `ipt>window.onload=function(){(document.fonts?document.fonts.ready:Promise.resolve()).then(function(){setTimeout(function(){window.print();},300);});}</scr` + `ipt>
   </body></html>`
 }
 
@@ -80,7 +88,7 @@ function miniChartPDF(historialSede, totalActual, obj) {
     const bH = Math.max(2, Math.round((v / mx) * (H - 25)))
     const x = 20 + i * ((W - 40) / vals.length)
     const isLast = i === vals.length - 1
-    const col = isLast ? '#1B2A6B' : v >= obj ? '#52b788' : v > 0 ? '#f59e0b' : '#f43f5e'
+    const col = isLast ? '#1B2A6B' : v >= obj ? '#0F8A5F' : v > 0 ? '#C98A0B' : '#C8102E'
     return `<rect x="${x}" y="${H - 20 - bH}" width="${bW}" height="${bH}" rx="2" fill="${col}"/>
       <text x="${x + bW / 2}" y="${H - 20 - bH - 3}" text-anchor="middle" font-size="8" fill="#374151">${v}</text>`
   }).join('')
@@ -244,7 +252,7 @@ export function generarInformeCierre({ camp, data, historial, porSede = false, o
     const barras = evol.map((e, i) => {
       const bH = Math.max(2, Math.round(e.pct / mx * (H - 40)))
       const x = 20 + i * step + (step - bW) / 2
-      const col = e.pct >= 50 ? '#52b788' : e.pct > 0 ? '#f59e0b' : '#f43f5e'
+      const col = e.pct >= 50 ? '#0F8A5F' : e.pct > 0 ? '#C98A0B' : '#C8102E'
       return `<rect x="${x}" y="${H - 22 - bH}" width="${bW}" height="${bH}" rx="2" fill="${col}"/>
         <text x="${x + bW / 2}" y="${H - 26 - bH}" text-anchor="middle" font-size="9" font-weight="700" fill="#374151">${e.pct}%</text>
         <text x="${x + bW / 2}" y="${H - 8}" text-anchor="middle" font-size="8" fill="#6b7280">${fmtFecha(e.fecha).slice(0, 5)}</text>`
@@ -278,7 +286,7 @@ export function generarInformeCierre({ camp, data, historial, porSede = false, o
   const bajo = ranking.filter(d => d.pct < 50)
 
   const parts = []
-  parts.push(headerPDF(fecha, campNombre, cerrada ? 'Informe de Cierre de Campaña' : 'Informe de Campaña (parcial)'))
+  parts.push(headerPDF(fecha, campNombre, cerrada ? 'Informe de cierre de campaña' : 'Informe de campaña (parcial)'))
   parts.push(`<div class="sede-title"><h2>${campNombre}</h2><p>${camp?.inicio ? 'Inicio ' + fmtFecha(camp.inicio) + ' · ' : ''}Último corte ${fmtFecha(fecha)}${camp?.fecha_cierre ? ' · Cerrada el ' + fmtFecha(camp.fecha_cierre) : ''} · ${fechas.length} cortes</p></div>`)
   parts.push('<div class="kpi-grid">')
   parts.push(`<div class="kpi ${pctGlobal >= 50 ? 'ok' : 'warn'}"><div class="n">${pctGlobal}%</div><div class="l">Cumplimiento global</div></div>`)
@@ -326,17 +334,17 @@ function generarPDFComparacion(sedesSeleccionadas, campNombre, fecha, historial,
     const y = 10 + i * (BAR_H + GAP)
     const pct = d.pct
     const bW = Math.max(2, Math.round((pct / 100) * BAR_MAX))
-    const col = pct >= 50 ? '#52b788' : d.total > 0 ? '#f59e0b' : '#f43f5e'
+    const col = pct >= 50 ? '#0F8A5F' : d.total > 0 ? '#C98A0B' : '#C8102E'
     let lbl = d.sede.replace(/ - BUENOS AIRES$/, '').replace(/ - BS AS$/, '')
     if (lbl.length > 26) lbl = lbl.slice(0, 25) + '...'
     return `<rect x="${LBL_W}" y="${y}" width="${BAR_MAX}" height="${BAR_H}" rx="3" fill="#f1f5f9"/>
       <rect x="${LBL_W}" y="${y}" width="${bW}" height="${BAR_H}" rx="3" fill="${col}"/>
-      <text x="${LBL_W - 6}" y="${y + BAR_H / 2 + 5}" text-anchor="end" font-size="11" font-family="Arial" fill="#374151">${lbl}</text>
-      <text x="${LBL_W + bW + 6}" y="${y + BAR_H / 2 + 5}" font-size="11" font-family="Arial" font-weight="700" fill="${col}">${pct}% (${d.total}/${d.objetivo})</text>`
+      <text x="${LBL_W - 6}" y="${y + BAR_H / 2 + 5}" text-anchor="end" font-size="11" font-family="Archivo, Arial" fill="#374151">${lbl}</text>
+      <text x="${LBL_W + bW + 6}" y="${y + BAR_H / 2 + 5}" font-size="11" font-family="Archivo, Arial" font-weight="700" fill="${col}">${pct}% (${d.total}/${d.objetivo})</text>`
   }).join('')
   const x50 = LBL_W + Math.round(0.5 * BAR_MAX)
   svgBars += `<line x1="${x50}" y1="0" x2="${x50}" y2="${SVG_H}" stroke="#C8102E" stroke-width="1" stroke-dasharray="3,3" opacity=".6"/>
-    <text x="${x50}" y="${SVG_H + 4}" text-anchor="middle" font-size="9" fill="#C8102E" font-family="Arial">50%</text>`
+    <text x="${x50}" y="${SVG_H + 4}" text-anchor="middle" font-size="9" fill="#C8102E" font-family="Archivo, Arial">50%</text>`
   const svgChart = `<svg width="100%" viewBox="0 0 ${SVG_W} ${SVG_H + 10}" style="display:block">${svgBars}</svg>`
 
   const filas = sedes.map(d => {
@@ -378,7 +386,7 @@ function generarPDFComparacion(sedesSeleccionadas, campNombre, fecha, historial,
   parts.push('<table><tr><th>#</th><th>Sede</th><th>Cumplimiento</th><th>Destaque</th></tr>')
   sedes.forEach((d, i) => {
     const ps = d.pct + '%'
-    const medalla = i === 0 ? '🥇 Mejor cumplimiento' : i === 1 ? '🥈' : i === 2 ? '🥉' : ''
+    const medalla = i === 0 ? 'Mejor cumplimiento' : ''
     const col = d.pct >= 50 ? '#16a34a' : d.total > 0 ? '#d97706' : '#be123c'
     parts.push(`<tr><td style="text-align:center;font-weight:700">${i + 1}</td>
       <td>${d.sede.replace(/ - BUENOS AIRES$/, '').replace(/ - BS AS$/, '')}</td>

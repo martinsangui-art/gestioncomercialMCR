@@ -20,30 +20,37 @@ function fmtFecha(iso) {
   return `${p[2]}/${p[1]}/${p[0]}`
 }
 
+// Pantalla de carga: la regla vacía que se va llenando de marcas mientras
+// llegan los datos (mismo motivo del login y del tablero).
 function LoadingScreen({ error }) {
   return (
     <div style={{
-      position: 'fixed', inset: 0, background: C.ink,
-      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 20,
+      position: 'fixed', inset: 0, background: C.ink, color: '#fff',
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 26, padding: 24,
+      borderTop: `3px solid ${C.crimson}`, fontFamily: F.body,
     }}>
-      <img src={ISOTIPO_B64} alt="UCASAL" style={{ width: 90, height: 'auto' }} />
-      <div style={{ textAlign: 'center', marginTop: -4 }}>
-        <div style={{ fontFamily: F.display, color: '#fff', fontWeight: 600, fontSize: 19, marginBottom: 5 }}>UCASAL · Gestión Comercial</div>
-        <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12.5, fontFamily: F.mono }}>Dirección Operativa SEAD · Buenos Aires</div>
-      </div>
+      <img src={ISOTIPO_B64} alt="UCASAL" style={{ width: 44, height: 'auto' }} />
       {error ? (
-        <div style={{ background: 'rgba(200,16,46,0.15)', border: `1px solid rgba(200,16,46,0.35)`, borderRadius: 8, padding: '12px 20px', maxWidth: 400, textAlign: 'center' }}>
-          <div style={{ color: '#e8828a', fontSize: 13, lineHeight: 1.5, fontFamily: F.body }}>{error}</div>
+        <div role="alert" style={{ maxWidth: 420, textAlign: 'center' }}>
+          <div style={{ fontSize: 20, fontWeight: 800, fontStretch: '108%' }}>No se pudo conectar con la planilla</div>
+          <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.7)', marginTop: 8, lineHeight: 1.5 }}>{error}</div>
+          <button onClick={() => window.location.reload()} className="btn-press" style={{
+            marginTop: 18, height: 40, padding: '0 18px', borderRadius: 8, border: 'none', cursor: 'pointer',
+            background: C.celeste, color: C.ink, fontSize: 14, fontWeight: 800,
+          }}>Reintentar</button>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
-          <div style={{
-            width: 34, height: 34, borderRadius: '50%',
-            border: `3px solid rgba(127,178,240,0.2)`, borderTopColor: C.brass,
-            animation: 'spin 0.8s linear infinite',
-          }} />
-          <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12.5, fontFamily: F.mono }}>Conectando con Google Sheets…</div>
-        </div>
+        <>
+          <svg width="240" height="34" viewBox="0 0 240 34" aria-hidden="true">
+            <line x1="4" x2="236" y1="26" y2="26" stroke="rgba(255,255,255,0.35)" />
+            {Array.from({ length: 16 }, (_, i) => <line key={i} x1={4 + i * 15.47} x2={4 + i * 15.47} y1="26" y2={i % 5 === 0 ? 32 : 29} stroke="rgba(255,255,255,0.35)" />)}
+            <line x1={4 + 232 * 2 / 3} x2={4 + 232 * 2 / 3} y1="4" y2="26" stroke={C.celeste} strokeWidth="1.5" />
+            {[14, 38, 62, 86, 110, 134, 158, 182, 206].map((x, i) => (
+              <circle key={x} cx={x} cy="18" r="4.5" fill={i < 3 ? '#F5B83D' : '#3DD598'} style={{ animation: `pulse-ring 1.4s ease ${i * 0.12}s infinite` }} />
+            ))}
+          </svg>
+          <div style={{ fontFamily: F.mono, fontSize: 12, color: 'rgba(255,255,255,0.55)' }}>Trayendo los cortes de la planilla…</div>
+        </>
       )}
       <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
     </div>

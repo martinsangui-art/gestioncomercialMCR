@@ -23,6 +23,16 @@ function evolucionPorSemana(hist, codSede) {
   }))
 }
 
+// Escala de calor de un solo tono (celeste → navy) según el avance contra el
+// objetivo; las celdas en cero van en rojo claro para que salten a la vista.
+function calor(pct, cero = false) {
+  if (cero) return '#FBE3E7'
+  const t = Math.max(0, Math.min(pct, 100)) / 100
+  const a = [228, 239, 252], b = [27, 42, 107] // C.celesteSoft → C.navy
+  const c = a.map((v, i) => Math.round(v + (b[i] - v) * t))
+  return `rgb(${c.join(',')})`
+}
+
 export default function Historial({ historial, data, campanas, campanaActiva, onSeleccionChange }) {
   const [tab, setTab] = useState(1)
   const [sedesComp, setSedesComp] = useState([])
@@ -90,8 +100,9 @@ export default function Historial({ historial, data, campanas, campanaActiva, on
   const historialPorSede = useMemo(() => {
     const map = {}
     historial.forEach(r => {
-      if (!map[r.cod_sede]) map[r.cod_sede] = { sede: r.sede, vals: {} }
+      if (!map[r.cod_sede]) map[r.cod_sede] = { sede: r.sede, vals: {}, obj: {} }
       map[r.cod_sede].vals[r.fecha] = Number(r.total) || 0
+      map[r.cod_sede].obj[r.fecha] = Number(r.objetivo) || 0
     })
     return map
   }, [historial])
@@ -157,21 +168,25 @@ export default function Historial({ historial, data, campanas, campanaActiva, on
               <div style={{ padding: '40px', textAlign: 'center', color: C.inkSoft, fontSize: 13 }}>Sin datos históricos</div>
             ) : (
               <>
-                <div style={{ padding: '10px 16px', background: C.paper, borderBottom: `1px solid ${C.rule}`, fontSize: 11, color: C.inkSoft, fontFamily: F.mono }}>
-                  {fechas.length} semanas · Columna destacada = semana actual
+                <div style={{ padding: '12px 18px', borderBottom: `1px solid ${C.rule}`, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', fontSize: 12.5, color: C.inkSoft }}>
+                  <span>Inscriptos de cada sede en cada corte. El color es el avance contra su objetivo.</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto', fontFamily: F.mono, fontSize: 11 }}>
+                    <span style={{ width: 12, height: 12, borderRadius: 3, background: calor(0, true) }} /> en cero
+                    <span style={{ width: 90, height: 12, borderRadius: 3, marginLeft: 8, background: `linear-gradient(90deg, ${calor(1)}, ${calor(50)}, ${calor(100)})` }} />
+                    0 → 100%+
+                  </span>
                 </div>
                 <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 3, fontSize: 12.5, padding: '4px 8px 8px' }}>
                     <thead>
-                      <tr style={{ background: C.paper }}>
-                        <th style={{ padding: '8px 14px', textAlign: 'left', fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', borderBottom: `2px solid ${C.rule}`, whiteSpace: 'nowrap', position: 'sticky', left: 0, background: C.paper, zIndex: 2, fontFamily: F.mono }}>Sede</th>
-                        {fechas.map(f => (
-                          <th key={f} style={{ padding: '8px 12px', textAlign: 'center', fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', borderBottom: `2px solid ${C.rule}`, whiteSpace: 'nowrap', fontFamily: F.mono }}>
-                            {f.slice(5).replace('-','/')}
+                      <tr>
+                        <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: 12, fontWeight: 600, color: C.inkSoft, whiteSpace: 'nowrap', position: 'sticky', left: 0, background: '#fff', zIndex: 2 }}>Sede</th>
+                        {fechas.map((f, i) => (
+                          <th key={f} style={{ padding: '8px 4px', textAlign: 'center', fontSize: 11, fontWeight: i === fechas.length - 1 ? 700 : 500, color: i === fechas.length - 1 ? C.ink : C.inkSoft, whiteSpace: 'nowrap', fontFamily: F.mono }}>
+                            {f.slice(8, 10)}/{f.slice(5, 7)}
                           </th>
                         ))}
-                        <th style={{ padding: '8px 12px', textAlign: 'center', fontSize: 10, fontWeight: 700, color: C.ink, textTransform: 'uppercase', borderBottom: `2px solid ${C.brass}`, whiteSpace: 'nowrap', background: 'rgba(127,178,240,0.1)', fontFamily: F.mono }}>Hoy</th>
-                        <th style={{ padding: '8px 12px', textAlign: 'center', fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', borderBottom: `2px solid ${C.rule}`, fontFamily: F.mono }}>Tendencia</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 12, fontWeight: 600, color: C.inkSoft, whiteSpace: 'nowrap' }}>Desde el inicio</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -184,28 +199,34 @@ export default function Historial({ historial, data, campanas, campanaActiva, on
                         if (valsCon.length >= 2) {
                           const delta = valsCon[valsCon.length-1] - valsCon[0]
                           tendencia = delta > 0
-                            ? <span style={{ color: C.ok, fontWeight: 700 }}>▲ +{delta}</span>
+                            ? <span style={{ color: C.ok, fontWeight: 700 }}>+{delta}</span>
                             : delta < 0
-                              ? <span style={{ color: C.crimson, fontWeight: 700 }}>▼ {delta}</span>
-                              : <span style={{ color: C.inkSoft }}>— sin cambio</span>
+                              ? <span style={{ color: C.crimson, fontWeight: 700 }}>{delta}</span>
+                              : <span style={{ color: C.inkSoft }}>sin cambio</span>
                         }
                         return (
-                          <tr key={cod} style={{ borderBottom: `1px solid ${C.ruleSoft}` }}>
-                            <td style={{ padding: '7px 14px', position: 'sticky', left: 0, background: '#fff', zIndex: 1 }}>
+                          <tr key={cod}>
+                            <td style={{ padding: '0 10px', position: 'sticky', left: 0, background: '#fff', zIndex: 1, whiteSpace: 'nowrap' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                 <span style={{ fontSize: 10, color: C.inkSoft, fontFamily: F.mono }}>{cod}</span>
                                 <span style={{ fontSize: 12, fontWeight: 600, color: C.ink }}>{nombre.replace(/ - BUENOS AIRES.*/, '').replace(/ - BS AS$/, '')}</span>
                               </div>
                             </td>
                             {vals.map((v, i) => {
-                              if (v === null) return <td key={i} style={{ padding: '7px 12px', textAlign: 'center', color: C.rule, fontFamily: F.mono }}>—</td>
-                              const col = v === 0 ? C.danger : v < 3 ? C.warn : C.ok
-                              return <td key={i} style={{ padding: '7px 12px', textAlign: 'center', color: col, fontWeight: 700, fontFamily: F.mono }}>{v}</td>
+                              if (v === null) return <td key={i} style={{ textAlign: 'center', color: C.rule, fontFamily: F.mono }}>—</td>
+                              const ob = entry.obj[fechas[i]] || curr?.objetivo || 0
+                              const pct = ob > 0 ? Math.round(v / ob * 100) : 0
+                              const fuerte = v > 0 && pct >= 55
+                              return (
+                                <td key={i} title={`${fechas[i].slice(8, 10)}/${fechas[i].slice(5, 7)}: ${v} de ${ob} (${pct}%)`} style={{
+                                  minWidth: 40, height: 30, padding: '0 6px', textAlign: 'center', borderRadius: 5,
+                                  background: calor(pct, v === 0), color: v === 0 ? '#9B1027' : fuerte ? '#fff' : C.ink,
+                                  fontWeight: i === vals.length - 1 ? 800 : 600, fontFamily: F.mono,
+                                  boxShadow: i === vals.length - 1 ? `inset 0 0 0 2px ${C.ink}` : 'none',
+                                }}>{v}</td>
+                              )
                             })}
-                            <td style={{ padding: '7px 12px', textAlign: 'center', background: 'rgba(127,178,240,0.08)', color: C.ink, fontWeight: 700, fontFamily: F.mono }}>
-                              {curr ? curr.total : '—'}
-                            </td>
-                            <td style={{ padding: '7px 12px', textAlign: 'center', fontFamily: F.mono }}>{tendencia || '—'}</td>
+                            <td style={{ padding: '0 10px', textAlign: 'right', fontFamily: F.mono, whiteSpace: 'nowrap' }}>{tendencia || '—'}</td>
                           </tr>
                         )
                       })}
@@ -274,11 +295,11 @@ export default function Historial({ historial, data, campanas, campanaActiva, on
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                     <thead>
                       <tr style={{ background: C.paper, borderBottom: `1px solid ${C.rule}` }}>
-                        <th style={{ padding: '9px 14px', textAlign: 'left', fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', fontFamily: F.mono }}>Sede</th>
-                        <th style={{ padding: '9px 14px', textAlign: 'center', fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', fontFamily: F.mono }}>Objetivo</th>
-                        <th style={{ padding: '9px 14px', textAlign: 'center', fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', fontFamily: F.mono }}>Total actual</th>
-                        <th style={{ padding: '9px 14px', textAlign: 'center', fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', fontFamily: F.mono }}>Cumplimiento</th>
-                        <th style={{ padding: '9px 14px', textAlign: 'center', fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', fontFamily: F.mono }}>Var. semana</th>
+                        <th style={{ padding: '9px 14px', textAlign: 'left', fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', fontFamily: F.body }}>Sede</th>
+                        <th style={{ padding: '9px 14px', textAlign: 'center', fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', fontFamily: F.body }}>Objetivo</th>
+                        <th style={{ padding: '9px 14px', textAlign: 'center', fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', fontFamily: F.body }}>Total actual</th>
+                        <th style={{ padding: '9px 14px', textAlign: 'center', fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', fontFamily: F.body }}>Cumplimiento</th>
+                        <th style={{ padding: '9px 14px', textAlign: 'center', fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', fontFamily: F.body }}>Var. semana</th>
                       </tr>
                     </thead>
                     <tbody>

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { obtenerObjetivos, cerrarCampana, obtenerUltimoDeshacer, deshacerUltimo, restaurarBackup, simularRestauracion } from '../hooks/useSheets'
-import { C, F } from '../lib/theme'
+import { C, F, cifra } from '../lib/theme'
 import { descargarBackupExcel, descargarResultadosExcel, leerBackupExcel } from '../lib/excel'
 import ModalShell from './ModalShell'
 import { generarInformeCierre } from './InformesPDF'
@@ -12,7 +12,7 @@ function fmtFecha(iso) {
   return `${p[2]}/${p[1]}/${p[0]}`
 }
 
-const labelStyle = { fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6, fontFamily: F.mono }
+const labelStyle = { fontSize: 11, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8, fontFamily: F.body }
 const inputStyle = { width: '100%', padding: '7px 9px', border: `1px solid ${C.rule}`, borderRadius: 8, fontSize: 13, fontFamily: F.body, background: '#fff' }
 
 function Boton({ children, onClick, disabled, tone = 'ink' }) {
@@ -33,9 +33,9 @@ function Boton({ children, onClick, disabled, tone = 'ink' }) {
 
 function Dato({ label, value, color = C.ink }) {
   return (
-    <div style={{ background: C.paper, border: `1px solid ${C.ruleSoft}`, padding: '10px 12px', flex: 1, minWidth: 110 }}>
-      <div style={labelStyle}>{label}</div>
-      <div style={{ fontFamily: F.mono, fontSize: 18, fontWeight: 600, color }}>{value}</div>
+    <div style={{ flex: 1, minWidth: 120, borderLeft: `4px solid ${color}`, padding: '2px 0 2px 12px' }}>
+      <div style={{ ...cifra(26), color: C.ink }}>{value}</div>
+      <div style={{ fontSize: 12, color: C.inkSoft, marginTop: 5 }}>{label}</div>
     </div>
   )
 }
@@ -165,9 +165,9 @@ function CierreModal({ campanas, campanaActiva, data, stats, sedes, historial, o
                 La campaña cierra con el último corte cargado{fechaCorte ? <> — <strong style={{ color: C.ink }}>{fmtFecha(fechaCorte)}</strong></> : null}.
               </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
-                <Dato label="Cumplimiento" value={`${stats.pctGlobal}%`} color={stats.pctGlobal >= 50 ? C.ok : C.warn} />
-                <Dato label="Inscriptos" value={`${stats.totalIng} / ${stats.totalObj}`} />
-                <Dato label="En objetivo" value={`${stats.enObj} de ${stats.total}`} />
+                <Dato label="cumplimiento de la zona" value={`${stats.pctGlobal}%`} color={stats.pctGlobal >= 50 ? C.ok : C.warn} />
+                <Dato label={`inscriptos de ${stats.totalObj}`} value={stats.totalIng} color={C.navy} />
+                <Dato label="sedes en objetivo" value={`${stats.enObj}/${stats.total}`} color={C.ok} />
               </div>
             </>
           ) : (
@@ -288,7 +288,7 @@ function CierreModal({ campanas, campanaActiva, data, stats, sedes, historial, o
   // paso === 'confirmar'
   const abre = !cerrando || abrirNueva
   return (
-    <ModalShell onClose={guardando ? () => {} : onClose} title="Confirmar" sub="Revisá antes de aplicar" maxWidth={500}>
+    <ModalShell onClose={onClose} cerrable={!guardando} title="Confirmar" sub="Revisá antes de aplicar" maxWidth={500}>
       <div style={cuerpo}>
         <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13.5, lineHeight: 1.8 }}>
           {cerrando && <li>Se cierra <strong>{cerrando.nombre}</strong>{data.length ? <> con <strong>{stats.pctGlobal}%</strong> de cumplimiento</> : null}.</li>}
@@ -375,7 +375,7 @@ function DeshacerModal({ op, onClose, onDone }) {
   }
   const esCierre = op.accion === 'cerrar_campana'
   return (
-    <ModalShell onClose={aplicando ? () => {} : onClose} title="Deshacer" sub={`Operación del ${op.fecha_hora}`} maxWidth={480}>
+    <ModalShell onClose={onClose} cerrable={!aplicando} title="Deshacer" sub={`Operación del ${op.fecha_hora}`} maxWidth={480}>
       <div style={{ padding: '18px 20px', fontFamily: F.body, color: C.ink, fontSize: 13.5, lineHeight: 1.6 }}>
         <div style={{ marginBottom: 10 }}>Se va a revertir: <strong>{op.descripcion}</strong>.</div>
         <div style={{ color: C.inkSoft, fontSize: 12.5 }}>
@@ -429,7 +429,7 @@ function RestaurarModal({ onClose, onDone }) {
 
   const r = leido?.resumen
   return (
-    <ModalShell onClose={paso === 'aplicando' ? () => {} : onClose} title="Restaurar backup" sub="Volver campañas, objetivos y cortes a como estaban en un backup" maxWidth={520}>
+    <ModalShell onClose={onClose} cerrable={paso !== 'aplicando'} title="Restaurar backup" sub="Volver campañas, objetivos y cortes a como estaban en un backup" maxWidth={520}>
       <div style={{ padding: '18px 20px', fontFamily: F.body, color: C.ink, fontSize: 13.5, lineHeight: 1.6, overflow: 'auto' }}>
         <input ref={inputRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={e => elegir(e.target.files?.[0])} />
         <Boton tone="ghost" onClick={() => inputRef.current?.click()} disabled={paso === 'aplicando'}>
