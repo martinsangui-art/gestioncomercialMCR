@@ -103,3 +103,27 @@
 .topbar-nav::-webkit-scrollbar { display: none; }
 .topbar-nav { scrollbar-width: none; }
 @media (max-width: 720px) { .hide-mobile { display: none !important; } }
+@media (max-width: 720px) { .grid-sumar-sede { grid-template-columns: 1fr 1fr !important; } }
+
+/* "Cerrar campaña" cuando la campaña ya terminó: un latido suave que pide atención */
+@keyframes latido { 0%, 100% { box-shadow: 0 0 0 0 rgba(200,16,46,0.45); } 60% { box-shadow: 0 0 0 7px rgba(200,16,46,0); } }
+.latido { animation: latido 2.2s ease-out infinite; }
+
+/* Estación actual de la línea de la semana: un anillo celeste que respira */
+@keyframes estacion { 0%, 100% { box-shadow: 0 0 0 0 rgba(127,178,240,0.7); } 70% { box-shadow: 0 0 0 8px rgba(127,178,240,0); } }
+.estacion-actual { animation: estacion 2s ease-out infinite; }
+
+/* La regla: cada marca sale del 0% y viaja hasta su lugar (una sola vez, al entrar) */
+@keyframes marcaLlega { from { transform: translateX(var(--dx)); opacity: 0.2; } to { transform: none; opacity: 1; } }
+.marca-llega { animation: marcaLlega 1.1s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.marca-llega:focus-visible { outline: none; stroke: #fff; stroke-width: 3px; }
+
+/* Filas de listas de sedes que abren la ficha */
+.fila-lista { transition: background .12s ease; }
+.fila-lista:hover { background: #F2F5FA !important; }
+.fila-lista:focus-visible { outline: 2px solid #7FB2F0; outline-offset: 0; }
+
+/* Recarga de datos en curso: franja celeste sobre el filete rojo de la barra */
+@keyframes recarga { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+.barra-recarga { position: absolute; left: 0; right: 0; bottom: -3px; height: 3px; overflow: hidden; }
+.barra-recarga::after { content: ''; position: absolute; top: 0; bottom: 0; width: 40%; background: #7FB2F0; animation: recarga 1.1s ease-in-out infinite; }

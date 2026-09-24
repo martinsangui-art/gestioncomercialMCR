@@ -1,24 +1,22 @@
-import { useState } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useIsMobile } from './hooks/useIsMobile'
-import { useSheets, useAuth } from './hooks/useSheets'
+import { useSheets, useAuth, obtenerNotasTodas } from './hooks/useSheets'
 import { C, F, useClosingTransition, pageBackgroundStyle, rotulo } from './lib/theme'
 import TopBar from './components/TopBar'
 import ExcelUploader from './components/ExcelUploader'
 import InformesPDF from './components/InformesPDF'
-import CampanaBar from './components/CampanaBar'
+import { AccionesCampana, PanelCerrada, DeshacerModal, useUltimaOp, situacionCampana } from './components/CampanaAcciones'
+import LineaSemana from './components/LineaSemana'
+import FichaSede from './components/FichaSede'
+import BuscadorSedes from './components/BuscadorSedes'
+import { calcularParaLlamar, ultimaNotaPorSede } from './lib/analisis'
+import { fmtFecha } from './lib/formato'
 import Login from './components/Login'
 import Dashboard from './views/Dashboard'
 import Sedes from './views/Sedes'
 import Historial from './views/Historial'
 import Envio from './views/Envio'
 import { ISOTIPO_B64 } from './assets/isotipo'
-
-function fmtFecha(iso) {
-  if (!iso) return ''
-  const p = String(iso).slice(0, 10).split('-')
-  if (p.length !== 3) return iso
-  return `${p[2]}/${p[1]}/${p[0]}`
-}
 
 // Pantalla de carga: la regla vacía que se va llenando de marcas mientras
 // llegan los datos (mismo motivo del login y del tablero).
@@ -59,7 +57,7 @@ function LoadingScreen({ error }) {
 
 // Encabezado de cada sección: la campaña como contexto arriba, el nombre
 // de la sección grande y los datos del corte en una línea.
-function PageHeader({ title, campana, fecha, sedes, children }) {
+function PageHeader({ title, campana, fecha, sedes, aviso, children }) {
   const meta = [fecha && `Corte del ${fmtFecha(fecha)}`, sedes !== undefined && `${sedes} sedes`].filter(Boolean)
   return (
     <div style={{
@@ -70,6 +68,7 @@ function PageHeader({ title, campana, fecha, sedes, children }) {
         {campana && <div style={{ ...rotulo, color: C.navy, marginBottom: 6 }}>{campana}</div>}
         <h1 style={{ margin: 0, fontFamily: F.display, fontSize: 34, fontWeight: 800, fontStretch: '112%', color: C.ink, letterSpacing: '-0.02em', lineHeight: 1 }}>{title}</h1>
         {meta.length > 0 && <div style={{ marginTop: 8, fontSize: 13.5, color: C.inkSoft, fontFamily: F.body }}>{meta.join(' · ')}</div>}
+        {aviso && <div role="status" style={{ marginTop: 6, fontSize: 13.5, color: C.crimson, fontWeight: 700, fontFamily: F.body }}>{aviso}</div>}
       </div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         {children}
@@ -85,56 +84,122 @@ const VIEW_META = {
   envio:     { title: 'Envío semanal' },
 }
 
+// Aviso breve abajo a la derecha (se va solo)
+function Aviso({ aviso, onClose }) {
+  useEffect(() => {
+    if (!aviso) return
+    const t = setTimeout(onClose, aviso.ms || 6000)
+    return () => clearTimeout(t)
+  }, [aviso]) // eslint-disable-line
+  if (!aviso) return null
+  const tonos = { ok: C.ok, error: C.crimson, info: C.navy }
+  return (
+    <div role="status" aria-live="polite" className="animate-fadeUp" style={{
+      position: 'fixed', right: 20, bottom: 20, zIndex: 9800, maxWidth: 380,
+      background: C.ink, color: '#fff', borderRadius: 12, padding: '14px 16px 14px 18px',
+      borderLeft: `5px solid ${tonos[aviso.tono || 'ok']}`, boxShadow: '0 18px 40px -12px rgba(14,23,51,.55)',
+      display: 'flex', alignItems: 'flex-start', gap: 12, fontFamily: F.body, fontSize: 14, lineHeight: 1.45,
+    }}>
+      <span style={{ flex: 1 }}>{aviso.texto}</span>
+      <button onClick={onClose} aria-label="Cerrar aviso" style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.6)', cursor: 'pointer', fontSize: 15, padding: 0 }}>✕</button>
+    </div>
+  )
+}
+
 function AppShell({ onLogout }) {
   const [view, setView] = useState('dashboard')
   const [sedesComparacion, setSedesComparacion] = useState([])
   const [uploaderAbierto, setUploaderAbierto] = useState(null) // null = automático
+  const [fichaCod, setFichaCod] = useState(null)
+  const [buscando, setBuscando] = useState(false)
+  const [deshaciendo, setDeshaciendo] = useState(false)
+  const [notas, setNotas] = useState([])
+  const [aviso, setAviso] = useState(null)
   const isMobile = useIsMobile()
 
   const {
-    loading, error, campanas, sedes, campanaActiva, data, historial,
-    copied, stats, cargarCampana, markCopied, markUncopied, markAllCopied,
+    loading, recargando, error, errorRecarga, campanas, sedes, campanaActiva, data, historial,
+    copied, stats, cargarCampana, markCopied, markUncopied,
     guardarSemana, subirExcel, refrescarSedes, refrescarCampanas,
   } = useSheets()
+
+  const ultimaOp = useUltimaOp(historial, campanas)
+
+  // Todas las notas de seguimiento, para mostrar la última de cada sede
+  const cargarNotas = useCallback(() => {
+    obtenerNotasTodas().then(setNotas).catch(() => {})
+  }, [])
+  useEffect(() => { if (!loading) cargarNotas() }, [loading]) // eslint-disable-line
+  const notasPorSede = useMemo(() => ultimaNotaPorSede(notas), [notas])
+  const paraLlamar = useMemo(() => calcularParaLlamar(historial, data), [historial, data])
+
+  // Ctrl+K / ⌘K abre el buscador de sedes desde cualquier pantalla (si hay
+  // un corte cargado: sin datos no hay nada que buscar)
+  const hayDatosRef = useRef(false)
+  hayDatosRef.current = data.length > 0
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); if (hayDatosRef.current) setBuscando(true) }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [])
+
+  useEffect(() => { if (errorRecarga) setAviso({ texto: `No se pudieron actualizar los datos: ${errorRecarga}`, tono: 'error', ms: 9000 }) }, [errorRecarga])
 
   if (loading || error) return <LoadingScreen error={error} />
 
   const camp = campanas?.find(c => c.id === campanaActiva)
+  const { activa, cerrada, vencida, fin } = situacionCampana(camp)
   const fecha = data[0]?.fecha || null
   const meta = VIEW_META[view]
+  const fichaSede = fichaCod ? data.find(d => String(d.cod_sede) === String(fichaCod)) : null
+
+  const irA = (v) => { setView(v); window.scrollTo({ top: 0, behavior: 'smooth' }) }
+  const abrirUploader = () => {
+    setView('dashboard'); setUploaderAbierto(true)
+    setTimeout(() => document.getElementById('carga-excel')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60)
+  }
+  const irALlamar = () => {
+    setView('dashboard')
+    setTimeout(() => document.getElementById('para-llamar')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60)
+  }
+  const onDeshecho = async (res) => {
+    await refrescarCampanas(res.campana_id || campanaActiva)
+    setAviso({ texto: `Listo: se deshizo “${res.descripcion}”.`, tono: 'info' })
+  }
 
   return (
     <div style={{ minHeight: '100vh', ...pageBackgroundStyle() }}>
       <TopBar
-        view={view} onView={setView}
+        view={view} onView={irA}
         campanaActiva={campanaActiva} campanas={campanas}
         onCampana={cargarCampana}
         onLogout={onLogout}
+        onBuscar={data.length ? () => setBuscando(true) : null}
+        recargando={recargando}
       />
 
-      <main style={{ maxWidth: 1320, margin: '0 auto', padding: isMobile ? '20px 14px 48px' : '32px 24px 64px' }}>
+      <main style={{ maxWidth: 1320, margin: '0 auto', padding: isMobile ? '20px 14px 56px' : '32px 24px 72px', opacity: recargando ? 0.72 : 1, transition: 'opacity .2s' }}>
         <PageHeader
           title={meta.title}
           campana={camp?.nombre} fecha={fecha}
-          sedes={view === 'dashboard' || view === 'sedes' ? data.length : undefined}
+          sedes={(view === 'dashboard' || view === 'sedes') && data.length ? data.length : undefined}
+          aviso={view === 'dashboard' && vencida ? `La campaña terminó el ${fmtFecha(fin)}: cuando esté todo cargado, cerrala para arrancar la siguiente.` : null}
         >
-          {view === 'dashboard' && camp?.estado === 'activa' && data.length > 0 && !uploaderAbierto && (
-            <button onClick={() => setUploaderAbierto(true)} className="btn-press" style={{
-              height: 38, padding: '0 16px', borderRadius: 8, border: 'none', cursor: 'pointer',
-              background: C.navy, color: '#fff', fontSize: 13.5, fontWeight: 700, fontFamily: F.body,
-              display: 'flex', alignItems: 'center', gap: 8,
-            }}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 16V4" /><path d="M7 9l5-5 5 5" /><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" />
-              </svg>
-              Cargar Excel del corte
-            </button>
-          )}
           {data.length > 0 && (
             <InformesPDF
               data={data} historial={historial}
               campanas={campanas} campanaActiva={campanaActiva}
               sedesSeleccionadas={sedesComparacion}
+            />
+          )}
+          {view === 'dashboard' && (
+            <AccionesCampana
+              campanas={campanas} campanaActiva={campanaActiva}
+              data={data} stats={stats} sedes={sedes} historial={historial}
+              onCampanasChanged={refrescarCampanas}
+              onRecargarCampana={cargarCampana}
             />
           )}
         </PageHeader>
@@ -143,31 +208,51 @@ function AppShell({ onLogout }) {
             transición de entrada (.view-enter) se dispara cada vez — la
             navegación se siente como un cambio de pantalla, no un corte. */}
         <div key={view} className="view-enter">
-          {view === 'dashboard' && (
-            <CampanaBar
-              campanas={campanas} campanaActiva={campanaActiva}
-              data={data} stats={stats} sedes={sedes} historial={historial}
-              onCampanasChanged={refrescarCampanas}
-              onRecargarCampana={cargarCampana}
+          {view === 'dashboard' && activa && (
+            <LineaSemana
+              data={data} copied={copied} paraLlamar={paraLlamar} ultimaOp={ultimaOp} vencida={vencida}
+              onCargarExcel={abrirUploader} onIrEnvio={() => irA('envio')} onIrLlamar={irALlamar}
+              onDeshacer={() => setDeshaciendo(true)}
             />
           )}
+          {view === 'dashboard' && cerrada && data.length > 0 && (
+            <PanelCerrada camp={camp} data={data} stats={stats} historial={historial} />
+          )}
 
-          {view === 'dashboard' && camp?.estado === 'activa' && (
-            <ExcelUploader
-              data={data}
-              onUpload={subirExcel}
-              campanas={campanas}
-              campanaActiva={campanaActiva}
-              sedesConocidas={sedes}
-              abierto={uploaderAbierto} onAbierto={setUploaderAbierto}
-            />
+          {view === 'dashboard' && activa && (
+            <div id="carga-excel" style={{ scrollMarginTop: 90 }}>
+              <ExcelUploader
+                data={data}
+                historial={historial}
+                onUpload={subirExcel}
+                onGuardado={(txt) => setAviso({ texto: txt, tono: 'ok' })}
+                campanas={campanas}
+                campanaActiva={campanaActiva}
+                sedesConocidas={sedes}
+                abierto={uploaderAbierto} onAbierto={setUploaderAbierto}
+              />
+            </div>
           )}
 
           {view === 'dashboard' && (
-            <Dashboard data={data} stats={stats} historial={historial} campanas={campanas} campanaActiva={campanaActiva} />
+            <Dashboard
+              data={data} stats={stats} historial={historial} campanas={campanas} campanaActiva={campanaActiva}
+              paraLlamar={paraLlamar} notasPorSede={notasPorSede}
+              onAbrirSede={(d) => setFichaCod(d.cod_sede)}
+              vacio={cerrada ? {
+                titulo: 'Esta campaña no tiene cortes cargados',
+                texto: 'Quedó cerrada sin datos. Elegí otra campaña arriba a la derecha.',
+              } : ultimaOp?.accion === 'cerrar_campana' && activa ? {
+                titulo: 'Campaña nueva, todavía sin cortes',
+                texto: 'Cargá el primer Excel para empezar. Si la abriste por error, podés volver atrás.',
+                accion: { label: 'Deshacer el cierre de la campaña anterior', onClick: () => setDeshaciendo(true) },
+              } : null}
+            />
           )}
           {view === 'sedes' && (
-            <Sedes data={data} historial={historial} campanas={campanas} campanaActiva={campanaActiva} onSedesChanged={refrescarSedes} />
+            <Sedes data={data} campanas={campanas} campanaActiva={campanaActiva}
+              onSedesChanged={() => { refrescarSedes(); cargarCampana(campanaActiva) }}
+              onAbrirSede={(d) => setFichaCod(d.cod_sede)} />
           )}
           {view === 'historial' && (
             <Historial historial={historial} data={data} campanas={campanas} campanaActiva={campanaActiva} onSeleccionChange={setSedesComparacion} />
@@ -181,6 +266,18 @@ function AppShell({ onLogout }) {
           )}
         </div>
       </main>
+
+      {fichaSede && (
+        <FichaSede d={fichaSede} historial={historial} onClose={() => setFichaCod(null)} onNotaAgregada={cargarNotas} />
+      )}
+      {buscando && (
+        <BuscadorSedes data={data} onClose={() => setBuscando(false)}
+          onElegir={(d) => { setBuscando(false); setFichaCod(d.cod_sede) }} />
+      )}
+      {deshaciendo && ultimaOp && (
+        <DeshacerModal op={ultimaOp} onClose={() => setDeshaciendo(false)} onDone={onDeshecho} />
+      )}
+      <Aviso aviso={aviso} onClose={() => setAviso(null)} />
     </div>
   )
 }
@@ -188,25 +285,23 @@ function AppShell({ onLogout }) {
 function SessionExpiredModal({ onDismiss }) {
   const [closing, requestClose] = useClosingTransition(onDismiss)
   return (
-    <div className={`modal-overlay ${closing ? 'modal-closing' : ''}`} style={{
+    <div role="alertdialog" aria-modal="true" aria-label="La sesión venció" className={`modal-overlay ${closing ? 'modal-closing' : ''}`} style={{
       position: 'fixed', inset: 0, background: 'rgba(14,23,51,0.65)',
       zIndex: 20000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
     }}>
       <div className={`modal-panel ${closing ? 'modal-closing' : ''}`} style={{
-        background: C.paperRaised, borderRadius: 8, padding: '30px 28px', maxWidth: 380, width: '100%',
-        boxShadow: '0 24px 64px rgba(0,0,0,.35)', textAlign: 'center', border: `1px solid ${C.rule}`,
+        background: C.paperRaised, borderRadius: 14, padding: '28px 26px 24px', maxWidth: 400, width: '100%',
+        boxShadow: '0 30px 80px -20px rgba(14,23,51,.55)', borderTop: `5px solid ${C.crimson}`, fontFamily: F.body,
       }}>
-        <div style={{ fontSize: 30, marginBottom: 14 }}></div>
-        <div style={{ fontFamily: F.display, fontSize: 18, fontWeight: 600, color: C.ink, marginBottom: 8 }}>Tu sesión expiró</div>
-        <div style={{ fontSize: 13, color: C.inkSoft, marginBottom: 22, lineHeight: 1.55, fontFamily: F.body }}>
-          Iniciá sesión de nuevo para continuar. Si estabas cargando una semana manualmente, tus valores quedaron guardados y se restauran al volver a entrar.
+        <div style={{ fontFamily: F.display, fontSize: 21, fontWeight: 800, fontStretch: '108%', color: C.ink }}>La sesión venció</div>
+        <div style={{ fontSize: 14.5, color: C.inkSoft, margin: '10px 0 22px', lineHeight: 1.55 }}>
+          Por seguridad dura unas horas. Volvé a entrar con la contraseña para seguir. Si estabas cargando un corte a mano, los números quedaron guardados y aparecen al volver.
         </div>
-        <button onClick={requestClose} className="btn-press" style={{
-          padding: '11px 24px', borderRadius: 8, fontSize: 13, fontWeight: 600, fontFamily: F.body,
-          background: C.crimson, color: '#fff', border: 'none', cursor: 'pointer', width: '100%',
-          textTransform: 'uppercase', letterSpacing: '0.05em',
+        <button onClick={requestClose} className="btn-press" autoFocus style={{
+          width: '100%', height: 46, borderRadius: 10, fontSize: 15, fontWeight: 800, fontFamily: F.body,
+          background: C.navy, color: '#fff', border: 'none', cursor: 'pointer',
         }}>
-          Iniciar sesión de nuevo
+          Volver a entrar
         </button>
       </div>
     </div>

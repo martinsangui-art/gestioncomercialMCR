@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 
 // Modo demo (solo en `npm run dev`, abriendo con ?demo): datos inventados y
 // sin tocar la planilla — para revisar el diseño sin contraseña.
@@ -31,6 +31,11 @@ export function onAuthExpired(fn) {
 
 // Enviar email via Apps Script (evita CORS del browser con Make)
 export function enviarEmailViaScript(payload) {
+  if (DEMO) {
+    return import('../dev/demoData').then(m => new Promise(res => setTimeout(() => {
+      m.registrarEnvioDemo(payload); res({ ok: true, data: { status: 200 } })
+    }, 250)))
+  }
   return new Promise((resolve, reject) => {
     const cb = '_cb_email_' + Date.now() + '_' + Math.random().toString(36).slice(2)
     const url = API + '?action=enviar_email&callback=' + cb +
@@ -177,7 +182,9 @@ export function useAuth() {
 
 export function useSheets() {
   const [state, setState] = useState({
-    loading: true,
+    loading: true,      // solo el arranque (lista de campañas + primera campaña)
+    recargando: false,  // recargas posteriores: la pantalla sigue visible
+    errorRecarga: null, // falló una recarga: se avisa sin tapar la app
     error: null,
     campanas: [],
     sedes: [],
@@ -193,7 +200,8 @@ export function useSheets() {
     Promise.all([jsonp('campanas'), jsonp('sedes')])
       .then(([campanas, sedes]) => {
         const activa = campanas.find(c => c.estado === 'activa') || campanas[campanas.length - 1]
-        setState(s => ({ ...s, campanas, sedes, campanaActiva: activa?.id || null, loading: false }))
+        // loading sigue en true hasta que llegue la primera campaña (cargarCampana)
+        setState(s => ({ ...s, campanas, sedes, campanaActiva: activa?.id || null, loading: !!activa }))
       })
       .catch(err => {
         // El modal de "sesión expirada" ya se dispara desde jsonp() vía notifyAuthExpired();
@@ -226,29 +234,46 @@ export function useSheets() {
 
   // Releer la lista de campañas (después de cerrar/abrir una) y pasar a la
   // que corresponda — el cambio de campanaActiva dispara la carga de datos.
+  // Releer la lista de campañas (después de cerrar/abrir/deshacer/restaurar)
+  // y, si se indica, cargar esa campaña. La campaña visible cambia recién
+  // cuando llegan sus datos (ver cargarCampana).
+  const cargarRef = useRef(null)
   const refrescarCampanas = useCallback((seleccionarId) => {
     return jsonp('campanas').then(campanas => {
-      setState(s => ({ ...s, campanas, campanaActiva: seleccionarId || s.campanaActiva }))
+      setState(s => ({ ...s, campanas }))
+      if (seleccionarId) cargarRef.current?.(seleccionarId, campanas)
       return campanas
     })
   }, [])
 
   // Cargar datos cuando cambia campaña activa
-  const cargarCampana = useCallback((campanaId) => {
-    setState(s => ({ ...s, loading: true, error: null, campanaActiva: campanaId, data: [] }))
-    setCopied({})
+  // Pide los datos de una campaña. La primera vez se ve la pantalla de carga;
+  // después la app queda visible (con el indicador de "recargando") para no
+  // perder lo que había abierto — antes cada recarga tapaba todo.
+  const pedidoActual = useRef(0)
+  // La campaña seleccionada cambia recién cuando llegan sus datos: si no,
+  // durante la carga (o para siempre si falla) se vería el nombre de una
+  // campaña con los números de otra, y las acciones apuntarían a la nueva.
+  const cargadaRef = useRef(null)
+  const cargarCampana = useCallback((campanaId, campanasFrescas) => {
+    const pedido = ++pedidoActual.current
+    setState(s => ({ ...s, recargando: true, errorRecarga: null }))
 
     Promise.all([
       jsonp('semana_actual', { campana: campanaId }),
       jsonp('historial', { campana: campanaId }),
     ]).then(([data, historial]) => {
-      setState(s => ({ ...s, loading: false, data, historial }))
+      // Si mientras tanto se pidió otra campaña, esta respuesta ya no sirve
+      if (pedido !== pedidoActual.current) return
+      setCopied({})
+      cargadaRef.current = campanaId
+      setState(s => ({ ...s, loading: false, recargando: false, campanaActiva: campanaId, data, historial }))
 
       // Sincronizar "enviadas" con el log real de envíos — si Cele recarga la
       // página a mitad de una tanda, al volver a entrar ya ve qué se mandó
       // (en vez de perder el track y tener que adivinar o reenviar de más).
       const fecha = data[0]?.fecha
-      const camp = state.campanas.find(c => c.id === campanaId)
+      const camp = (campanasFrescas || state.campanas).find(c => c.id === campanaId)
       if (fecha && camp) {
         jsonp('log_envios', { limite: 500 })
           .then(log => {
@@ -260,14 +285,21 @@ export function useSheets() {
           .catch(() => {}) // no crítico — si falla, simplemente no se pre-marca nada
       }
     }).catch(err => {
+      if (pedido !== pedidoActual.current) return
       // El modal de "sesión expirada" ya se dispara desde jsonp() vía notifyAuthExpired()
       if (err.message === 'AUTH_REQUIRED') return
-      setState(s => ({ ...s, loading: false, error: err.message }))
+      setState(s => s.loading
+        ? { ...s, loading: false, recargando: false, error: err.message }
+        : { ...s, recargando: false, errorRecarga: err.message })
     })
   }, [state.campanas]) // eslint-disable-line
 
+  cargarRef.current = cargarCampana
+
+  // Primera carga: la campaña que eligió el arranque. Las siguientes las pide
+  // quien cambia de campaña (cargarCampana / refrescarCampanas).
   useEffect(() => {
-    if (state.campanaActiva) cargarCampana(state.campanaActiva)
+    if (state.campanaActiva && state.campanaActiva !== cargadaRef.current) cargarCampana(state.campanaActiva)
   }, [state.campanaActiva === null ? null : state.campanaActiva]) // eslint-disable-line
 
   // Marcar sede como copiada
@@ -445,6 +477,14 @@ export function editarSede(sede) {
 }
 export function setSedeActiva(cod_sede, activa) {
   return post({ action: 'set_sede_activa', cod_sede, activa })
+}
+export function setObjetivo(campana_id, cod_sede, objetivo) {
+  return post({ action: 'set_objetivo', campana_id, cod_sede, objetivo })
+}
+// Todas las notas de todas las sedes (la más nueva primero) — para mostrar
+// la última nota de cada sede sin abrir su ficha.
+export function obtenerNotasTodas() {
+  return jsonp('notas_sede', { cod_sede: '' })
 }
 
 // ── Cierre de campaña ───────────────────────────────────────────────────────

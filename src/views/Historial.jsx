@@ -1,9 +1,11 @@
 import { useState, useMemo, useEffect } from 'react'
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Cell, Legend } from 'recharts'
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Legend, ReferenceLine } from 'recharts'
 import { obtenerHistorialCampana } from '../hooks/useSheets'
 import { C, F } from '../lib/theme'
 
-const COLORS = [C.ink, C.crimson, C.ok, C.warn, C.brass]
+// Series de comparación: tonos que no se confunden con los colores de estado
+// (verde/ámbar/rojo significan "en objetivo / en progreso / sin ingresos")
+const COLORS = ['#1B2A6B', '#3E8EDE', '#0E9AA7', '#7A5AF8', '#5A6480']
 
 // % de cumplimiento por corte de un historial, ordenado por fecha e indexado
 // por "semana N desde el inicio" en vez de fecha calendario — así se puede
@@ -113,7 +115,7 @@ export default function Historial({ historial, data, campanas, campanaActiva, on
     // Una barra por sede, mostrando el valor en cada fecha
     // Formato: [{ fecha, cod1: val, cod2: val, ... }]
     return fechas.map(fecha => {
-      const row = { fecha: fecha.slice(5) }
+      const row = { fecha: `${fecha.slice(8, 10)}/${fecha.slice(5, 7)}` }
       sedesComp.forEach(cod => {
         const entry = historial.find(r => r.fecha === fecha && String(r.cod_sede) === String(cod))
         if (entry) {
@@ -242,7 +244,7 @@ export default function Historial({ historial, data, campanas, campanaActiva, on
         {tab === 2 && (
           <div className="animate-fadeIn" style={{ padding: '16px 20px' }}>
             <div style={{ fontSize: 12, color: C.inkSoft, marginBottom: 12 }}>
-              Seleccioná hasta 5 sedes para comparar su % de cumplimiento por corte
+              Elegí hasta 5 sedes para ver su cumplimiento corte a corte, una al lado de la otra. Las mismas quedan listas para el informe “Comparación de sedes”.
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 20 }}>
               {todasSedes.map(([cod, nombre], i) => {
@@ -250,12 +252,12 @@ export default function Historial({ historial, data, campanas, campanaActiva, on
                 const ci = sedesComp.indexOf(cod)
                 const shortName = nombre.replace(/ - BUENOS AIRES.*/, '').replace(/ - BS AS$/, '')
                 return (
-                  <button key={cod} onClick={() => toggleSede(cod)} style={{
-                    padding: '5px 12px', borderRadius: 8, fontSize: 12, fontWeight: 500, fontFamily: F.body,
+                  <button key={cod} onClick={() => toggleSede(cod)} aria-pressed={sel} style={{
+                    height: 32, padding: '0 12px', borderRadius: 20, fontSize: 12.5, fontWeight: sel ? 700 : 500, fontFamily: F.body,
                     cursor: 'pointer', transition: 'all 0.15s',
-                    border: sel ? `1.5px solid ${COLORS[ci]}` : `1px solid ${C.rule}`,
-                    background: sel ? COLORS[ci] + '14' : '#fff',
-                    color: sel ? COLORS[ci] : C.inkSoft,
+                    border: sel ? `2px solid ${COLORS[ci]}` : `1px solid ${C.rule}`,
+                    background: sel ? COLORS[ci] : '#fff',
+                    color: sel ? '#fff' : C.ink,
                   }}>{shortName}</button>
                 )
               })}
@@ -266,14 +268,14 @@ export default function Historial({ historial, data, campanas, campanaActiva, on
                 Seleccioná al menos una sede para ver la comparación
               </div>
             ) : (
-              <div style={{ background: C.paper, padding: '20px' }}>
+              <div style={{ padding: '4px 0 0' }}>
                 <ResponsiveContainer width="100%" height={320}>
                   <BarChart data={datosBarras} margin={{ top: 10, right: 20, bottom: 20, left: -10 }}
                     barCategoryGap="30%" barGap={3}>
                     <CartesianGrid strokeDasharray="3 3" stroke={C.rule} vertical={false} />
                     <XAxis dataKey="fecha" tick={{ fontSize: 11, fill: C.inkSoft, fontFamily: F.mono }} tickLine={false} axisLine={false} />
                     <YAxis tick={{ fontSize: 10, fill: C.inkSoft, fontFamily: F.mono }} tickLine={false} axisLine={false}
-                      tickFormatter={v => v + '%'} domain={[0, 110]} />
+                      tickFormatter={v => v + '%'} domain={[0, max => Math.max(110, Math.ceil(max / 25) * 25)]} />
                     <Tooltip
                       contentStyle={{ fontSize: 12, border: `1px solid ${C.rule}`, borderRadius: 8, background: '#fff', fontFamily: F.body }}
                       formatter={(v, name) => [v !== undefined ? v + '%' : '—', sedeNombre(name)]}
@@ -283,18 +285,20 @@ export default function Historial({ historial, data, campanas, campanaActiva, on
                       formatter={sedeNombre}
                       wrapperStyle={{ fontSize: 12, paddingTop: 12, fontFamily: F.body }}
                     />
+                    <ReferenceLine y={100} stroke={C.navy} strokeOpacity={0.5} strokeWidth={1.5} />
+                    <ReferenceLine y={50} stroke={C.inkSoft} strokeOpacity={0.4} strokeDasharray="4 4" />
                     {sedesComp.map((cod, i) => (
-                      <Bar key={cod} dataKey={cod} fill={COLORS[i]}
-                        maxBarSize={60} />
+                      <Bar key={cod} dataKey={cod} fill={COLORS[i]} radius={[4, 4, 0, 0]}
+                        maxBarSize={56} />
                     ))}
                   </BarChart>
                 </ResponsiveContainer>
 
                 {/* Tabla comparativa debajo del gráfico */}
-                <div style={{ marginTop: 20, border: `1px solid ${C.rule}`, overflow: 'hidden', background: '#fff' }}>
+                <div style={{ marginTop: 20, border: `1px solid ${C.rule}`, borderRadius: 10, overflow: 'hidden', background: '#fff' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                     <thead>
-                      <tr style={{ background: C.paper, borderBottom: `1px solid ${C.rule}` }}>
+                      <tr style={{ background: '#FAFBFD', borderBottom: `1px solid ${C.rule}` }}>
                         <th style={{ padding: '9px 14px', textAlign: 'left', fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', fontFamily: F.body }}>Sede</th>
                         <th style={{ padding: '9px 14px', textAlign: 'center', fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', fontFamily: F.body }}>Objetivo</th>
                         <th style={{ padding: '9px 14px', textAlign: 'center', fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', fontFamily: F.body }}>Total actual</th>
@@ -313,7 +317,7 @@ export default function Historial({ historial, data, campanas, campanaActiva, on
                           <tr key={cod} style={{ borderBottom: `1px solid ${C.ruleSoft}` }}>
                             <td style={{ padding: '9px 14px' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <span style={{ width: 10, height: 10, background: COLORS[i], flexShrink: 0 }} />
+                                <span style={{ width: 12, height: 12, borderRadius: 3, background: COLORS[i], flexShrink: 0 }} />
                                 <span style={{ fontWeight: 600, color: C.ink }}>{sedeNombre(cod)}</span>
                               </div>
                             </td>
@@ -321,7 +325,7 @@ export default function Historial({ historial, data, campanas, campanaActiva, on
                             <td style={{ padding: '9px 14px', textAlign: 'center', fontWeight: 700, fontFamily: F.mono, color: C.ink }}>{d.total}</td>
                             <td style={{ padding: '9px 14px', textAlign: 'center', fontWeight: 700, color: col, fontFamily: F.mono }}>{pct}%</td>
                             <td style={{ padding: '9px 14px', textAlign: 'center', fontWeight: 600, color: diff > 0 ? C.ok : diff < 0 ? C.danger : C.inkSoft, fontFamily: F.mono }}>
-                              {diff === null ? '—' : diff > 0 ? `+${diff} ▲` : diff < 0 ? `${diff} ▼` : '= sin cambio'}
+                              {diff === null ? '—' : diff > 0 ? `+${diff}` : diff < 0 ? `${diff}` : 'sin cambio'}
                             </td>
                           </tr>
                         )
@@ -338,23 +342,23 @@ export default function Historial({ historial, data, campanas, campanaActiva, on
         {tab === 3 && (
           <div className="animate-fadeIn" style={{ padding: '16px 20px' }}>
             <div style={{ fontSize: 12, color: C.inkSoft, marginBottom: 12 }}>
-              Compara el % de cumplimiento de dos campañas — general o de una sede puntual — alineadas por semana desde el inicio de cada una (no por fecha calendario), útil para comparar año contra año.
+              Compará dos campañas, en general o de una sede, semana a semana desde el inicio de cada una (no por fecha): sirve para ver si este año vamos mejor o peor que el anterior.
             </div>
             <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
               <select value={campA} onChange={e => setCampA(e.target.value)}
-                style={{ padding: '7px 10px', border: `1px solid ${C.rule}`, borderRadius: 8, fontSize: 13, background: '#fff', fontFamily: F.body }}>
-                <option value="">Campaña A…</option>
+                style={{ height: 40, padding: '0 10px', border: `1px solid ${C.rule}`, borderRadius: 8, fontSize: 14, background: '#fff', fontFamily: F.body, color: C.ink }}>
+                <option value="">Primera campaña…</option>
                 {campanas?.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
               </select>
               <select value={campB} onChange={e => setCampB(e.target.value)}
-                style={{ padding: '7px 10px', border: `1px solid ${C.rule}`, borderRadius: 8, fontSize: 13, background: '#fff', fontFamily: F.body }}>
-                <option value="">Campaña B…</option>
+                style={{ height: 40, padding: '0 10px', border: `1px solid ${C.rule}`, borderRadius: 8, fontSize: 14, background: '#fff', fontFamily: F.body, color: C.ink }}>
+                <option value="">Segunda campaña…</option>
                 {campanas?.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
               </select>
               <select value={sedeComp3} onChange={e => setSedeComp3(e.target.value)}
                 disabled={!campA || !campB}
-                style={{ padding: '7px 10px', border: `1px solid ${C.rule}`, borderRadius: 8, fontSize: 13, background: '#fff', fontFamily: F.body, color: sedeComp3 ? C.ink : C.inkSoft, opacity: (!campA || !campB) ? 0.5 : 1 }}>
-                <option value="">General · todas las sedes</option>
+                style={{ height: 40, padding: '0 10px', border: `1px solid ${C.rule}`, borderRadius: 8, fontSize: 14, background: '#fff', fontFamily: F.body, color: sedeComp3 ? C.ink : C.inkSoft, opacity: (!campA || !campB) ? 0.5 : 1 }}>
+                <option value="">Toda la zona</option>
                 {sedesComp3.map(([cod, nombre]) => (
                   <option key={cod} value={cod}>{nombre.replace(/ - BUENOS AIRES.*/, '').replace(/ - BS AS$/, '')}</option>
                 ))}
@@ -374,20 +378,22 @@ export default function Historial({ historial, data, campanas, campanaActiva, on
                   : 'Sin datos históricos para comparar'}
               </div>
             ) : (
-              <div style={{ background: C.paper, padding: 20 }}>
+              <div style={{ padding: '4px 0 0' }}>
                 <ResponsiveContainer width="100%" height={320}>
                   <LineChart data={datosComparacion} margin={{ top: 10, right: 20, bottom: 20, left: -10 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke={C.rule} vertical={false} />
                     <XAxis dataKey="semana" tick={{ fontSize: 11, fill: C.inkSoft, fontFamily: F.mono }} tickLine={false} axisLine={false} />
                     <YAxis tick={{ fontSize: 10, fill: C.inkSoft, fontFamily: F.mono }} tickLine={false} axisLine={false}
-                      tickFormatter={v => v + '%'} domain={[0, 110]} />
+                      tickFormatter={v => v + '%'} domain={[0, max => Math.max(110, Math.ceil(max / 25) * 25)]} />
                     <Tooltip
                       contentStyle={{ fontSize: 12, border: `1px solid ${C.rule}`, borderRadius: 8, background: '#fff', fontFamily: F.body }}
                       formatter={(v, name) => [v !== undefined ? v + '%' : '—', nombreCampana(name)]}
                     />
                     <Legend formatter={nombreCampana} wrapperStyle={{ fontSize: 12, paddingTop: 12, fontFamily: F.body }} />
-                    <Line type="monotone" dataKey={campA} stroke={COLORS[0]} strokeWidth={2.5} dot={{ r: 3 }} connectNulls />
-                    <Line type="monotone" dataKey={campB} stroke={COLORS[1]} strokeWidth={2.5} dot={{ r: 3 }} connectNulls />
+                    <ReferenceLine y={100} stroke={C.navy} strokeOpacity={0.5} strokeWidth={1.5} />
+                    <ReferenceLine y={50} stroke={C.inkSoft} strokeOpacity={0.4} strokeDasharray="4 4" />
+                    <Line type="monotone" dataKey={campA} stroke={COLORS[0]} strokeWidth={3} dot={{ r: 3.5 }} connectNulls />
+                    <Line type="monotone" dataKey={campB} stroke={COLORS[1]} strokeWidth={3} dot={{ r: 3.5 }} strokeDasharray="6 4" connectNulls />
                   </LineChart>
                 </ResponsiveContainer>
               </div>

@@ -1,216 +1,31 @@
 import { useState, useMemo, useEffect } from 'react'
-import { obtenerSedesTodas, agregarSede, editarSede, setSedeActiva, obtenerNotasSede, agregarNotaSede } from '../hooks/useSheets'
-import { C, F, cifra } from '../lib/theme'
+import { obtenerSedesTodas, agregarSede, editarSede, setSedeActiva, obtenerObjetivos, setObjetivo } from '../hooks/useSheets'
+import { C, F } from '../lib/theme'
 import ModalShell from '../components/ModalShell'
+import { estadoSede, ESTADOS } from '../components/FichaSede'
 
+// Grupos de la tabla: misma regla de estado que el resto de la app
 function getEstado(d) {
-  if (d.total === 0) return 'red'
-  if (d.pct >= 50) return 'green'
-  return 'amber'
+  const e = estadoSede(d)
+  return e === 'ok' ? 'green' : e === 'prog' ? 'amber' : 'red'
 }
-
 const E = {
-  green: { label: 'En objetivo',  color: C.ok },
-  amber: { label: 'En progreso',  color: C.warn },
-  red:   { label: 'Sin ingresos', color: C.danger },
+  green: ESTADOS.ok,
+  amber: ESTADOS.prog,
+  red:   ESTADOS.cero,
 }
 
-// Sección de notas de seguimiento — se usa embebida dentro del modal de
-// detalle de sede (antes vivía en su propio modal separado).
-function NotasSeccion({ d }) {
-  const [notas, setNotas] = useState([])
-  const [cargando, setCargando] = useState(true)
-  const [nueva, setNueva] = useState('')
-  const [guardando, setGuardando] = useState(false)
-  const [error, setError] = useState(null)
-
-  const cargar = () => {
-    setCargando(true)
-    obtenerNotasSede(d.cod_sede).then(setNotas).catch(e => setError(e.message)).finally(() => setCargando(false))
-  }
-  useEffect(() => { cargar() }, []) // eslint-disable-line
-
-  const handleAgregar = async () => {
-    if (!nueva.trim()) return
-    setGuardando(true); setError(null)
-    try {
-      await agregarNotaSede(d.cod_sede, nueva.trim())
-      setNueva('')
-      cargar()
-    } catch (e) { setError(e.message) }
-    setGuardando(false)
-  }
-
-  return (
-    <div>
-      <div style={campoLabelStyle}>Notas de seguimiento</div>
-      {cargando ? (
-        <div style={{ textAlign: 'center', padding: 16, color: C.inkSoft, fontSize: 13, fontFamily: F.body }}>Cargando…</div>
-      ) : notas.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: 16, color: C.inkSoft, fontSize: 13, fontFamily: F.body }}>Todavía no hay notas para esta sede</div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 180, overflowY: 'auto', marginBottom: 10 }}>
-          {notas.map((n, i) => (
-            <div key={i} style={{ background: C.paper, border: `1px solid ${C.rule}`, padding: '9px 11px', flexShrink: 0 }}>
-              <div style={{ fontSize: 10, color: C.inkSoft, marginBottom: 3, fontFamily: F.mono }}>{n.fecha}</div>
-              <div style={{ fontSize: 13, color: C.ink, fontFamily: F.body }}>{n.nota}</div>
-            </div>
-          ))}
-        </div>
-      )}
-      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-        <input value={nueva} onChange={e => setNueva(e.target.value)}
-          placeholder="Ej: hablé con Fulano, dijo que cargan el lunes…"
-          onKeyDown={e => e.key === 'Enter' && handleAgregar()}
-          style={{ flex: 1, padding: '8px 12px', border: `1px solid ${C.rule}`, borderRadius: 8, fontSize: 13, fontFamily: F.body }} />
-        <button onClick={handleAgregar} disabled={guardando} style={{
-          padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, fontFamily: F.body,
-          background: C.ink, color: '#fff', border: 'none', cursor: 'pointer', opacity: guardando ? 0.6 : 1,
-        }}>
-          {guardando ? '…' : 'Agregar'}
-        </button>
-      </div>
-      {error && <div style={{ color: C.crimson, fontSize: 12, marginTop: 8 }}>{error}</div>}
-    </div>
-  )
-}
-
-const campoLabelStyle = { fontSize: 11, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10, fontFamily: F.body }
-
-// Recorrido de la sede: una fila por corte (arriba el primero), con su marca
-// sobre la misma escala de la regla del tablero y una línea que une un corte
-// con el siguiente — se lee como el trayecto de la sede hacia el objetivo.
-const RECORRIDO_MAX = 150
-function Recorrido({ filas }) {
-  const W = 300, FILA = 26
-  const x = pct => 6 + Math.min(pct, RECORRIDO_MAX) / RECORRIDO_MAX * (W - 12)
-  const H = filas.length * FILA
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: '48px 1fr 74px', columnGap: 12, alignItems: 'stretch' }}>
-      <div>
-        {filas.map(r => (
-          <div key={r.fecha} style={{ height: FILA, display: 'flex', alignItems: 'center', fontFamily: F.mono, fontSize: 11.5, color: C.inkSoft }}>{r.fecha.slice(8, 10)}/{r.fecha.slice(5, 7)}</div>
-        ))}
-      </div>
-      <div style={{ position: 'relative', height: H }}>
-        <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} preserveAspectRatio="none" style={{ display: 'block', overflow: 'visible' }} aria-hidden="true">
-          <rect x={x(0)} y={0} width={x(50) - x(0)} height={H} fill="rgba(201,138,11,0.06)" />
-          <rect x={x(100)} y={0} width={x(RECORRIDO_MAX) - x(100)} height={H} fill={C.celesteSoft} />
-          <line x1={x(50)} x2={x(50)} y1={0} y2={H} stroke={C.rule} strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />
-          <line x1={x(100)} x2={x(100)} y1={0} y2={H} stroke={C.navy} strokeWidth={1.5} opacity={0.6} vectorEffect="non-scaling-stroke" />
-          <polyline fill="none" stroke={C.ink} strokeWidth={1.5} opacity={0.35} vectorEffect="non-scaling-stroke"
-            points={filas.map((r, i) => `${x(r.pct)},${i * FILA + FILA / 2}`).join(' ')} />
-        </svg>
-      {/* Las marcas van en HTML encima del SVG para que queden redondas aunque el SVG se estire */}
-        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
-        {filas.map((r, i) => {
-          const ultima = i === filas.length - 1
-          const color = r.total === 0 ? C.danger : r.pct >= 50 ? C.ok : C.warn
-          return (
-            <span key={r.fecha} style={{
-              position: 'absolute', left: `${x(r.pct) / W * 100}%`, top: i * FILA + FILA / 2,
-              width: ultima ? 14 : 9, height: ultima ? 14 : 9, borderRadius: '50%', transform: 'translate(-50%, -50%)',
-              background: color, border: '2px solid #fff', boxShadow: ultima ? `0 0 0 2px ${color}` : 'none',
-              opacity: ultima ? 1 : 0.55 + 0.45 * (i / filas.length),
-            }} />
-          )
-        })}
-      </div>
-      </div>
-      <div>
-        {filas.map(r => (
-          <div key={r.fecha} style={{ height: FILA, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, fontFamily: F.mono, fontSize: 12 }}>
-            <span style={{ color: C.inkSoft }}>{r.total}</span>
-            <strong style={{ color: C.ink, minWidth: 38, textAlign: 'right' }}>{r.pct}%</strong>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-// Ficha de la sede: su número del corte en grande, cómo viene respecto al
-// objetivo, el recorrido corte a corte y las notas de seguimiento.
-function SedeDetalleModal({ d, historial, onClose }) {
-  const est = getEstado(d)
-  const e = E[est]
-  const faltan = Math.max(0, d.objetivo - d.total)
-
-  const recorrido = useMemo(() => {
-    return (historial || [])
-      .filter(r => String(r.cod_sede) === String(d.cod_sede))
-      .sort((a, b) => a.fecha.localeCompare(b.fecha))
-      .map(r => {
-        const obj = Number(r.objetivo) || 0, tot = Number(r.total) || 0
-        return { fecha: String(r.fecha).slice(0, 10), total: tot, pct: obj > 0 ? Math.round(tot / obj * 100) : 0 }
-      })
-  }, [historial, d.cod_sede])
-
-  const chip = (txt, fg, bg) => <span style={{ fontSize: 12.5, fontWeight: 600, color: fg, background: bg, padding: '4px 10px', borderRadius: 20 }}>{txt}</span>
-
-  return (
-    <ModalShell onClose={onClose} title={d.sede} sub={`Código ${d.cod_sede} · ${d.email || 'sin email'}`} maxWidth={580}>
-      <div style={{ flex: 1, overflow: 'auto', padding: '22px 22px 18px', display: 'flex', flexDirection: 'column', gap: 24, fontFamily: F.body }}>
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 18, flexWrap: 'wrap' }}>
-          <div style={{ ...cifra(60), color: e.color }}>{d.pct}<span style={{ fontSize: 30 }}>%</span></div>
-          <div style={{ paddingBottom: 4 }}>
-            <div style={{ fontSize: 15, color: C.ink }}><strong style={{ fontFamily: F.mono }}>{d.total}</strong> inscriptos de un objetivo de <strong style={{ fontFamily: F.mono }}>{d.objetivo}</strong></div>
-            <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
-              {chip(e.label, '#fff', e.color)}
-              {d.var !== null && chip(d.var > 0 ? `+${d.var} en este corte` : d.var === 0 ? 'Sin avance en este corte' : `${d.var} en este corte`, d.var > 0 ? C.ok : d.var < 0 ? C.danger : '#8A5D00', d.var > 0 ? '#E3F4EC' : d.var < 0 ? '#FBE7EA' : '#FBF0D9')}
-              {chip(faltan > 0 ? `Faltan ${faltan}` : 'Objetivo cumplido', faltan > 0 ? C.ink : C.navy, faltan > 0 ? C.ruleSoft : C.celesteSoft)}
-            </div>
-          </div>
-        </div>
-
-        <div>
-          <div style={campoLabelStyle}>Recorrido en la campaña</div>
-          {recorrido.length === 0 ? (
-            <div style={{ padding: 14, color: C.inkSoft, fontSize: 13.5, background: C.ruleSoft, borderRadius: 8 }}>Todavía no hay cortes de esta sede.</div>
-          ) : (
-            <>
-              <Recorrido filas={recorrido} />
-              <div style={{ display: 'grid', gridTemplateColumns: '48px 1fr 74px', columnGap: 12, marginTop: 6 }}>
-                <span />
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: F.mono, fontSize: 10.5, color: C.inkSoft, position: 'relative' }}>
-                  <span>0%</span><span style={{ position: 'absolute', left: `${50 / 1.5}%`, transform: 'translateX(-50%)' }}>50%</span>
-                  <span style={{ position: 'absolute', left: `${100 / 1.5}%`, transform: 'translateX(-50%)', color: C.navy, fontWeight: 600 }}>100%</span><span>150%</span>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-
-        <NotasSeccion d={d} />
-      </div>
-    </ModalShell>
-  )
-}
-
-function EstadoTag({ color, children }) {
-  return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px',
-      fontSize: 10.5, fontWeight: 600, color, border: `1px solid ${color}55`,
-      fontFamily: F.body, textTransform: 'uppercase', letterSpacing: '0.03em',
-    }}>
-      <span style={{ width: 5, height: 5, background: color, flexShrink: 0 }} />
-      {children}
-    </span>
-  )
-}
-
-function SedeRow({ d, historial }) {
+function SedeRow({ d, onAbrir }) {
   const est = getEstado(d)
   const e = E[est]
   const noav = d.var !== null && d.var === 0
   const varColor = d.var > 0 ? C.ok : d.var < 0 ? C.danger : C.inkSoft
   const varTxt = d.var === null ? '—' : d.var > 0 ? `+${d.var}` : String(d.var)
-  const [mostrarDetalle, setMostrarDetalle] = useState(false)
 
   return (
     <tr style={{ borderBottom: `1px solid ${C.ruleSoft}`, transition: 'background 0.15s', cursor: 'pointer' }}
-      onClick={() => setMostrarDetalle(true)}
+      onClick={() => onAbrir(d)} tabIndex={0} aria-label={`Abrir la ficha de ${d.sede}`}
+      onKeyDown={e2 => { if (e2.key === 'Enter') onAbrir(d) }}
       onMouseEnter={e2 => e2.currentTarget.style.background = C.paper}
       onMouseLeave={e2 => e2.currentTarget.style.background = 'transparent'}
     >
@@ -238,7 +53,7 @@ function SedeRow({ d, historial }) {
         </div>
       </td>
       <td style={{ padding: '10px 16px', textAlign: 'center' }}>
-        <button onClick={e2 => { e2.stopPropagation(); setMostrarDetalle(true) }} title="Ver detalle y notas" aria-label="Ver detalle y notas" style={{
+        <button onClick={e2 => { e2.stopPropagation(); onAbrir(d) }} title="Ficha y seguimiento" aria-label={`Ficha y seguimiento de ${d.sede}`} tabIndex={-1} style={{
           border: `1px solid ${C.rule}`, background: '#fff', color: C.navy,
           borderRadius: 8, width: 32, height: 32, display: 'inline-grid', placeItems: 'center', cursor: 'pointer',
         }}>
@@ -246,7 +61,6 @@ function SedeRow({ d, historial }) {
             <path d="M5 4h14v16H5z" /><path d="M9 9h6M9 13h6M9 17h3" />
           </svg>
         </button>
-        {mostrarDetalle && <SedeDetalleModal d={d} historial={historial} onClose={() => setMostrarDetalle(false)} />}
       </td>
     </tr>
   )
@@ -259,7 +73,7 @@ function isActiva(s) {
   return !(str === 'FALSE' || str === 'FALSO' || str === '0' || str === 'NO')
 }
 
-const inputStyle = { width: '100%', padding: '5px 8px', border: `1px solid ${C.rule}`, borderRadius: 8, fontSize: 12, fontFamily: F.body }
+const inputStyle = { width: '100%', height: 34, padding: '0 10px', border: `1px solid ${C.rule}`, borderRadius: 7, fontSize: 13, fontFamily: F.body, background: '#fff', minWidth: 0 }
 
 const EMAIL_RE = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/
 
@@ -279,9 +93,11 @@ function normalizarEmails(raw) {
   return { value: tokens.join(', ') }
 }
 
-function FilaSedeEditable({ s, onGuardado }) {
+const linkBtn = (color = C.navy) => ({ fontSize: 13, fontWeight: 700, color, background: 'none', border: 'none', cursor: 'pointer', fontFamily: F.body, padding: '4px 2px' })
+
+function FilaSedeEditable({ s, objetivo, campanaActiva, onGuardado }) {
   const [editando, setEditando] = useState(false)
-  const [form, setForm] = useState({ sede: s.sede || '', email: s.email || '', saludo: s.saludo || '' })
+  const [form, setForm] = useState({ sede: s.sede || '', email: s.email || '', saludo: s.saludo || '', objetivo: objetivo ?? '' })
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState(null)
   const activa = isActiva(s)
@@ -289,9 +105,12 @@ function FilaSedeEditable({ s, onGuardado }) {
   const guardar = async () => {
     const emailCheck = normalizarEmails(form.email)
     if (emailCheck.error) { setError(emailCheck.error); return }
+    const obj = form.objetivo === '' ? null : Number(form.objetivo)
+    if (obj !== null && !(obj >= 0)) { setError('El objetivo tiene que ser un número'); return }
     setGuardando(true); setError(null)
     try {
-      await editarSede({ cod_sede: s.cod_sede, ...form, email: emailCheck.value })
+      await editarSede({ cod_sede: s.cod_sede, sede: form.sede, email: emailCheck.value, saludo: form.saludo })
+      if (campanaActiva && obj !== null && obj !== Number(objetivo)) await setObjetivo(campanaActiva.id, s.cod_sede, obj)
       setEditando(false)
       onGuardado()
     } catch (e) { setError(e.message) }
@@ -307,59 +126,74 @@ function FilaSedeEditable({ s, onGuardado }) {
     setGuardando(false)
   }
 
+  const td = { padding: '9px 10px', verticalAlign: 'middle' }
   return (
-    <tr style={{ borderBottom: `1px solid ${C.ruleSoft}`, opacity: activa ? 1 : 0.5, fontFamily: F.body }}>
-      <td style={{ padding: '8px 12px', fontSize: 11, color: C.inkSoft, fontFamily: F.mono }}>{s.cod_sede}</td>
+    <tr style={{ borderBottom: `1px solid ${C.ruleSoft}`, fontFamily: F.body, background: editando ? C.celesteSoft : 'transparent' }}>
       {editando ? (
         <>
-          <td style={{ padding: '6px 8px' }}><input value={form.sede} onChange={e => setForm(f => ({ ...f, sede: e.target.value }))} style={inputStyle} /></td>
-          <td style={{ padding: '6px 8px' }}><input value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} style={inputStyle} /></td>
-          <td style={{ padding: '6px 8px' }}><input value={form.saludo} onChange={e => setForm(f => ({ ...f, saludo: e.target.value }))} style={inputStyle} /></td>
+          <td style={td}><input aria-label="Nombre" value={form.sede} onChange={e => setForm(f => ({ ...f, sede: e.target.value }))} style={inputStyle} /></td>
+          <td style={td}><input aria-label="Email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} style={inputStyle} /></td>
+          <td style={td}><input aria-label="Saludo" value={form.saludo} onChange={e => setForm(f => ({ ...f, saludo: e.target.value }))} style={inputStyle} /></td>
+          <td style={td}>{campanaActiva
+            ? <input aria-label="Objetivo" type="number" min="0" value={form.objetivo} onChange={e => setForm(f => ({ ...f, objetivo: e.target.value }))} style={{ ...inputStyle, width: 72, textAlign: 'right', fontFamily: F.mono }} />
+            : <span style={{ color: C.inkSoft }}>—</span>}</td>
         </>
       ) : (
         <>
-          <td style={{ padding: '8px 12px', fontSize: 13, fontWeight: 600, color: C.ink }}>{s.sede}</td>
-          <td style={{ padding: '8px 12px', fontSize: 12, color: C.inkSoft, fontFamily: F.mono }}>{s.email}</td>
-          <td style={{ padding: '8px 12px', fontSize: 12, color: C.inkSoft }}>{s.saludo}</td>
+          <td style={td}>
+            <div style={{ fontSize: 13.5, fontWeight: 700, color: activa ? C.ink : C.inkSoft }}>{s.sede}</div>
+            <div style={{ fontFamily: F.mono, fontSize: 11, color: C.inkSoft }}>{s.cod_sede}</div>
+          </td>
+          <td style={{ ...td, fontSize: 12.5, color: C.inkSoft, wordBreak: 'break-word' }}>{s.email || <span style={{ color: C.crimson }}>Falta email</span>}</td>
+          <td style={{ ...td, fontSize: 12.5, color: C.inkSoft }}>{s.saludo}</td>
+          <td style={{ ...td, textAlign: 'right', fontFamily: F.mono, fontWeight: 700, color: objetivo ? C.ink : C.crimson }}>
+            {objetivo || (activa ? <span title="Sin objetivo no aparece en el tablero">falta</span> : '—')}
+          </td>
         </>
       )}
-      <td style={{ padding: '8px 12px', textAlign: 'center' }}>
-        <button onClick={toggleActiva} disabled={guardando} style={{
-          fontSize: 10.5, fontWeight: 600, padding: '3px 9px', border: 'none', cursor: 'pointer', fontFamily: F.mono,
-          background: 'transparent', color: activa ? C.ok : C.inkSoft, textTransform: 'uppercase',
-        }}>
-          {activa ? '✓ Activa' : 'Inactiva'}
+      <td style={{ ...td, textAlign: 'center' }}>
+        <button onClick={toggleActiva} disabled={guardando || editando} role="switch" aria-checked={activa}
+          aria-label={`${s.sede}: ${activa ? 'activa' : 'inactiva'}`} title={activa ? 'Desactivar (deja de aparecer y de recibir mails)' : 'Activar'}
+          style={{ width: 38, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer', position: 'relative', background: activa ? C.ok : C.rule, transition: 'background .15s', opacity: editando ? 0.5 : 1 }}>
+          <span style={{ position: 'absolute', top: 3, left: activa ? 19 : 3, width: 16, height: 16, borderRadius: '50%', background: '#fff', transition: 'left .15s' }} />
         </button>
       </td>
-      <td style={{ padding: '8px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+      <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
         {editando ? (
           <>
-            <button onClick={guardar} disabled={guardando} style={{ fontSize: 11, fontWeight: 600, color: C.ok, background: 'none', border: 'none', cursor: 'pointer', marginRight: 8 }}>
-              {guardando ? '…' : 'Guardar'}
-            </button>
-            <button onClick={() => setEditando(false)} disabled={guardando} style={{ fontSize: 11, color: C.inkSoft, background: 'none', border: 'none', cursor: 'pointer' }}>Cancelar</button>
+            <button onClick={guardar} disabled={guardando} style={linkBtn(C.ok)}>{guardando ? 'Guardando…' : 'Guardar'}</button>
+            <button onClick={() => { setEditando(false); setError(null) }} disabled={guardando} style={{ ...linkBtn(C.inkSoft), fontWeight: 500, marginLeft: 8 }}>Cancelar</button>
           </>
         ) : (
-          <button onClick={() => setEditando(true)} style={{ fontSize: 11, fontWeight: 600, color: C.ink, background: 'none', border: 'none', cursor: 'pointer' }}>Editar</button>
+          <button onClick={() => setEditando(true)} style={linkBtn()}>Editar</button>
         )}
-        {error && <div style={{ color: C.crimson, fontSize: 10, marginTop: 2 }}>{error}</div>}
+        {error && <div role="alert" style={{ color: C.crimson, fontSize: 11.5, marginTop: 2, whiteSpace: 'normal', maxWidth: 180, marginLeft: 'auto' }}>{error}</div>}
       </td>
     </tr>
   )
 }
 
-function GestionSedesModal({ onClose, onChanged }) {
+// Sedes y objetivos: datos de contacto (para los mails), activar/desactivar
+// y el objetivo de cada sede en la campaña activa — todo sin tocar la planilla.
+function GestionSedesModal({ onClose, onChanged, campanaActiva }) {
   const [sedes, setSedes] = useState([])
+  const [objetivos, setObjetivos] = useState({})
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState(null)
-  const [nueva, setNueva] = useState({ cod_sede: '', sede: '', email: '', saludo: '' })
+  const [nueva, setNueva] = useState({ cod_sede: '', sede: '', email: '', saludo: 'Estimados', objetivo: '' })
   const [agregando, setAgregando] = useState(false)
   const [errorNueva, setErrorNueva] = useState(null)
 
   const cargar = () => {
     setCargando(true)
-    obtenerSedesTodas()
-      .then(data => setSedes(data.sort((a, b) => String(a.sede).localeCompare(String(b.sede)))))
+    Promise.all([
+      obtenerSedesTodas(),
+      campanaActiva ? obtenerObjetivos(campanaActiva.id).catch(() => []) : Promise.resolve([]),
+    ])
+      .then(([data, objs]) => {
+        setSedes(data.sort((a, b) => (isActiva(b) - isActiva(a)) || String(a.sede).localeCompare(String(b.sede))))
+        const m = {}; objs.forEach(o => { m[String(o.cod_sede)] = Number(o.objetivo) || 0 }); setObjetivos(m)
+      })
       .catch(e => setError(e.message))
       .finally(() => setCargando(false))
   }
@@ -370,74 +204,83 @@ function GestionSedesModal({ onClose, onChanged }) {
 
   const handleAgregar = async () => {
     if (!nueva.cod_sede.trim() || !nueva.sede.trim()) {
-      setErrorNueva('Cod. sede y nombre son obligatorios'); return
+      setErrorNueva('El código y el nombre son obligatorios'); return
     }
     const emailCheck = normalizarEmails(nueva.email || '')
     if (nueva.email.trim() && emailCheck.error) {
       setErrorNueva(emailCheck.error); return
     }
+    if (campanaActiva && !(Number(nueva.objetivo) > 0)) {
+      setErrorNueva(`Poné el objetivo de ${campanaActiva.nombre}: sin objetivo la sede no aparece en el tablero`); return
+    }
     setAgregando(true); setErrorNueva(null)
     try {
-      await agregarSede({ ...nueva, email: emailCheck.value ?? '' })
-      setNueva({ cod_sede: '', sede: '', email: '', saludo: '' })
+      await agregarSede({ ...nueva, email: emailCheck.value ?? '', campana_id: campanaActiva?.id, objetivo: Number(nueva.objetivo) || 0 })
+      setNueva({ cod_sede: '', sede: '', email: '', saludo: 'Estimados', objetivo: '' })
       handleGuardado()
     } catch (e) { setErrorNueva(e.message) }
     setAgregando(false)
   }
 
+  const activas = sedes.filter(isActiva)
+  const sinObjetivo = campanaActiva ? activas.filter(s => !objetivos[String(s.cod_sede)]).length : 0
+  const th = { padding: '10px 10px', textAlign: 'left', fontSize: 12, fontWeight: 600, color: C.inkSoft, background: '#fff', position: 'sticky', top: 0, zIndex: 1, borderBottom: `1px solid ${C.rule}` }
+
   return (
-    <ModalShell onClose={onClose} title="Gestionar sedes" sub="Alta, edición y activar/desactivar — sin tocar la planilla" maxWidth={780}>
-      <div style={{ flex: 1, overflow: 'auto', padding: '16px 20px' }}>
+    <ModalShell onClose={onClose} title="Sedes y objetivos"
+      sub={campanaActiva ? `Contacto de cada sede y su objetivo en ${campanaActiva.nombre}` : 'Contacto de cada sede'} maxWidth={920}>
+      <div style={{ flex: 1, overflow: 'auto', padding: '0 12px' }}>
         {cargando ? (
-          <div style={{ textAlign: 'center', padding: 32, color: C.inkSoft, fontFamily: F.body }}>Cargando…</div>
+          <div style={{ padding: 32, color: C.inkSoft, fontFamily: F.body }}>Cargando sedes…</div>
         ) : error ? (
-          <div style={{ color: C.crimson, fontSize: 13, fontFamily: F.body }}>{error}</div>
+          <div role="alert" style={{ padding: 20, color: C.crimson, fontSize: 13.5, fontFamily: F.body }}>{error}</div>
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead>
-              <tr style={{ background: C.paper, borderBottom: `1px solid ${C.rule}` }}>
-                {['Cod', 'Sede', 'Email', 'Saludo', 'Estado', ''].map(h => (
-                  <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', fontFamily: F.body }}>{h}</th>
+          <>
+            {sinObjetivo > 0 && (
+              <div style={{ margin: '14px 8px 4px', padding: '10px 14px', borderRadius: 8, background: '#FBF0D9', color: '#6B4A00', fontSize: 13, fontFamily: F.body }}>
+                <strong>{sinObjetivo} {sinObjetivo === 1 ? 'sede activa no tiene' : 'sedes activas no tienen'} objetivo</strong> en {campanaActiva.nombre}: no aparecen en el tablero hasta que se lo cargues con “Editar”.
+              </div>
+            )}
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 720 }}>
+              <thead>
+                <tr>
+                  <th style={th}>Sede</th><th style={th}>Email para los mails</th><th style={th}>Saludo</th>
+                  <th style={{ ...th, textAlign: 'right' }}>Objetivo</th><th style={{ ...th, textAlign: 'center' }}>Activa</th><th style={th}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {sedes.map(s => (
+                  <FilaSedeEditable key={s.cod_sede + ':' + (objetivos[String(s.cod_sede)] ?? '')} s={s}
+                    objetivo={objetivos[String(s.cod_sede)]} campanaActiva={campanaActiva} onGuardado={handleGuardado} />
                 ))}
-              </tr>
-            </thead>
-            <tbody>
-              {sedes.map(s => <FilaSedeEditable key={s.cod_sede} s={s} onGuardado={handleGuardado} />)}
-            </tbody>
-          </table>
+              </tbody>
+            </table>
+          </>
         )}
       </div>
 
-      <div style={{ padding: '14px 20px', borderTop: `1px solid ${C.rule}`, flexShrink: 0 }}>
-        <div style={{ fontSize: 10.5, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8, fontFamily: F.body }}>
-          Agregar sede nueva
-        </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <input placeholder="Cod. sede" value={nueva.cod_sede} onChange={e => setNueva(n => ({ ...n, cod_sede: e.target.value }))}
-            style={{ ...inputStyle, width: 90 }} />
-          <input placeholder="Nombre" value={nueva.sede} onChange={e => setNueva(n => ({ ...n, sede: e.target.value }))}
-            style={{ ...inputStyle, flex: 1, minWidth: 140, width: 'auto' }} />
-          <input placeholder="Email (varios: separados por coma)" value={nueva.email} onChange={e => setNueva(n => ({ ...n, email: e.target.value }))}
-            style={{ ...inputStyle, flex: 1, minWidth: 140, width: 'auto' }} />
-          <input placeholder="Saludo (ej: Estimados)" value={nueva.saludo} onChange={e => setNueva(n => ({ ...n, saludo: e.target.value }))}
-            style={{ ...inputStyle, flex: 1, minWidth: 140, width: 'auto' }} />
-          <button onClick={handleAgregar} disabled={agregando} style={{
-            padding: '7px 16px', borderRadius: 8, fontSize: 12, fontWeight: 600, fontFamily: F.body,
-            background: C.ink, color: '#fff', border: 'none', cursor: 'pointer', opacity: agregando ? 0.6 : 1,
+      <div style={{ padding: '16px 20px', borderTop: `1px solid ${C.rule}`, flexShrink: 0, background: '#FAFBFD', fontFamily: F.body }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: C.ink, marginBottom: 10 }}>Sumar una sede</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(70px,90px) minmax(120px,1.4fr) minmax(140px,1.6fr) minmax(90px,1fr) minmax(70px,90px) auto', gap: 8, alignItems: 'center' }} className="grid-sumar-sede">
+          <input aria-label="Código de la sede" placeholder="Código" value={nueva.cod_sede} onChange={e => setNueva(n => ({ ...n, cod_sede: e.target.value }))} style={{ ...inputStyle, fontFamily: F.mono }} />
+          <input aria-label="Nombre de la sede" placeholder="Nombre" value={nueva.sede} onChange={e => setNueva(n => ({ ...n, sede: e.target.value }))} style={inputStyle} />
+          <input aria-label="Email" placeholder="Email (varios, separados por coma)" value={nueva.email} onChange={e => setNueva(n => ({ ...n, email: e.target.value }))} style={inputStyle} />
+          <input aria-label="Saludo del mail" placeholder="Saludo" value={nueva.saludo} onChange={e => setNueva(n => ({ ...n, saludo: e.target.value }))} style={inputStyle} />
+          <input aria-label="Objetivo" placeholder="Objetivo" type="number" min="0" value={nueva.objetivo} onChange={e => setNueva(n => ({ ...n, objetivo: e.target.value }))} disabled={!campanaActiva} style={{ ...inputStyle, textAlign: 'right', fontFamily: F.mono }} />
+          <button onClick={handleAgregar} disabled={agregando} className="btn-press" style={{
+            height: 34, padding: '0 16px', borderRadius: 7, fontSize: 13.5, fontWeight: 700, fontFamily: F.body,
+            background: C.navy, color: '#fff', border: 'none', cursor: 'pointer', opacity: agregando ? 0.6 : 1, whiteSpace: 'nowrap',
           }}>
-            {agregando ? 'Agregando…' : 'Agregar'}
+            {agregando ? 'Sumando…' : 'Sumar sede'}
           </button>
         </div>
-        {errorNueva && <div style={{ color: C.crimson, fontSize: 12, marginTop: 8 }}>{errorNueva}</div>}
-        <div style={{ fontSize: 11, color: C.inkSoft, marginTop: 8, fontFamily: F.body }}>
-          Después de agregar una sede nueva, cargale un objetivo en la hoja "objetivos" de Sheets para que aparezca con datos en el dashboard.
-        </div>
+        {errorNueva && <div role="alert" style={{ color: C.crimson, fontSize: 12.5, marginTop: 8 }}>{errorNueva}</div>}
       </div>
     </ModalShell>
   )
 }
 
-export default function Sedes({ data, historial, campanas, campanaActiva, onSedesChanged }) {
+export default function Sedes({ data, campanas, campanaActiva, onSedesChanged, onAbrirSede }) {
   const [filtro, setFiltro] = useState('')
   const [busq, setBusq] = useState('')
   const [mostrarGestion, setMostrarGestion] = useState(false)
@@ -515,7 +358,7 @@ export default function Sedes({ data, historial, campanas, campanaActiva, onSede
           height: 40, padding: '0 16px', borderRadius: 10, fontSize: 13.5, fontWeight: 700, fontFamily: F.body,
           background: '#fff', color: C.navy, border: `1px solid ${C.rule}`, cursor: 'pointer',
         }}>
-          Gestionar sedes
+          Sedes y objetivos
         </button>
       </div>
 
@@ -523,6 +366,7 @@ export default function Sedes({ data, historial, campanas, campanaActiva, onSede
         <GestionSedesModal
           onClose={() => setMostrarGestion(false)}
           onChanged={() => onSedesChanged?.()}
+          campanaActiva={campanas?.find(c => c.estado === 'activa')}
         />
       )}
 
@@ -541,7 +385,7 @@ export default function Sedes({ data, historial, campanas, campanaActiva, onSede
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>{thead}</thead>
                 <tbody>
-                  {items.map(d => <SedeRow key={d.cod_sede} d={d} historial={historial} />)}
+                  {items.map(d => <SedeRow key={d.cod_sede} d={d} onAbrir={onAbrirSede} />)}
                 </tbody>
               </table>
             </div>

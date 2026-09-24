@@ -3,14 +3,8 @@ import { obtenerObjetivos, cerrarCampana, obtenerUltimoDeshacer, deshacerUltimo,
 import { C, F, cifra } from '../lib/theme'
 import { descargarBackupExcel, descargarResultadosExcel, leerBackupExcel } from '../lib/excel'
 import ModalShell from './ModalShell'
+import { fmtFecha, hoyIso, diasEntre } from '../lib/formato'
 import { generarInformeCierre } from './InformesPDF'
-
-function fmtFecha(iso) {
-  if (!iso) return ''
-  const p = String(iso).slice(0, 10).split('-')
-  if (p.length !== 3) return iso
-  return `${p[2]}/${p[1]}/${p[0]}`
-}
 
 const labelStyle = { fontSize: 11, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8, fontFamily: F.body }
 const inputStyle = { width: '100%', padding: '7px 9px', border: `1px solid ${C.rule}`, borderRadius: 8, fontSize: 13, fontFamily: F.body, background: '#fff' }
@@ -342,7 +336,14 @@ function MenuRespaldo({ onRestaurar }) {
   const item = { display: 'block', width: '100%', textAlign: 'left', padding: '10px 12px', borderRadius: 7, border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: F.body }
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <Boton tone="ghost" onClick={() => setAbierto(a => !a)} disabled={bajando}>{bajando ? 'Generando backup…' : 'Respaldo ▾'}</Boton>
+      <Boton tone="ghost" onClick={() => setAbierto(a => !a)} disabled={bajando}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} aria-haspopup="menu" aria-expanded={abierto}>
+          {bajando ? 'Generando backup…' : 'Respaldo'}
+          <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" style={{ transform: abierto ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }}>
+            <path d="M1.5 3.5 L5 7 L8.5 3.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </span>
+      </Boton>
       {abierto && (
         <div className="animate-fadeIn" style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', width: 280, zIndex: 40, background: '#fff', border: `1px solid ${C.rule}`, borderRadius: 10, padding: 5, boxShadow: '0 16px 40px -12px rgba(14,23,51,0.35)' }}>
           {[
@@ -484,38 +485,37 @@ function RestaurarModal({ onClose, onDone }) {
   )
 }
 
-function diasEntre(desdeIso, hastaIso) {
-  return Math.round((new Date(hastaIso) - new Date(desdeIso)) / 86400000)
+export { hoyIso, diasEntre }
+
+// Dónde está la campaña en el tiempo: fecha de fin, días que faltan y si ya
+// terminó (y por lo tanto conviene cerrarla)
+export function situacionCampana(camp) {
+  const fin = camp?.fin ? String(camp.fin).slice(0, 10) : null
+  const activa = camp?.estado === 'activa'
+  const diasAlFin = activa && fin ? diasEntre(hoyIso(), fin) : null
+  return { fin, activa, cerrada: camp?.estado === 'cerrada', diasAlFin, vencida: diasAlFin !== null && diasAlFin < 0 }
 }
 
-// Barra de estado de la campaña, arriba del Dashboard: dónde está parada la
-// campaña y las acciones de mantenimiento — cerrar (el botón protagonista),
-// deshacer la última carga/cierre, backup, e informes de la campaña cerrada.
-export default function CampanaBar({ campanas, campanaActiva, data, stats, sedes, historial, onCampanasChanged, onRecargarCampana }) {
-  const [modal, setModal] = useState(null) // 'cierre' | 'deshacer' | 'restaurar'
+// Última operación que se puede deshacer (carga de corte o cierre). Se relee
+// cada vez que cambian los datos.
+export function useUltimaOp(historial, campanas) {
   const [ultimaOp, setUltimaOp] = useState(null)
-  const [informePorSede, setInformePorSede] = useState(false)
-
-  const camp = campanas?.find(c => c.id === campanaActiva)
-  const hayActiva = campanas?.some(c => c.estado === 'activa')
-  const activa = camp?.estado === 'activa'
-  const cerrada = camp?.estado === 'cerrada'
-
-  // Se relee cada vez que cambian los datos (nueva carga, cierre, deshacer)
   useEffect(() => {
     obtenerUltimoDeshacer().then(setUltimaOp).catch(() => setUltimaOp(null))
   }, [historial, campanas])
+  return ultimaOp
+}
 
-  const hoyIso = new Date().toISOString().slice(0, 10)
-  const fin = camp?.fin ? String(camp.fin).slice(0, 10) : null
-  const diasAlFin = activa && fin ? diasEntre(hoyIso, fin) : null
-  const vencida = diasAlFin !== null && diasAlFin < 0
+export { DeshacerModal }
 
-  const onDeshecho = async (res) => {
-    const id = res.campana_id || campanaActiva
-    await onCampanasChanged(id)
-    if (id === campanaActiva) onRecargarCampana(id)
-  }
+// Acciones de campaña para el encabezado: respaldo (backup / restaurar) y
+// el cierre — el botón rojo, bien visible, que late cuando la campaña ya
+// terminó y todavía no se cerró.
+export function AccionesCampana({ campanas, campanaActiva, data, stats, sedes, historial, onCampanasChanged, onRecargarCampana }) {
+  const [modal, setModal] = useState(null) // 'cierre' | 'restaurar'
+  const camp = campanas?.find(c => c.id === campanaActiva)
+  const hayActiva = campanas?.some(c => c.estado === 'activa')
+  const { activa, vencida } = situacionCampana(camp)
 
   // Después de restaurar, la campaña que se estaba viendo puede no existir
   // más: se vuelve a la activa del backup (o la última).
@@ -523,75 +523,31 @@ export default function CampanaBar({ campanas, campanaActiva, data, stats, sedes
     const lista = await onCampanasChanged()
     const destino = lista.find(c => c.id === campanaActiva) ? campanaActiva
       : (lista.find(c => c.estado === 'activa') || lista[lista.length - 1])?.id
-    if (destino === campanaActiva) onRecargarCampana(destino)
-    else await onCampanasChanged(destino)
-  }
-
-  let detalle
-  if (activa) {
-    detalle = fin
-      ? vencida ? <span style={{ color: C.crimson, fontWeight: 600 }}>Terminó el {fmtFecha(fin)} — cerrala para arrancar la siguiente</span>
-        : <>Fin {fmtFecha(fin)} · quedan {diasAlFin} días</>
-      : <>En curso{camp?.inicio ? ` desde ${fmtFecha(camp.inicio)}` : ''}</>
-  } else if (cerrada) {
-    detalle = <>Cerrada{camp?.fecha_cierre ? ` el ${fmtFecha(camp.fecha_cierre)}` : ''}{data.length ? <> · resultado final <strong style={{ color: stats.pctGlobal >= 50 ? C.ok : C.warn }}>{stats.pctGlobal}%</strong></> : null}</>
+    if (destino) onRecargarCampana(destino, lista)
   }
 
   return (
     <>
-      <div style={{
-        background: vencida ? '#FDF2F4' : C.paperRaised, border: `1px solid ${vencida ? 'rgba(200,16,46,0.35)' : C.rule}`,
-        borderRadius: 12, padding: '14px 14px 14px 18px', marginBottom: 18,
-        display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', fontFamily: F.body,
-      }}>
-        <div style={{ flex: 1, minWidth: 220 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: activa ? '#4CA678' : C.inkSoft, flexShrink: 0 }} />
-            <span style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>{activa ? 'Campaña activa' : cerrada ? 'Campaña cerrada' : 'Sin campaña activa'}</span>
-          </div>
-          {detalle && <div style={{ fontSize: 13, color: C.inkSoft, marginTop: 3, marginLeft: 16 }}>{detalle}</div>}
-        </div>
-
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          {ultimaOp && (
-            <button onClick={() => setModal('deshacer')} className="btn-press" title={`${ultimaOp.descripcion} (${ultimaOp.fecha_hora})`} style={{
-              height: 38, padding: '0 14px', borderRadius: 8, fontSize: 13, fontWeight: 600, fontFamily: F.body, cursor: 'pointer',
-              background: '#fff', color: C.ink, border: `1px solid ${C.rule}`, maxWidth: 300,
-              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-            }}>
-              {ultimaOp.accion === 'cerrar_campana' ? 'Deshacer cierre' : 'Deshacer última carga'}
-            </button>
-          )}
-          <MenuRespaldo onRestaurar={() => setModal('restaurar')} />
-          {cerrada && data.length > 0 && (
-            <>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: C.inkSoft, cursor: 'pointer' }}>
-                <input type="checkbox" checked={informePorSede} onChange={e => setInformePorSede(e.target.checked)} />
-                con hoja por sede
-              </label>
-              <Boton onClick={() => generarInformeCierre({ camp, data, historial, porSede: informePorSede })}>Imprimir informe de cierre</Boton>
-              <Boton tone="ghost" onClick={() => descargarResultadosExcel(camp.nombre, data, historial)}>Resultados Excel</Boton>
-            </>
-          )}
-          {activa && (
-            <button onClick={() => setModal('cierre')} className="btn-press" style={{
-              height: 38, padding: '0 18px', borderRadius: 8, fontSize: 13.5, fontWeight: 800, fontFamily: F.body,
-              cursor: 'pointer', background: C.crimson, color: '#fff', border: 'none',
-              boxShadow: vencida ? `0 0 0 3px rgba(200,16,46,0.2)` : 'none',
-            }}>
-              Cerrar campaña
-            </button>
-          )}
-          {!hayActiva && (
-            <button onClick={() => setModal('cierre')} className="btn-press" style={{
-              height: 38, padding: '0 18px', borderRadius: 8, fontSize: 13.5, fontWeight: 800, fontFamily: F.body,
-              cursor: 'pointer', background: C.navy, color: '#fff', border: 'none',
-            }}>
-              + Nueva campaña
-            </button>
-          )}
-        </div>
-      </div>
+      <MenuRespaldo onRestaurar={() => setModal('restaurar')} />
+      {activa && (
+        <button onClick={() => setModal('cierre')} className={`btn-press${vencida ? ' latido' : ''}`} style={{
+          height: 38, padding: '0 16px', borderRadius: 8, fontSize: 13.5, fontWeight: 800, fontFamily: F.body,
+          cursor: 'pointer', background: C.crimson, color: '#fff', border: 'none', display: 'flex', alignItems: 'center', gap: 8,
+        }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M5 21V4" /><path d="M5 4h11l-2 4 2 4H5" />
+          </svg>
+          Cerrar campaña
+        </button>
+      )}
+      {!hayActiva && (
+        <button onClick={() => setModal('cierre')} className="btn-press" style={{
+          height: 38, padding: '0 16px', borderRadius: 8, fontSize: 13.5, fontWeight: 800, fontFamily: F.body,
+          cursor: 'pointer', background: C.navy, color: '#fff', border: 'none',
+        }}>
+          Abrir campaña nueva
+        </button>
+      )}
 
       {modal === 'cierre' && (
         <CierreModal
@@ -602,9 +558,39 @@ export default function CampanaBar({ campanas, campanaActiva, data, stats, sedes
       {modal === 'restaurar' && (
         <RestaurarModal onClose={() => setModal(null)} onDone={onRestaurado} />
       )}
-      {modal === 'deshacer' && ultimaOp && (
-        <DeshacerModal op={ultimaOp} onClose={() => setModal(null)} onDone={onDeshecho} />
-      )}
     </>
+  )
+}
+
+// Campaña cerrada: el resultado final y todo lo que se puede sacar de ella
+export function PanelCerrada({ camp, data, stats, historial }) {
+  const [porSede, setPorSede] = useState(false)
+  if (!camp) return null
+  return (
+    <section className="animate-fadeUp" style={{
+      background: C.paperRaised, border: `1px solid ${C.rule}`, borderRadius: 14, padding: '20px 22px', marginBottom: 18,
+      display: 'flex', alignItems: 'center', gap: 22, flexWrap: 'wrap', fontFamily: F.body,
+    }}>
+      <div style={{ flex: 1, minWidth: 240 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: C.inkSoft }}>Campaña cerrada{camp.fecha_cierre ? ` el ${fmtFecha(camp.fecha_cierre)}` : ''}</div>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginTop: 6 }}>
+          <span style={{ ...cifra(44), color: stats.pctGlobal >= 50 ? C.ok : C.warn }}>{stats.pctGlobal}%</span>
+          <span style={{ fontSize: 14.5, color: C.ink }}>resultado final · <strong style={{ fontFamily: F.mono }}>{stats.totalIng}</strong> de <strong style={{ fontFamily: F.mono }}>{stats.totalObj}</strong> inscriptos</span>
+        </div>
+        <div style={{ fontSize: 13, color: C.inkSoft, marginTop: 6 }}>Queda en modo consulta. Para compararla con otra campaña: Historial → Comparar campañas.</div>
+      </div>
+      {data.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-end' }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <Boton tone="ghost" onClick={() => descargarResultadosExcel(camp.nombre, data, historial)}>Resultados en Excel</Boton>
+            <Boton onClick={() => generarInformeCierre({ camp, data, historial, porSede })}>Imprimir informe de cierre</Boton>
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: C.inkSoft, cursor: 'pointer' }}>
+            <input type="checkbox" checked={porSede} onChange={e => setPorSede(e.target.checked)} />
+            Sumar una hoja por sede al informe
+          </label>
+        </div>
+      )}
+    </section>
   )
 }

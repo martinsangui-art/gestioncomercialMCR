@@ -1,24 +1,14 @@
 import { useState, useRef, useEffect } from 'react'
 import { enviarEmailViaScript, obtenerLogEnvios, enviarResumenCele, onAuthExpired, obtenerConfig, guardarConfig, confirmarEnvioLote } from '../hooks/useSheets'
-import { C, F, useClosingTransition, panel, cifra, rotulo } from '../lib/theme'
+import { C, F, panel, cifra } from '../lib/theme'
+import ModalShell from '../components/ModalShell'
+import { fmtFecha, hoyIso, nombreCorto, estadoSede } from '../lib/formato'
 
 const BORRADOR_KEY = 'ucasal_borrador_semana'
 
-function getEstado(d) {
-  if (d.total === 0) return 'red'
-  if (d.pct >= 50) return 'green'
-  return 'amber'
-}
-
+const getEstado = estadoSede
 function estadoColor(est) {
-  return { green: C.ok, amber: C.warn, red: C.danger }[est]
-}
-
-function fmtFecha(iso) {
-  if (!iso) return ''
-  const p = String(iso).slice(0,10).split('-')
-  if (p.length !== 3) return iso
-  return `${p[2]}/${p[1]}/${p[0]}`
+  return { ok: C.ok, prog: C.warn, cero: C.danger }[est]
 }
 
 // Escapa texto que viene de Sheets (editable por varias personas) antes de
@@ -43,7 +33,7 @@ function renderTemplate(template, vars) {
 }
 
 function buildTablaHTML(d, campNombre) {
-  const color = { green: '#0F8A5F', amber: '#A8752A', red: '#C8102E' }[getEstado(d)]
+  const color = { ok: '#0F8A5F', prog: '#A8752A', cero: '#C8102E' }[getEstado(d)]
   const varTxt = d.var !== null
     ? (d.var > 0 ? ` (+${d.var} vs semana anterior)`
       : d.var < 0 ? ` (${d.var} vs semana anterior)`
@@ -120,19 +110,6 @@ const campoLabelStyle = { display: 'block', fontSize: 10, fontWeight: 600, color
 const campoFieldStyle = { width: '100%', padding: '10px 12px', border: `1px solid ${C.rule}`, borderRadius: 8, fontSize: 13, fontFamily: F.body, lineHeight: 1.5, resize: 'vertical' }
 const linkBtnStyle = { fontSize: 11, color: C.inkSoft, fontFamily: F.body, background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0 }
 
-function ModalHeader({ title, sub, onClose, tone = 'ink' }) {
-  const bg = tone === 'crimson' ? C.crimson : C.ink
-  return (
-    <div style={{ background: bg, padding: '16px 22px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, borderBottom: `2px solid ${C.brass}` }}>
-      <div>
-        <div style={{ fontFamily: F.display, color: '#fff', fontWeight: 600, fontSize: 16 }}>{title}</div>
-        {sub && <div style={{ color: 'rgba(255,255,255,.6)', fontSize: 12, marginTop: 2, fontFamily: F.body }}>{sub}</div>}
-      </div>
-      <button onClick={onClose} className="btn-press" style={{ background: 'rgba(255,255,255,.15)', border: 'none', color: '#fff', width: 27, height: 27, borderRadius: '50%', cursor: 'pointer', fontSize: 13 }}>✕</button>
-    </div>
-  )
-}
-
 // Editor de la plantilla del email. Por defecto, 3 campos de texto plano sin
 // ninguna etiqueta HTML a la vista — el saludo y la tabla de resultados se
 // arman solos. Si la plantilla guardada ya tenía HTML propio que no calza
@@ -145,8 +122,6 @@ function EditorPlantillaModal({ template, sedeEjemplo, campNombre, onClose, onGu
   const [texto, setTexto] = useState(template)
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState(null)
-  const [closing, requestClose] = useClosingTransition(onClose)
-
   const textoFinal = modo === 'simple' ? buildTemplateFromFields(campos) : texto
 
   const handleGuardar = async () => {
@@ -154,7 +129,7 @@ function EditorPlantillaModal({ template, sedeEjemplo, campNombre, onClose, onGu
     try {
       await guardarConfig({ EMAIL_TEMPLATE: textoFinal })
       onGuardado(textoFinal)
-      requestClose()
+      onClose()
     } catch (e) { setError(e.message) }
     setGuardando(false)
   }
@@ -174,23 +149,11 @@ function EditorPlantillaModal({ template, sedeEjemplo, campNombre, onClose, onGu
   const preview = sedeEjemplo ? buildEmailHTML(sedeEjemplo, campNombre, textoFinal) : ''
 
   return (
-    <div className={`modal-overlay ${closing ? 'modal-closing' : ''}`} style={{
-      position: 'fixed', inset: 0, background: 'rgba(14,23,51,.6)',
-      zIndex: 9600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
-    }}>
-      <div className={`modal-panel ${closing ? 'modal-closing' : ''}`} style={{
-        background: C.paperRaised, borderRadius: 8, width: '100%', maxWidth: 900,
-        overflow: 'hidden', boxShadow: '0 24px 64px rgba(0,0,0,.35)',
-        display: 'flex', flexDirection: 'column', maxHeight: '90vh',
-      }}>
-        <ModalHeader
-          title="Editar plantilla del email"
-          sub={modo === 'simple'
-            ? 'El saludo y la tabla de resultados se arman solos — acá se edita el texto del mensaje'
-            : <>Placeholders: <code>{'{{saludo}}'}</code> <code>{'{{fecha}}'}</code> <code>{'{{tabla}}'}</code></>}
-          onClose={requestClose}
-        />
-
+    <ModalShell onClose={onClose} cerrable={!guardando} maxWidth={940}
+      title="Texto del mail semanal"
+      sub={modo === 'simple'
+        ? 'El saludo y la tabla con los números de cada sede se arman solos: acá se edita el resto del mensaje'
+        : <>Marcadores: <code>{'{{saludo}}'}</code> <code>{'{{fecha}}'}</code> <code>{'{{tabla}}'}</code></>}>
         <div style={{ flex: 1, overflow: 'auto', display: 'flex', gap: 0 }}>
           <div style={{ flex: 1, padding: '16px 20px', borderRight: `1px solid ${C.rule}`, display: 'flex', flexDirection: 'column', gap: 16 }}>
             {modo === 'simple' ? (
@@ -242,54 +205,53 @@ function EditorPlantillaModal({ template, sedeEjemplo, campNombre, onClose, onGu
         </div>
 
         <div style={{ padding: '14px 20px', borderTop: `1px solid ${C.rule}`, display: 'flex', gap: 8, justifyContent: 'flex-end', flexShrink: 0 }}>
-          {error && <div style={{ color: C.crimson, fontSize: 12, marginRight: 'auto', alignSelf: 'center', maxWidth: 340 }}>{error}</div>}
-          <button onClick={requestClose} disabled={guardando} className="btn-press" style={{ padding: '9px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, background: C.paper, color: C.inkSoft, border: `1px solid ${C.rule}`, cursor: 'pointer', fontFamily: F.body }}>
-            Cancelar
-          </button>
-          <button onClick={handleGuardar} disabled={guardando} className="btn-press" style={{
-            padding: '9px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600, fontFamily: F.body,
-            background: C.ink, color: '#fff', border: 'none', cursor: 'pointer', opacity: guardando ? 0.6 : 1,
-          }}>
-            {guardando ? 'Guardando…' : 'Guardar plantilla'}
+          {error && <div role="alert" style={{ color: C.crimson, fontSize: 13, marginRight: 'auto', alignSelf: 'center', maxWidth: 380 }}>{error}</div>}
+          <button onClick={onClose} disabled={guardando} className="btn-press" style={btnSec}>Cancelar</button>
+          <button onClick={handleGuardar} disabled={guardando} className="btn-press" style={{ ...btnPri, opacity: guardando ? 0.6 : 1 }}>
+            {guardando ? 'Guardando…' : 'Guardar el texto'}
           </button>
         </div>
-      </div>
-    </div>
+    </ModalShell>
   )
 }
 
+// Ayuda breve: se abre al pasar el mouse, con el teclado o tocándola
 function TooltipHelp({ text }) {
   const [show, setShow] = useState(false)
+  const id = useRef('ayuda-' + Math.random().toString(36).slice(2)).current
   return (
-    <div style={{ position: 'relative', display: 'inline-block' }}
+    <span style={{ position: 'relative', display: 'inline-flex' }}
       onMouseEnter={() => setShow(true)} onMouseLeave={() => setShow(false)}>
-      <span style={{
-        fontSize: 11, color: C.inkSoft, cursor: 'help', border: `1px solid ${C.rule}`,
-        borderRadius: '50%', width: 18, height: 18,
-        display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600,
-      }}>?</span>
+      <button type="button" aria-describedby={show ? id : undefined} aria-label="Ayuda"
+        onFocus={() => setShow(true)} onBlur={() => setShow(false)} onClick={() => setShow(v => !v)}
+        style={{
+          fontSize: 11.5, color: C.inkSoft, cursor: 'help', border: `1px solid ${C.rule}`, background: '#fff',
+          borderRadius: '50%', width: 20, height: 20, padding: 0, fontWeight: 700, fontFamily: F.body,
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        }}>?</button>
       {show && (
-        <div style={{
-          position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)',
-          marginBottom: 6, background: C.ink, color: '#fff', fontSize: 11, fontFamily: F.body,
-          padding: '6px 12px', borderRadius: 8, zIndex: 99, width: 260,
-          textAlign: 'center', lineHeight: 1.5, pointerEvents: 'none',
-        }}>{text}</div>
+        <span role="tooltip" id={id} style={{
+          position: 'absolute', bottom: 'calc(100% + 8px)', left: '50%', transform: 'translateX(-50%)',
+          background: C.ink, color: '#fff', fontSize: 12.5, fontFamily: F.body, fontWeight: 400,
+          padding: '8px 12px', borderRadius: 8, zIndex: 99, width: 270, textAlign: 'left', lineHeight: 1.5,
+          boxShadow: '0 10px 28px -10px rgba(0,0,0,.5)',
+        }}>{text}</span>
       )}
-    </div>
+    </span>
   )
 }
+
+const btnPri = { height: 40, padding: '0 18px', borderRadius: 8, fontSize: 14, fontWeight: 800, fontFamily: F.body, background: C.navy, color: '#fff', border: 'none', cursor: 'pointer' }
+const btnSec = { height: 40, padding: '0 16px', borderRadius: 8, fontSize: 14, fontWeight: 600, fontFamily: F.body, background: '#fff', color: C.ink, border: `1px solid ${C.rule}`, cursor: 'pointer' }
 
 // Modal preview de email por sede
 function PreviewModal({ sede, campNombre, template, onClose, onSend }) {
   const [enviando, setEnviando] = useState(false)
   const [errorEnvio, setErrorEnvio] = useState(null)
-  const [closing, requestClose] = useClosingTransition(onClose)
   const htmlBase = buildEmailHTML(sede, campNombre, template)
 
-  // El envío ahora puede fallar de verdad (antes se resolvía siempre): si
-  // falla, el modal queda abierto con el error en vez de cerrarse como si
-  // hubiera salido todo bien.
+  // El envío puede fallar de verdad: si falla, el modal queda abierto con el
+  // error en vez de cerrarse como si hubiera salido todo bien.
   const handleSend = async () => {
     setEnviando(true)
     setErrorEnvio(null)
@@ -301,95 +263,46 @@ function PreviewModal({ sede, campNombre, template, onClose, onSend }) {
       return
     }
     setEnviando(false)
-    requestClose()
+    onClose()
   }
 
   return (
-    <div className={`modal-overlay ${closing ? 'modal-closing' : ''}`} style={{
-      position: 'fixed', inset: 0, background: 'rgba(14,23,51,.6)',
-      zIndex: 9500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
-    }}>
-      <div className={`modal-panel ${closing ? 'modal-closing' : ''}`} style={{
-        background: C.paperRaised, borderRadius: 8, width: '100%', maxWidth: 620,
-        overflow: 'hidden', boxShadow: '0 24px 64px rgba(0,0,0,.35)',
-        display: 'flex', flexDirection: 'column', maxHeight: '90vh',
-      }}>
-        <ModalHeader title="Vista previa del email" sub={`${sede.sede} · ${sede.email}`} onClose={requestClose} />
-
-        {/* KPIs rápidos */}
-        <div style={{ display: 'flex', borderBottom: `1px solid ${C.rule}`, flexShrink: 0 }}>
-          {[['Objetivo', sede.objetivo], ['Total', sede.total], ['Cumplimiento', sede.pct + '%'], ['Variación', sede.var !== null ? (sede.var > 0 ? '+' + sede.var : sede.var) : '—']].map(([l, v]) => (
-            <div key={l} style={{ flex: 1, padding: '10px 16px', textAlign: 'center', borderRight: `1px solid ${C.ruleSoft}` }}>
-              <div style={{ fontSize: 18, fontWeight: 700, color: C.ink, fontFamily: F.mono }}>{v}</div>
-              <div style={{ fontSize: 10, color: C.inkSoft, marginTop: 1, fontFamily: F.body, textTransform: 'uppercase' }}>{l}</div>
-            </div>
-          ))}
-        </div>
-
-        {/* Preview o editor */}
-        <div style={{ flex: 1, overflow: 'auto', padding: '16px 20px' }}>
-          <div style={{ fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10, fontFamily: F.body }}>
-            Vista previa · tabla HTML lista para Gmail
-          </div>
-          <div style={{
-            border: `1px solid ${C.rule}`, borderRadius: 8, padding: '16px',
-            fontSize: 13, lineHeight: 1.7, color: '#222', background: C.paper,
-          }} dangerouslySetInnerHTML={{ __html: htmlBase }} />
-        </div>
-
-        {/* Footer */}
-        <div style={{
-          padding: '12px 20px', borderTop: `1px solid ${C.rule}`,
-          display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center', flexShrink: 0,
-        }}>
-          {errorEnvio && (
-            <div style={{ marginRight: 'auto', fontSize: 12, color: C.danger, fontFamily: F.body }}>
-              No salió: {errorEnvio}
-            </div>
-          )}
-          <button onClick={requestClose} className="btn-press" style={{ padding: '9px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, background: C.paper, color: C.inkSoft, border: `1px solid ${C.rule}`, cursor: 'pointer', fontFamily: F.body }}>
-            Cancelar
-          </button>
-          <button onClick={handleSend} disabled={enviando} className="btn-press" style={{
-            padding: '9px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600, fontFamily: F.body,
-            background: C.crimson, color: '#fff', border: 'none',
-            cursor: enviando ? 'not-allowed' : 'pointer', opacity: enviando ? 0.7 : 1,
-          }}>
-            {enviando ? 'Enviando…' : 'Enviar este email'}
-          </button>
-        </div>
+    <ModalShell onClose={onClose} cerrable={!enviando} maxWidth={640} title={`Mail para ${sede.sede}`} sub={`Para: ${sede.email || 'sin email cargado'}`}>
+      <div style={{ flex: 1, overflow: 'auto', padding: '18px 20px', fontFamily: F.body }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: C.inkSoft, marginBottom: 8 }}>Así le llega</div>
+        <div style={{ border: `1px solid ${C.rule}`, borderRadius: 10, padding: 18, fontSize: 13.5, lineHeight: 1.7, color: '#222', background: '#fff', boxShadow: '0 1px 0 rgba(14,23,51,.04)' }}
+          dangerouslySetInnerHTML={{ __html: htmlBase }} />
       </div>
-    </div>
+      <div style={{ padding: '14px 20px', borderTop: `1px solid ${C.rule}`, display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center', flexShrink: 0, flexWrap: 'wrap' }}>
+        {errorEnvio && <div role="alert" style={{ marginRight: 'auto', fontSize: 13, color: C.danger }}>No salió: {errorEnvio}</div>}
+        <button onClick={onClose} disabled={enviando} className="btn-press" style={btnSec}>Cerrar</button>
+        <button onClick={handleSend} disabled={enviando || !sede.email} className="btn-press" style={{ ...btnPri, opacity: (enviando || !sede.email) ? 0.6 : 1 }}>
+          {enviando ? 'Enviando…' : 'Enviar solo este mail'}
+        </button>
+      </div>
+    </ModalShell>
   )
 }
 
-function ConfirmModal({ tono = 'crimson', title, sub, items, footNote, onClose, onConfirm, confirmLabel }) {
-  const [closing, requestClose] = useClosingTransition(onClose)
+function ConfirmModal({ title, sub, items, footNote, onClose, onConfirm, confirmLabel }) {
   return (
-    <div className={`modal-overlay ${closing ? 'modal-closing' : ''}`} style={{ position: 'fixed', inset: 0, background: 'rgba(14,23,51,.6)', zIndex: 9500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-      <div className={`modal-panel ${closing ? 'modal-closing' : ''}`} style={{ background: C.paperRaised, borderRadius: 8, width: '100%', maxWidth: 480, overflow: 'hidden', boxShadow: '0 24px 64px rgba(0,0,0,.35)' }}>
-        <ModalHeader title={title} sub={sub} onClose={requestClose} tone={tono} />
-        <div style={{ padding: 20 }}>
-          <div style={{ maxHeight: 200, overflowY: 'auto', marginBottom: 12, border: `1px solid ${C.rule}` }}>
-            {items.map(d => (
-              <div key={d.cod_sede} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 14px', borderBottom: `1px solid ${C.ruleSoft}`, fontSize: 13, fontFamily: F.body }}>
-                <span style={{ fontWeight: 500, color: C.ink }}>{d.sede}</span>
-                <span style={{ color: C.inkSoft, fontSize: 12, fontFamily: F.mono }}>{d.email}</span>
-              </div>
-            ))}
-          </div>
-          <div style={{ fontSize: 12, color: C.inkSoft, marginBottom: 16, fontFamily: F.body }}>
-            {footNote}
-          </div>
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <button onClick={requestClose} className="btn-press" style={{ padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600, background: C.paper, color: C.inkSoft, border: `1px solid ${C.rule}`, cursor: 'pointer', fontFamily: F.body }}>Cancelar</button>
-            <button onClick={onConfirm} className="btn-press" style={{ padding: '9px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600, fontFamily: F.body, background: tono === 'crimson' ? C.crimson : C.ink, color: '#fff', border: 'none', cursor: 'pointer' }}>
-              {confirmLabel}
-            </button>
-          </div>
+    <ModalShell onClose={onClose} maxWidth={520} title={title} sub={sub}>
+      <div style={{ padding: 20, fontFamily: F.body, overflow: 'auto' }}>
+        <div style={{ maxHeight: 240, overflowY: 'auto', marginBottom: 12, border: `1px solid ${C.rule}`, borderRadius: 10 }}>
+          {items.map((d, i) => (
+            <div key={d.cod_sede} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '8px 14px', borderTop: i ? `1px solid ${C.ruleSoft}` : 'none', fontSize: 13.5 }}>
+              <span style={{ fontWeight: 600, color: C.ink }}>{d.sede}</span>
+              <span style={{ color: d.email ? C.inkSoft : C.crimson, fontSize: 12.5, textAlign: 'right' }}>{d.email || 'sin email: no se envía'}</span>
+            </div>
+          ))}
+        </div>
+        <div style={{ fontSize: 13, color: C.inkSoft, marginBottom: 16, lineHeight: 1.5 }}>{footNote}</div>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} className="btn-press" style={btnSec}>Cancelar</button>
+          <button onClick={onConfirm} className="btn-press" style={btnPri}>{confirmLabel}</button>
         </div>
       </div>
-    </div>
+    </ModalShell>
   )
 }
 
@@ -403,7 +316,8 @@ export default function Envio({ data, copied, onCopied, onUncopied, campanas, ca
   const [reenviando, setReenviando] = useState({})
   const [previewSede, setPreviewSede] = useState(null)
   const [mostrarNueva, setMostrarNueva] = useState(false)
-  const [nuevaFecha, setNuevaFecha] = useState(new Date().toISOString().slice(0,10))
+  // Fecha local (toISOString da la fecha UTC: a la noche en Argentina ya es "mañana")
+  const [nuevaFecha, setNuevaFecha] = useState(hoyIso)
   const [valores, setValores] = useState({})
   const [guardando, setGuardando] = useState(false)
   const [errorGuardar, setErrorGuardar] = useState(null)
@@ -523,6 +437,12 @@ export default function Envio({ data, copied, onCopied, onUncopied, campanas, ca
         continue
       }
       yaMandadas.add(cod)
+      if (!String(d.email || '').trim()) {
+        addLog(`✗ ${d.sede} no tiene email cargado: se saltea (cargalo en Sedes → Sedes y objetivos)`, 'error')
+        resumenItems.push({ sede: d.sede, email: '', estado: 'error' })
+        setProgreso(Math.round((i + 1) / lista.length * 100))
+        continue
+      }
       try {
         const htmlRich = buildEmailHTML(d, campNom, template)
         await enviarEmailViaScript({
@@ -694,32 +614,32 @@ export default function Envio({ data, copied, onCopied, onUncopied, campanas, ca
         <div style={{ background: C.paperRaised, border: `1px solid ${C.rule}`, borderRadius: 12, overflow: 'hidden' }}>
           <div style={{ background: C.ink, padding: '16px 22px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
             <div>
-              <div style={{ fontFamily: F.display, color: '#fff', fontWeight: 800, fontStretch: '108%', fontSize: 18 }}>Mails del corte</div>
-              <div style={{ color: 'rgba(255,255,255,.65)', fontSize: 12, marginTop: 2, fontFamily: F.body }}>
-                Desde mcrossi@ucasal.edu.ar vía Make · {aEnviar.length} {seleccionadas.length > 0 ? 'seleccionadas' : 'pendientes'}
+              <div style={{ fontFamily: F.display, color: '#fff', fontWeight: 800, fontStretch: '108%', fontSize: 19 }}>Mails del corte {data[0]?.fecha ? fmtFecha(data[0].fecha).slice(0, 5) : ''}</div>
+              <div style={{ color: 'rgba(255,255,255,.68)', fontSize: 13, marginTop: 3, fontFamily: F.body }}>
+                Salen desde mcrossi@ucasal.edu.ar · {seleccionadas.length > 0 ? `${aEnviar.length} seleccionadas` : `${pendientes.length} sin enviar`}
               </div>
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               {!enviando && (
                 <button onClick={() => setMostrarEditorPlantilla(true)} className="btn-press" style={{
-                  height: 38, padding: '0 14px', borderRadius: 8, fontSize: 13.5, fontWeight: 600, fontFamily: F.body,
-                  background: 'rgba(255,255,255,.15)', color: '#fff', border: '1px solid rgba(255,255,255,.3)', cursor: 'pointer',
+                  height: 40, padding: '0 14px', borderRadius: 8, fontSize: 13.5, fontWeight: 600, fontFamily: F.body,
+                  background: 'rgba(255,255,255,.1)', color: '#fff', border: '1px solid rgba(255,255,255,.28)', cursor: 'pointer',
                 }}>
-                  Plantilla
+                  Editar el texto del mail
                 </button>
               )}
               {pendientes.length > 0 && !enviando && (
-                <button onClick={() => setModalConfirm(true)} className="btn-press" style={{ height: 38, padding: '0 18px', borderRadius: 8, fontSize: 13.5, fontWeight: 800, fontFamily: F.body, background: C.celeste, color: C.ink, border: 'none', cursor: 'pointer' }}>
-                  Enviar {aEnviar.length} emails
+                <button onClick={() => setModalConfirm(true)} className="btn-press" style={{ height: 44, padding: '0 20px', borderRadius: 10, fontSize: 15, fontWeight: 800, fontFamily: F.body, background: C.celeste, color: C.ink, border: 'none', cursor: 'pointer' }}>
+                  {aEnviar.length === 1 ? 'Enviar 1 mail' : `Enviar ${aEnviar.length} mails`}
                 </button>
               )}
-              {enviando && <div style={{ color: '#fff', fontSize: 13, fontFamily: F.mono }}>Enviando… {progreso}%</div>}
+              {enviando && <div role="status" style={{ color: '#fff', fontSize: 14, fontWeight: 700 }}>Enviando… <span style={{ fontFamily: F.mono }}>{progreso}%</span></div>}
             </div>
           </div>
 
           {progreso > 0 && (
             <div style={{ height: 3, background: C.ruleSoft }}>
-              <div style={{ width: `${progreso}%`, height: '100%', background: C.brass, transition: 'width 0.3s' }} />
+              <div style={{ width: `${progreso}%`, height: '100%', background: C.celeste, transition: 'width 0.3s' }} />
             </div>
           )}
 
@@ -741,7 +661,7 @@ export default function Envio({ data, copied, onCopied, onUncopied, campanas, ca
                 <div style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>
                   Pendientes <span style={{ fontFamily: F.mono, fontWeight: 500, color: C.inkSoft, fontSize: 12.5 }}>{pendientes.length}</span>
                 </div>
-                <TooltipHelp text="Seleccioná las sedes que querés enviar ahora. Sin selección se envían todas. Usá “Ver” para previsualizar el email — podés editarlo si necesitás." />
+                <TooltipHelp text="Si no tildás ninguna, se envían todas las pendientes. Tildá algunas para mandar solo esas. “Ver” muestra cómo le llega el mail a esa sede." />
                 <div style={{ flex: 1 }} />
                 <button onClick={selAll} style={{ fontSize: 13, color: C.navy, background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, fontFamily: F.body }}>Seleccionar todas</button>
                 <button onClick={deselAll} style={{ fontSize: 13, color: C.inkSoft, background: 'none', border: 'none', cursor: 'pointer', fontFamily: F.body }}>Limpiar selección</button>
@@ -769,8 +689,8 @@ export default function Envio({ data, copied, onCopied, onUncopied, campanas, ca
                       }}>
                         {sel && <span style={{ color: '#fff', fontSize: 10, lineHeight: 1 }}>✓</span>}
                       </div>
-                      <span style={{ fontWeight: 600, fontSize: 13, flex: 1, color: C.ink, fontFamily: F.body }}>{d.sede}</span>
-                      <span style={{ fontSize: 12.5, color: C.inkSoft }}>{d.email}</span>
+                      <span style={{ fontWeight: 700, fontSize: 13.5, flex: 1, color: C.ink, fontFamily: F.body, minWidth: 0 }}>{d.sede}</span>
+                      <span className="hide-mobile" style={{ fontSize: 12.5, color: d.email ? C.inkSoft : C.crimson, fontWeight: d.email ? 400 : 700 }}>{d.email || 'Falta el email'}</span>
                       <span style={{ fontSize: 12.5, fontWeight: 700, color: C.ink, minWidth: 44, textAlign: 'right', fontFamily: F.mono, display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
                         <span style={{ width: 7, height: 7, borderRadius: '50%', background: color }} />{pct}%
                       </span>
@@ -799,32 +719,29 @@ export default function Envio({ data, copied, onCopied, onUncopied, campanas, ca
                 <div style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>
                   Enviadas <span style={{ fontFamily: F.mono, fontWeight: 500, color: C.inkSoft, fontSize: 12.5 }}>{enviadas.length}</span>
                 </div>
-                <TooltipHelp text="Por si el envío falló en el medio (ej: el escenario de Make estaba caído) y hay que mandarlos de nuevo." />
+                <TooltipHelp text="Para cuando un envío falló en el medio (por ejemplo, si el servicio de mails estaba caído) y hay que mandarlos de nuevo. El ↻ de cada sede reenvía solo ese." />
                 <div style={{ flex: 1 }} />
                 {!enviando && (
-                  <button onClick={() => setModalConfirmReenvio(true)} style={{
-                    fontSize: 11, fontWeight: 600, color: C.ink, background: 'transparent', fontFamily: F.body,
-                    border: `1px solid ${C.rule}`, borderRadius: 8, padding: '4px 12px', cursor: 'pointer',
-                  }}>
-                    Reenviar todas ({enviadas.length})
+                  <button onClick={() => setModalConfirmReenvio(true)} style={{ ...btnSec, height: 34, fontSize: 13 }}>
+                    Reenviar todos ({enviadas.length})
                   </button>
                 )}
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {enviadas.map(d => (
                   <span key={d.cod_sede} style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontFamily: F.body,
-                    background: 'rgba(15,138,95,0.08)', color: C.ok, border: `1px solid ${C.ok}45`,
-                    padding: '3px 6px 3px 10px', fontWeight: 600,
+                    display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontFamily: F.body,
+                    background: '#E3F4EC', color: '#0B6B49', borderRadius: 20,
+                    padding: '4px 5px 4px 11px', fontWeight: 600,
                   }}>
                     ✓ {d.sede}
                     <button
                       onClick={() => reenviarUno(d)}
                       disabled={!!reenviando[d.cod_sede]}
-                      title="Reenviar este email"
+                      title="Reenviar este mail" aria-label={`Reenviar el mail a ${d.sede}`}
                       style={{
-                        border: 'none', background: 'rgba(15,138,95,0.15)', color: C.ok,
-                        borderRadius: '50%', width: 16, height: 16, fontSize: 9, lineHeight: 1,
+                        border: 'none', background: 'rgba(15,138,95,0.16)', color: '#0B6B49',
+                        borderRadius: '50%', width: 20, height: 20, fontSize: 11, lineHeight: 1,
                         cursor: reenviando[d.cod_sede] ? 'wait' : 'pointer', display: 'flex',
                         alignItems: 'center', justifyContent: 'center', flexShrink: 0, padding: 0,
                       }}
@@ -839,98 +756,64 @@ export default function Envio({ data, copied, onCopied, onUncopied, campanas, ca
         </div>
       )}
 
-      {/* Registrar nueva semana */}
+      {/* Cargar un corte a mano (alternativa al Excel) */}
       {!cerrada && (
-        <div style={{ background: C.paperRaised, border: `1px solid ${C.rule}`, borderRadius: 10, overflow: 'hidden' }}>
-          <div style={{ display: 'flex', alignItems: 'center', padding: '14px 24px', borderBottom: mostrarNueva ? `1px solid ${C.rule}` : 'none' }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontFamily: F.display, fontSize: 15, fontWeight: 600, color: C.ink }}>Registrar nueva semana</div>
-              <div style={{ fontSize: 12, color: C.inkSoft, marginTop: 2 }}>Ingresá los totales manualmente y guardá en Sheets</div>
+        <div style={{ ...panel(), overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 22px', borderBottom: mostrarNueva ? `1px solid ${C.rule}` : 'none', flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <div style={{ fontFamily: F.display, fontSize: 16, fontWeight: 800, fontStretch: '105%', color: C.ink }}>Cargar un corte a mano</div>
+              <div style={{ fontSize: 13, color: C.inkSoft, marginTop: 2 }}>Si no tenés el Excel: escribís el total de cada sede y se guarda como un corte más.</div>
             </div>
-            <TooltipHelp text="Alternativa a subir el Excel: ingresás los totales manualmente por sede y se guarda en el historial de Google Sheets." />
-            <div style={{ width: 12 }} />
-            <button onClick={() => { setMostrarNueva(v => !v); setErrorGuardar(null); setModoReemplazarSemana(false) }} style={{
-              padding: '7px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, fontFamily: F.body,
-              background: mostrarNueva ? C.paper : C.ink,
-              color: mostrarNueva ? C.inkSoft : '#fff', border: mostrarNueva ? `1px solid ${C.rule}` : 'none', cursor: 'pointer',
-            }}>
-              {mostrarNueva ? 'Cerrar' : 'Abrir'}
+            <button onClick={() => { setMostrarNueva(v => !v); setErrorGuardar(null); setModoReemplazarSemana(false) }} className="btn-press"
+              style={mostrarNueva ? btnSec : { ...btnSec, color: C.navy, fontWeight: 700 }}>
+              {mostrarNueva ? 'Cerrar' : 'Cargar a mano'}
             </button>
           </div>
 
           {mostrarNueva && (
-            <div className="animate-fadeIn" style={{ padding: '16px 24px' }}>
+            <div className="animate-fadeIn" style={{ padding: '18px 22px' }}>
               <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
-                <label style={{ fontSize: 13, fontWeight: 600, color: C.inkSoft }}>Fecha del corte:</label>
-                <input type="date" value={nuevaFecha} onChange={e => setNuevaFecha(e.target.value)}
-                  style={{ padding: '7px 12px', border: `1px solid ${C.rule}`, borderRadius: 8, fontSize: 13, fontFamily: F.body }} />
-                <button onClick={() => { const p = {}; data.forEach(d => { p[d.cod_sede] = d.total }); setValores(p) }}
-                  style={{ padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: C.paper, border: `1px solid ${C.rule}`, color: C.inkSoft, cursor: 'pointer', fontFamily: F.body }}>
-                  Copiar valores actuales
+                <label htmlFor="fecha-manual" style={{ fontSize: 13.5, fontWeight: 700, color: C.ink }}>Fecha del corte</label>
+                <input id="fecha-manual" type="date" value={nuevaFecha} onChange={e => setNuevaFecha(e.target.value)}
+                  style={{ height: 38, padding: '0 10px', border: `1px solid ${C.rule}`, borderRadius: 8, fontSize: 14, fontFamily: F.body }} />
+                <button onClick={() => { const p = {}; data.forEach(d => { p[d.cod_sede] = d.total }); setValores(p) }} style={{ ...btnSec, height: 38, fontSize: 13 }}>
+                  Partir de los números del último corte
                 </button>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(220px,1fr))', gap: 8, marginBottom: 16, maxHeight: 360, overflowY: 'auto' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(230px,1fr))', gap: 8, marginBottom: 16, maxHeight: 380, overflowY: 'auto' }}>
                 {data.map(d => (
-                  <div key={d.cod_sede} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: C.paper, border: `1px solid ${C.ruleSoft}` }}>
-                    <span style={{ fontSize: 12, fontWeight: 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: C.ink }}>
-                      {d.sede.replace(/ - BUENOS AIRES.*/, '').replace(/ - BS AS$/, '')}
+                  <label key={d.cod_sede} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: '#FAFBFD', border: `1px solid ${C.ruleSoft}`, borderRadius: 8 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: C.ink }}>
+                      {nombreCorto(d.sede)}
                     </span>
-                    <input type="number" min="0"
+                    <input type="number" min="0" inputMode="numeric" aria-label={`Total de ${d.sede}`}
                       value={valores[d.cod_sede] ?? d.total}
                       onChange={e => setValores(prev => ({ ...prev, [d.cod_sede]: e.target.value }))}
-                      style={{ width: 60, padding: '4px 6px', border: `1px solid ${C.rule}`, borderRadius: 8, fontSize: 13, fontWeight: 700, textAlign: 'center', fontFamily: F.mono }} />
-                  </div>
+                      style={{ width: 70, height: 32, padding: '0 8px', border: `1px solid ${C.rule}`, borderRadius: 6, fontSize: 14, fontWeight: 700, textAlign: 'right', fontFamily: F.mono }} />
+                  </label>
                 ))}
               </div>
-              {/* Aviso de reemplazo — ya existe un corte para esta fecha */}
-              {modoReemplazarSemana && (
-                <div style={{
-                  background: 'rgba(168,117,42,0.08)', border: `1px solid ${C.warn}55`, borderRadius: 8,
-                  padding: '12px 16px', marginBottom: 16, fontSize: 13,
-                }}>
-                  <div style={{ fontWeight: 600, color: C.warn, marginBottom: 6 }}>
-                    Ya existe un corte para esta fecha
-                  </div>
-                  <div style={{ color: C.ink, marginBottom: 12 }}>
-                    ¿Querés reemplazar los datos existentes con los nuevos valores? Esta acción no se puede deshacer.
-                  </div>
-                  <div style={{ display: 'flex', gap: 10 }}>
-                    <button
-                      onClick={() => handleGuardar(true)}
-                      disabled={guardando}
-                      style={{
-                        padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, fontFamily: F.body,
-                        background: C.warn, color: '#fff', border: 'none', cursor: 'pointer',
-                        opacity: guardando ? 0.6 : 1,
-                      }}
-                    >
-                      {guardando ? 'Reemplazando…' : 'Sí, reemplazar'}
+              {modoReemplazarSemana ? (
+                <div style={{ borderLeft: `4px solid ${C.warn}`, background: '#FBF3E2', borderRadius: '0 10px 10px 0', padding: '12px 16px', fontSize: 13.5, color: '#6B4A00' }}>
+                  <div style={{ fontWeight: 800, marginBottom: 4 }}>Ya hay un corte del {fmtFecha(nuevaFecha).slice(0, 5)} cargado</div>
+                  <div style={{ marginBottom: 12 }}>Si seguís, estos números lo reemplazan. Si te equivocás, se vuelve atrás con “Deshacer la última carga” en Cómo vamos.</div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={() => handleGuardar(true)} disabled={guardando} className="btn-press" style={{ ...btnPri, background: C.warn, opacity: guardando ? 0.6 : 1 }}>
+                      {guardando ? 'Reemplazando…' : 'Reemplazar el corte'}
                     </button>
-                    <button
-                      onClick={() => setModoReemplazarSemana(false)}
-                      disabled={guardando}
-                      style={{
-                        padding: '8px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600, fontFamily: F.body,
-                        background: C.paper, color: C.inkSoft, border: `1px solid ${C.rule}`, cursor: 'pointer',
-                      }}
-                    >
-                      Cancelar
-                    </button>
+                    <button onClick={() => setModoReemplazarSemana(false)} disabled={guardando} style={btnSec}>Cancelar</button>
                   </div>
                 </div>
-              )}
-
-              {!modoReemplazarSemana && (
-                <div style={{ display: 'flex', gap: 10 }}>
-                  <button onClick={() => handleGuardar(false)} disabled={guardando} style={{ padding: '9px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600, fontFamily: F.body, background: C.ink, color: '#fff', border: 'none', cursor: 'pointer', opacity: guardando ? 0.6 : 1 }}>
-                    {guardando ? 'Guardando…' : 'Guardar en Sheets'}
+              ) : (
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => handleGuardar(false)} disabled={guardando || !nuevaFecha} className="btn-press" style={{ ...btnPri, opacity: guardando ? 0.6 : 1 }}>
+                    {guardando ? 'Guardando…' : `Guardar el corte del ${fmtFecha(nuevaFecha).slice(0, 5)}`}
                   </button>
-                  <button onClick={() => { setMostrarNueva(false); setErrorGuardar(null) }} style={{ padding: '9px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, fontFamily: F.body, background: C.paper, color: C.inkSoft, border: `1px solid ${C.rule}`, cursor: 'pointer' }}>Cancelar</button>
+                  <button onClick={() => { setMostrarNueva(false); setErrorGuardar(null) }} style={btnSec}>Cancelar</button>
                 </div>
               )}
-
               {errorGuardar && (
-                <div style={{ marginTop: 12, background: 'rgba(200,16,46,0.06)', border: `1px solid ${C.crimson}45`, borderRadius: 8, padding: '10px 14px', fontSize: 12, color: C.crimson }}>
+                <div role="alert" style={{ marginTop: 12, borderLeft: `4px solid ${C.crimson}`, background: '#FDF1F3', borderRadius: '0 8px 8px 0', padding: '10px 14px', fontSize: 13, color: '#8E0C22' }}>
                   {errorGuardar}
                 </div>
               )}
@@ -939,75 +822,56 @@ export default function Envio({ data, copied, onCopied, onUncopied, campanas, ca
         </div>
       )}
 
-      {/* Historial de envíos (persistente en Sheets) */}
-      <div style={{ background: C.paperRaised, border: `1px solid ${C.rule}`, borderRadius: 10, overflow: 'hidden' }}>
-        <div style={{ display: 'flex', alignItems: 'center', padding: '14px 24px', borderBottom: mostrarLog ? `1px solid ${C.rule}` : 'none' }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontFamily: F.display, fontSize: 15, fontWeight: 600, color: C.ink }}>Historial de envíos</div>
-            <div style={{ fontSize: 12, color: C.inkSoft, marginTop: 2 }}>Registro de cuándo se enviaron los emails — se conserva entre sesiones</div>
+      {/* Registro de envíos (queda guardado en la planilla) */}
+      <div style={{ ...panel(), overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 22px', borderBottom: mostrarLog ? `1px solid ${C.rule}` : 'none', flexWrap: 'wrap' }}>
+          <div style={{ flex: 1, minWidth: 220 }}>
+            <div style={{ fontFamily: F.display, fontSize: 16, fontWeight: 800, fontStretch: '105%', color: C.ink }}>Registro de envíos</div>
+            <div style={{ fontSize: 13, color: C.inkSoft, marginTop: 2 }}>Cada tanda de mails: cuándo salió, a quién y si se confirmó que llegó.</div>
           </div>
-          <button onClick={toggleLog} style={{
-            padding: '7px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, fontFamily: F.body,
-            background: mostrarLog ? C.paper : C.ink,
-            color: mostrarLog ? C.inkSoft : '#fff', border: mostrarLog ? `1px solid ${C.rule}` : 'none', cursor: 'pointer',
-          }}>
-            {mostrarLog ? 'Cerrar' : 'Ver historial'}
+          <button onClick={toggleLog} className="btn-press" style={mostrarLog ? btnSec : { ...btnSec, color: C.navy, fontWeight: 700 }}>
+            {mostrarLog ? 'Cerrar' : 'Ver el registro'}
           </button>
         </div>
 
         {mostrarLog && (
-          <div className="animate-fadeIn" style={{ padding: '16px 24px' }}>
+          <div className="animate-fadeIn" style={{ padding: '16px 22px' }}>
             {cargandoLog ? (
-              <div style={{ textAlign: 'center', padding: '24px', color: C.inkSoft, fontSize: 13 }}>Cargando…</div>
+              <div style={{ padding: '20px 0', color: C.inkSoft, fontSize: 13.5 }}>Cargando el registro…</div>
             ) : logAgrupado.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '24px', color: C.inkSoft, fontSize: 13 }}>Todavía no hay envíos registrados</div>
+              <div style={{ padding: '20px 0', color: C.inkSoft, fontSize: 13.5 }}>Todavía no hay envíos registrados.</div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 420, overflowY: 'auto' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 460, overflowY: 'auto' }}>
                 {logAgrupado.map((g, i) => {
                   const ok = g.items.filter(it => it.estado === 'enviado').length
                   const err = g.items.filter(it => it.estado !== 'enviado').length
+                  const key = `${g.fecha} ${g.hora}`
                   return (
-                    <div key={i} style={{ border: `1px solid ${C.rule}`, overflow: 'hidden', flexShrink: 0 }}>
-                      <div style={{
-                        display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
-                        background: C.paper,
-                      }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: C.ink, fontFamily: F.mono }}>
-                          {fmtFecha(g.fecha)} · {g.hora?.slice(0,5)}hs
-                        </span>
-                        {g.campana && (
-                          <span style={{ fontSize: 11, color: C.ink, border: `1px solid ${C.rule}`, padding: '2px 8px', fontWeight: 600, fontFamily: F.mono }}>
-                            {g.campana}
-                          </span>
-                        )}
-                        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <span style={{ fontSize: 12, color: C.ok, fontWeight: 600, fontFamily: F.mono }}>✓ {ok} enviados</span>
-                          {err > 0 && <span style={{ fontSize: 12, color: C.crimson, fontWeight: 600, fontFamily: F.mono }}>✗ {err} con error</span>}
+                    <div key={i} style={{ border: `1px solid ${C.rule}`, borderRadius: 10, overflow: 'hidden', flexShrink: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: '#FAFBFD', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 14, fontWeight: 800, color: C.ink }}>{fmtFecha(g.fecha)}</span>
+                        <span style={{ fontFamily: F.mono, fontSize: 12.5, color: C.inkSoft }}>{g.hora?.slice(0, 5)} hs</span>
+                        {g.campana && <span style={{ fontSize: 12, color: C.inkSoft }}>· {g.campana}</span>}
+                        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 13, color: C.ok, fontWeight: 700 }}>{ok} enviados</span>
+                          {err > 0 && <span style={{ fontSize: 13, color: C.crimson, fontWeight: 700 }}>{err} con error</span>}
                           {g.confirmado ? (
-                            <span style={{ fontSize: 11, fontWeight: 600, color: C.ink, border: `1px solid ${C.brass}`, padding: '3px 10px', fontFamily: F.body }}>
-                              ✓ Entrega confirmada
-                            </span>
+                            <span style={{ fontSize: 12.5, fontWeight: 700, color: C.navy, background: C.celesteSoft, padding: '4px 10px', borderRadius: 20 }}>✓ Llegada confirmada</span>
                           ) : (
-                            <button
-                              onClick={() => handleConfirmarLote(g)}
-                              disabled={confirmando[`${g.fecha} ${g.hora}`]}
-                              title="Marcá esto solo si viste de verdad que los mails llegaron (ej: en Gmail o porque una sede te avisó)"
-                              style={{
-                                fontSize: 11, fontWeight: 600, color: C.warn, background: 'rgba(168,117,42,0.08)', fontFamily: F.body,
-                                border: `1px solid ${C.warn}55`, padding: '3px 10px', cursor: 'pointer',
-                              }}
-                            >
-                              {confirmando[`${g.fecha} ${g.hora}`] ? '…' : 'Confirmar entrega'}
+                            <button onClick={() => handleConfirmarLote(g)} disabled={confirmando[key]}
+                              title="Marcalo solo si viste que los mails llegaron (en Gmail o porque una sede avisó)"
+                              style={{ fontSize: 12.5, fontWeight: 700, color: '#6B4A00', background: '#FBF3E2', fontFamily: F.body, border: 'none', borderRadius: 20, padding: '5px 12px', cursor: 'pointer' }}>
+                              {confirmando[key] ? 'Guardando…' : 'Confirmar que llegaron'}
                             </button>
                           )}
                         </div>
                       </div>
-                      <div style={{ padding: '8px 14px', display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                      <div style={{ padding: '10px 14px', display: 'flex', flexWrap: 'wrap', gap: 5 }}>
                         {g.items.map((it, j) => (
                           <span key={j} style={{
-                            fontSize: 11, padding: '2px 9px', fontWeight: 600, fontFamily: F.mono,
-                            background: it.estado === 'enviado' ? 'rgba(15,138,95,0.08)' : 'rgba(200,16,46,0.08)',
-                            color: it.estado === 'enviado' ? C.ok : C.crimson,
+                            fontSize: 12, padding: '3px 9px', fontWeight: 600, borderRadius: 20,
+                            background: it.estado === 'enviado' ? '#E3F4EC' : '#FBE7EA',
+                            color: it.estado === 'enviado' ? '#0B6B49' : '#8E0C22',
                           }}>
                             {it.estado === 'enviado' ? '✓' : '✗'} {it.sede}
                           </span>
@@ -1025,28 +889,26 @@ export default function Envio({ data, copied, onCopied, onUncopied, campanas, ca
       {/* Modal confirmación masiva */}
       {modalConfirm && (
         <ConfirmModal
-          tono="crimson"
-          title="Confirmar envío"
-          sub={`${aEnviar.length} emails desde mcrossi@ucasal.edu.ar`}
+          title={aEnviar.length === 1 ? '¿Enviar 1 mail?' : `¿Enviar ${aEnviar.length} mails?`}
+          sub="Salen desde mcrossi@ucasal.edu.ar, uno por sede"
           items={aEnviar}
-          footNote='Para revisar o editar un email individual, cerrá y usá el botón "Ver" en cada sede.'
+          footNote={'Cada sede recibe su propio mail con sus números. Para ver cómo le llega a una en particular, cancelá y tocá “Ver” en esa sede.'}
           onClose={() => setModalConfirm(false)}
           onConfirm={() => { setModalConfirm(false); enviarTodos() }}
-          confirmLabel="Confirmar y enviar"
+          confirmLabel={aEnviar.length === 1 ? 'Enviar el mail' : `Enviar los ${aEnviar.length} mails`}
         />
       )}
 
       {/* Modal confirmación de reenvío masivo */}
       {modalConfirmReenvio && (
         <ConfirmModal
-          tono="ink"
-          title="Confirmar reenvío"
-          sub={`${enviadas.length} emails ya marcados como enviados`}
+          title={`¿Reenviar ${enviadas.length} mails?`}
+          sub="A sedes que ya figuran como enviadas"
           items={enviadas}
-          footNote="Usalo solo si sabés que el envío anterior no llegó de verdad (ej: el escenario de Make estaba caído). Las sedes que ya recibieron el mail van a recibirlo de nuevo."
+          footNote="Usalo solo si el envío anterior no llegó de verdad (por ejemplo, si el servicio de mails estaba caído): las sedes que sí lo recibieron lo van a recibir de nuevo."
           onClose={() => setModalConfirmReenvio(false)}
           onConfirm={() => { setModalConfirmReenvio(false); reenviarTodos() }}
-          confirmLabel="Confirmar y reenviar"
+          confirmLabel={`Reenviar los ${enviadas.length} mails`}
         />
       )}
     </div>

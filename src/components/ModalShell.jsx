@@ -1,6 +1,9 @@
 import { useEffect, useRef } from 'react'
 import { C, F, useClosingTransition } from '../lib/theme'
 
+// Modales abiertos, en orden (el último es el de arriba)
+const pilaModales = []
+
 // Modal con encabezado navy + filete dorado, usado por los paneles de gestión.
 export default function ModalShell({ children, onClose, title, sub, maxWidth = 480, cerrable = true }) {
   const [closing, requestCloseAnimado] = useClosingTransition(onClose)
@@ -8,12 +11,23 @@ export default function ModalShell({ children, onClose, title, sub, maxWidth = 4
   const requestClose = () => { if (cerrable) requestCloseAnimado() }
   // Escape cierra (cada modal decide si en ese momento se puede cerrar: los
   // que están guardando pasan un onClose que no hace nada)
+  // Solo el modal de más arriba responde; y si otra capa (ej. el buscador)
+  // ya usó el Escape, no se cierra también este.
   const cerrarRef = useRef(requestClose)
   cerrarRef.current = requestClose
   useEffect(() => {
-    const esc = (e) => { if (e.key === 'Escape') cerrarRef.current() }
+    const yo = {}
+    pilaModales.push(yo)
+    const esc = (e) => {
+      if (e.key !== 'Escape' || e.defaultPrevented || pilaModales[pilaModales.length - 1] !== yo) return
+      cerrarRef.current()
+    }
     document.addEventListener('keydown', esc)
-    return () => document.removeEventListener('keydown', esc)
+    return () => {
+      document.removeEventListener('keydown', esc)
+      const i = pilaModales.indexOf(yo)
+      if (i >= 0) pilaModales.splice(i, 1)
+    }
   }, []) // eslint-disable-line
   return (
     <div role="dialog" aria-modal="true" aria-label={title} onClick={e => e.stopPropagation()} className={`modal-overlay ${closing ? 'modal-closing' : ''}`} style={{ position: 'fixed', inset: 0, background: 'rgba(14,23,51,.55)', zIndex: 9500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>

@@ -441,9 +441,9 @@ export default function InformesPDF({ data, historial, campanas, campanaActiva, 
     <>
       {toast && (
         <div style={{
-          position: 'fixed', bottom: 24, right: 24, background: C.ink, color: '#fff',
-          padding: '10px 18px', borderRadius: 10, fontSize: 13, fontWeight: 600,
-          zIndex: 9999, maxWidth: 320, lineHeight: 1.4,
+          position: 'fixed', bottom: 20, right: 20, background: C.ink, color: '#fff', fontFamily: F.body,
+          padding: '14px 18px', borderRadius: 12, fontSize: 14, fontWeight: 600, borderLeft: `5px solid ${C.celeste}`,
+          zIndex: 9999, maxWidth: 360, lineHeight: 1.45, boxShadow: '0 18px 40px -12px rgba(14,23,51,.55)',
         }}>{toast}</div>
       )}
 
@@ -459,30 +459,28 @@ export default function InformesPDF({ data, historial, campanas, campanaActiva, 
       </button>
 
       {open && (
-        <ModalShell onClose={() => setOpen(false)} title="Generar informe" sub="Se abre en una pestaña nueva, lista para imprimir o guardar como PDF" maxWidth={500}>
+        <ModalShell onClose={() => setOpen(false)} title="Informes" sub="Se abren en una pestaña nueva, listos para imprimir o guardar como PDF" maxWidth={500}>
           <div style={{ overflow: 'auto' }}>
             <div style={{ padding: 20 }}>
               {/* Tipo de informe */}
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
-                Tipo de informe
-              </div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: C.inkSoft, marginBottom: 10, fontFamily: F.body }}>¿Qué informe necesitás?</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 18 }}>
                 {[
-                  ['cierre', camp?.estado === 'cerrada' ? 'Informe de cierre' : 'Informe de campaña (parcial)', 'Resultado final, evolución, ranking y destacados'],
-                  ['general', 'Resumen general', 'Todas las sedes, ordenadas por estado'],
-                  ['sede', 'Informe por sede', 'Detalle individual con evolución histórica'],
-                  ['comparacion', 'Comparación de sedes', `${sedesSeleccionadas.length} sedes seleccionadas`],
+                  ['cierre', camp?.estado === 'cerrada' ? 'Cierre de la campaña' : 'La campaña hasta hoy', 'Resultado, evolución, ranking completo y destacados'],
+                  ['general', 'Estado del corte', 'Todas las sedes con su número de este corte, agrupadas por estado'],
+                  ['sede', 'Una sede', 'La ficha de una sede con su evolución, para mandársela'],
+                  ['comparacion', 'Comparación de sedes', sedesSeleccionadas.length ? `${sedesSeleccionadas.length} sedes elegidas en Historial` : 'Primero elegí las sedes en Historial → Comparar sedes'],
                 ].map(([val, label, desc]) => (
                   <label key={val} style={{
-                    display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 12px',
-                    border: `1.5px solid ${tipo === val ? C.navy : C.rule}`,
-                    borderRadius: 10, cursor: 'pointer',
+                    display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 14px',
+                    border: `2px solid ${tipo === val ? C.navy : C.rule}`,
+                    borderRadius: 10, cursor: 'pointer', fontFamily: F.body,
                     background: tipo === val ? C.celesteSoft : '#fff',
                   }}>
-                    <input type="radio" checked={tipo === val} onChange={() => setTipo(val)} style={{ marginTop: 3 }} />
+                    <input type="radio" name="tipo-informe" checked={tipo === val} onChange={() => setTipo(val)} style={{ marginTop: 3, accentColor: C.navy }} />
                     <div>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>{label}</div>
-                      <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 1 }}>{desc}</div>
+                      <div style={{ fontSize: 14.5, fontWeight: 700, color: C.ink }}>{label}</div>
+                      <div style={{ fontSize: 12.5, color: C.inkSoft, marginTop: 2 }}>{desc}</div>
                     </div>
                   </label>
                 ))}
@@ -491,39 +489,40 @@ export default function InformesPDF({ data, historial, campanas, campanaActiva, 
               {/* Selector de sede si aplica */}
               {tipo === 'sede' && (
                 <div style={{ marginBottom: 16 }}>
-                  <select value={sedeElegida} onChange={e => setSedeElegida(e.target.value)} style={{
-                    width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13,
+                  <select value={sedeElegida} onChange={e => setSedeElegida(e.target.value)} aria-label="Sede" style={{
+                    width: '100%', height: 42, padding: '0 12px', border: `1px solid ${C.rule}`, borderRadius: 8, fontSize: 14, fontFamily: F.body, background: '#fff',
                   }}>
-                    <option value="">Seleccioná una sede…</option>
+                    <option value="">Elegí la sede…</option>
                     {data.map(d => (
                       <option key={d.cod_sede} value={d.cod_sede}>{d.sede}</option>
                     ))}
                   </select>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, fontSize: 12, color: '#64748b' }}>
-                    <input type="checkbox" checked={conHist} onChange={e => setConHist(e.target.checked)} />
-                    Incluir gráfico y detalle histórico
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, fontSize: 13, color: C.inkSoft, fontFamily: F.body }}>
+                    <input type="checkbox" checked={conHist} onChange={e => setConHist(e.target.checked)} style={{ accentColor: C.navy }} />
+                    Con el gráfico y el detalle de cada corte
                   </label>
                 </div>
               )}
 
               {tipo === 'cierre' && (
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, fontSize: 12, color: '#64748b' }}>
-                  <input type="checkbox" checked={cierrePorSede} onChange={e => setCierrePorSede(e.target.checked)} />
-                  Agregar una hoja por sede (ficha individual de cada una)
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, fontSize: 13, color: C.inkSoft, fontFamily: F.body }}>
+                  <input type="checkbox" checked={cierrePorSede} onChange={e => setCierrePorSede(e.target.checked)} style={{ accentColor: C.navy }} />
+                  Sumar una hoja por sede (la ficha de cada una)
                 </label>
               )}
 
               {tipo === 'comparacion' && sedesSeleccionadas.length === 0 && (
-                <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 16, background: '#f8fafc', padding: '10px 12px', borderRadius: 8 }}>
-                  Para comparar sedes, primero seleccionalas en la pestaña Historial → Comparar sedes.
+                <div style={{ fontSize: 13, color: '#6B4A00', marginBottom: 16, background: '#FBF3E2', padding: '10px 12px', borderRadius: 8, fontFamily: F.body }}>
+                  Para este informe, primero elegí las sedes en Historial → Comparar sedes.
                 </div>
               )}
 
-              <button onClick={handleGenerar} style={{
-                width: '100%', padding: '11px', borderRadius: 8, fontSize: 14, fontWeight: 700,
+              <button onClick={handleGenerar} className="btn-press" disabled={tipo === 'comparacion' && !sedesSeleccionadas.length} style={{
+                width: '100%', height: 46, borderRadius: 10, fontSize: 15, fontWeight: 800,
                 background: C.navy, color: '#fff', border: 'none', cursor: 'pointer', fontFamily: F.body,
+                opacity: tipo === 'comparacion' && !sedesSeleccionadas.length ? 0.45 : 1,
               }}>
-                Generar informe
+                Abrir el informe para imprimir
               </button>
             </div>
           </div>

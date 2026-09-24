@@ -76,7 +76,7 @@ function SelectorCampana({ campanas, campanaActiva, onCampana }) {
   )
 }
 
-export default function TopBar({ view, onView, campanaActiva, campanas, onCampana, onLogout }) {
+export default function TopBar({ view, onView, campanaActiva, campanas, onCampana, onLogout, onBuscar, recargando }) {
   const isMobile = useIsMobile()
   const nav = (
     <nav aria-label="Secciones" className="topbar-nav" style={{ display: 'flex', alignItems: 'stretch', height: isMobile ? 44 : '100%', gap: 2, flex: 1, minWidth: 0, overflowX: 'auto' }}>
@@ -122,6 +122,16 @@ export default function TopBar({ view, onView, campanaActiva, campanas, onCampan
         {isMobile ? <div style={{ flex: 1 }} /> : nav}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          {onBuscar && (
+            <button onClick={onBuscar} className="btn-press" aria-label="Buscar una sede (Ctrl+K)" title="Buscar una sede (Ctrl+K)" style={{
+              height: 36, padding: isMobile ? 0 : '0 10px 0 12px', width: isMobile ? 36 : 'auto', borderRadius: 8, cursor: 'pointer',
+              background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.14)', color: 'rgba(255,255,255,0.8)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, fontFamily: F.body, fontSize: 13.5,
+            }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M20 20l-4-4" /></svg>
+              {!isMobile && <>Buscar sede<kbd style={{ fontFamily: F.mono, fontSize: 10.5, color: 'rgba(255,255,255,0.55)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 4, padding: '1px 5px' }}>{/Mac|iPhone|iPad/.test(navigator.platform) ? '⌘K' : 'Ctrl K'}</kbd></>}
+            </button>
+          )}
           {campanas?.length > 0 && <SelectorCampana campanas={campanas} campanaActiva={campanaActiva} onCampana={onCampana} />}
           <button onClick={onLogout} title="Cerrar sesión" aria-label="Cerrar sesión" className="btn-press" style={{
             width: 36, height: 36, borderRadius: 8, border: '1px solid rgba(255,255,255,0.14)', background: 'transparent',
@@ -134,6 +144,8 @@ export default function TopBar({ view, onView, campanaActiva, campanas, onCampan
         </div>
       </div>
       {isMobile && <div style={{ padding: '0 4px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>{nav}</div>}
+      {/* Recargando datos: una franja celeste que recorre el borde inferior */}
+      {recargando && <div className="barra-recarga" role="progressbar" aria-label="Actualizando datos" />}
     </header>
   )
 }

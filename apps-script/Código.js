@@ -171,6 +171,8 @@ function okData(data) { return { ok: true, data: data }; }
 //     { campana_id?, nueva?: { nombre, fin, objetivos: [{cod_sede, objetivo}] } }
 //   deshacer         → revierte la última operación registrada en 'deshacer'
 //     { id }  (el id que devolvió ultimo_deshacer, para no deshacer otra cosa)
+//   set_objetivo     → crea o actualiza el objetivo de una sede en una campaña
+//     { campana_id, cod_sede, objetivo }
 //   restaurar_backup → reemplaza campanas/objetivos/historial por los de un backup
 //     { hojas: { campanas: [[header...], [fila...]], objetivos: [...], historial: [...] } }
 // ════════════════════════════════════════════════════════════════════════
@@ -198,6 +200,7 @@ function doPost(e) {
     if (action === 'cerrar_campana') return ok(cerrarCampana(body));
     if (action === 'deshacer') return ok(deshacerUltimo(body));
     if (action === 'restaurar_backup') return ok(restaurarBackup(body));
+    if (action === 'set_objetivo') return ok(setObjetivo(body));
 
     return err('action no reconocida: ' + action);
   } catch(ex) {
@@ -564,7 +567,8 @@ function agregarNotaSede(body) {
   if (!body.cod_sede || !body.nota) throw new Error('Falta cod_sede o nota');
   var h = getNotasSheet();
   var fecha = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
-  h.appendRow([fecha, body.cod_sede, body.nota]);
+  // Como texto: si no, Sheets lo convierte en fecha y se pierde la hora
+  h.appendRow(["'" + fecha, body.cod_sede, body.nota]);
   SpreadsheetApp.flush();
   return { ok: true };
 }
@@ -733,7 +737,55 @@ function agregarSede(body) {
   });
   h.appendRow(fila);
   SpreadsheetApp.flush();
+  // Si viene el objetivo de la campaña activa se carga en el mismo paso: una
+  // sede sin objetivo no aparece en el tablero ni en los cortes.
+  if (body.campana_id && Number(body.objetivo) > 0) {
+    setObjetivo({ campana_id: body.campana_id, cod_sede: body.cod_sede, objetivo: body.objetivo });
+  }
   return { ok: true };
+}
+
+// Crea o actualiza el objetivo de una sede en una campaña (sin tocar la
+// planilla a mano). Los cortes ya cargados conservan el objetivo con el que
+// se guardaron; el tablero usa siempre el objetivo vigente.
+function setObjetivo(body) {
+  var campanaId = String(body.campana_id || '');
+  var cod = String(body.cod_sede || '');
+  var objetivo = Number(body.objetivo);
+  if (!campanaId || !cod) throw new Error('Falta campaña o sede');
+  if (!(objetivo >= 0)) throw new Error('El objetivo tiene que ser un número');
+  var campana = getCampanas().filter(function(c) { return c.id === campanaId; })[0];
+  if (!campana) throw new Error('No se encontró la campaña ' + campanaId);
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var h = SS.getSheetByName('objetivos');
+    var headers = h.getRange(1, 1, 1, h.getLastColumn()).getValues()[0];
+    var iCamp = headers.indexOf('campana_id'), iCod = headers.indexOf('cod_sede'), iObj = headers.indexOf('objetivo');
+    var rows = h.getDataRange().getValues();
+    for (var i = 1; i < rows.length; i++) {
+      if (String(rows[i][iCamp]) === campanaId && String(rows[i][iCod]) === cod) {
+        h.getRange(i + 1, iObj + 1).setValue(objetivo);
+        SpreadsheetApp.flush();
+        return { actualizado: true };
+      }
+    }
+    var nombreSede = '';
+    getSedesTodas().forEach(function(s) { if (String(s.cod_sede) === cod) nombreSede = s.sede; });
+    h.appendRow(headers.map(function(col) {
+      if (col === 'campana_id') return campanaId;
+      if (col === 'cod_sede') return cod;
+      if (col === 'objetivo') return objetivo;
+      if (col === 'sede') return nombreSede;
+      if (col === 'campana' || col === 'campaña' || col === 'campana_nombre') return campana.nombre;
+      return '';
+    }));
+    SpreadsheetApp.flush();
+    return { creado: true };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function editarSede(body) {

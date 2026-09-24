@@ -1,4 +1,6 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useMemo } from 'react'
+import { C, F } from '../lib/theme'
+import { fmtCorto, hoyIso as hoyLocal, nombreCorto } from '../lib/formato'
 
 // Parser de Excel usando SheetJS (cargado via CDN en index.html)
 // Formato esperado: Cod Sede | Sede | Objetivo | % Objetivo | [fecha del corte = columna de totales]
@@ -194,65 +196,74 @@ function fechaEnPalabras(fechaISO) {
 
 function IconoPlanilla() {
   return (
-    <span style={{ width: 38, height: 38, borderRadius: 9, background: '#E4EFFC', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#1B2A6B" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <span style={{ width: 40, height: 40, borderRadius: 10, background: C.celesteSoft, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={C.navy} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <rect x="4" y="3" width="16" height="18" rx="2" /><path d="M4 9h16M4 15h16M10 3v18" />
       </svg>
     </span>
   )
 }
 
-function fmtCorto(iso) {
-  if (!iso) return ''
-  const p = String(iso).slice(0, 10).split('-')
-  return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : iso
+// Aviso de la vista previa. `tono` define el color: bloquea (rojo), revisar
+// (ámbar) o info (celeste). Siempre dice qué pasa si se sigue.
+function AvisoCarga({ tono, titulo, children, chips }) {
+  const t = {
+    bloquea: { borde: C.crimson, fondo: '#FDF1F3', texto: '#8E0C22' },
+    revisar: { borde: C.warn, fondo: '#FBF3E2', texto: '#6B4A00' },
+    info:    { borde: C.celeste, fondo: C.celesteSoft, texto: C.navy },
+  }[tono]
+  return (
+    <div role={tono === 'bloquea' ? 'alert' : undefined} style={{ borderLeft: `4px solid ${t.borde}`, background: t.fondo, borderRadius: '0 10px 10px 0', padding: '12px 16px', fontSize: 13.5, color: t.texto, lineHeight: 1.5 }}>
+      <div style={{ fontWeight: 800, marginBottom: children ? 4 : 0 }}>{titulo}</div>
+      {children}
+      {chips?.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+          {chips.map((c, i) => (
+            <span key={i} style={{ fontSize: 12, background: '#fff', border: `1px solid ${t.borde}55`, color: t.texto, padding: '3px 9px', borderRadius: 20, fontWeight: 600 }}>{c}</span>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
-export default function ExcelUploader({ data, onUpload, campanas, campanaActiva, sedesConocidas = [], abierto, onAbierto }) {
+const btnPrimario = { height: 44, padding: '0 20px', borderRadius: 10, border: 'none', cursor: 'pointer', background: C.navy, color: '#fff', fontSize: 14.5, fontWeight: 800, fontFamily: F.body }
+const btnSecundario = { height: 44, padding: '0 16px', borderRadius: 10, border: `1px solid ${C.rule}`, cursor: 'pointer', background: '#fff', color: C.ink, fontSize: 14, fontWeight: 600, fontFamily: F.body }
+
+export default function ExcelUploader({ data, historial = [], onUpload, onGuardado, campanas, campanaActiva, sedesConocidas = [], abierto, onAbierto }) {
   const [dragging, setDragging] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   // null = automático: plegado si la campaña ya tiene cortes. Si el padre
-  // pasa `abierto`/`onAbierto`, el botón para abrirlo vive afuera (en el
-  // encabezado) y plegado no se muestra nada.
+  // pasa `abierto`/`onAbierto`, el botón para abrirlo vive afuera y plegado
+  // no se muestra nada.
   const controlado = abierto !== undefined
   const [minLocal, setMinLocal] = useState(null)
   const minimized = controlado ? (abierto === null ? null : !abierto) : minLocal
   const setMinimized = (v) => controlado ? onAbierto(!v) : setMinLocal(v)
   const [preview, setPreview] = useState(null) // { sedes, meta, fileName }
   const [confirmando, setConfirmando] = useState(false)
-  const [modoReemplazar, setModoReemplazar] = useState(false) // cuando ya existe la fecha
-  const [fechaConfirmada, setFechaConfirmada] = useState(null) // fecha elegida cuando era ambigua
+  const [modoReemplazar, setModoReemplazar] = useState(false) // el servidor avisó que ya existe
+  const [fechaElegida, setFechaElegida] = useState(null) // cuando era ambigua o no venía en el Excel
   const inputRef = useRef(null)
-
-  const elegirFecha = (fechaElegida) => {
-    setFechaConfirmada(fechaElegida)
-    setPreview(prev => prev && {
-      ...prev,
-      meta: { ...prev.meta, fechaCorte: fechaElegida, fechaAmbigua: false },
-    })
-    // Guarda directo al elegir — antes había que elegir la fecha Y ADEMÁS
-    // apretar "Confirmar y guardar" más abajo, lo cual generaba la falsa
-    // sensación de que ya había quedado guardado y perdía la carga.
-    confirmarCarga(false, fechaElegida)
-  }
 
   const camp = campanas?.find(c => c.id === campanaActiva)
   const tieneData = data.length > 0
-  const fechaActual = data[0]?.fecha || null
+  const fechaActual = data[0]?.fecha ? String(data[0].fecha).slice(0, 10) : null
+  const fechasCargadas = useMemo(() => new Set(historial.map(r => String(r.fecha).slice(0, 10))), [historial])
 
   const isMinimized = minimized || (tieneData && minimized !== false)
 
   const handleFile = async (file) => {
     if (!file) return
     if (!file.name.match(/\.(xlsx|xls)$/i)) {
-      setError('El archivo debe ser .xlsx o .xls')
+      setError('Ese archivo no es un Excel. Tiene que terminar en .xlsx o .xls.')
       return
     }
     setLoading(true)
     setError(null)
     setModoReemplazar(false)
-    setFechaConfirmada(null)
+    setFechaElegida(null)
     try {
       const buffer = await file.arrayBuffer()
       const { sedes, meta } = parseExcelData(buffer)
@@ -260,30 +271,62 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
       // descartarían en silencio al guardar si no se avisa acá primero.
       const sinMatch = sedes.filter(s => !sedesConocidas.some(sc => String(sc.cod_sede) === String(s.cod)))
       setPreview({ sedes, meta: { ...meta, sinMatch }, fileName: file.name })
+      if (!meta.fechaCorte) setFechaElegida(hoyLocal())
     } catch (e) {
       setError(e.message)
     }
     setLoading(false)
   }
 
-  const confirmarCarga = async (reemplazar = false, fechaOverride = null) => {
-    if (!preview) return
+  // Todo lo que Cele necesita chequear antes de guardar, comparado contra el
+  // último corte cargado
+  const chequeo = useMemo(() => {
+    if (!preview) return null
+    const anterior = {}
+    data.forEach(d => { anterior[String(d.cod_sede)] = d.total })
+    const conocidas = new Set(sedesConocidas.map(s => String(s.cod_sede)))
+    const filas = preview.sedes.map(s => {
+      const cod = String(s.cod)
+      const prev = anterior[cod]
+      const conocida = conocidas.has(cod)
+      return { ...s, cod, prev, conocida, dif: prev !== undefined ? s.total - prev : null }
+    })
+    const enArchivo = new Set(filas.map(f => f.cod))
+    // Sedes del tablero que no vienen en el Excel: en este corte no tendrían dato
+    const referencia = tieneData ? data.map(d => ({ cod: String(d.cod_sede), sede: d.sede })) : sedesConocidas.map(s => ({ cod: String(s.cod_sede), sede: s.sede }))
+    const faltantes = referencia.filter(r => !enArchivo.has(r.cod))
+    const bajaron = filas.filter(f => f.conocida && f.dif !== null && f.dif < 0)
+    const validas = filas.filter(f => f.conocida)
+    const totalNuevo = validas.reduce((a, f) => a + f.total, 0)
+    const totalPrevMismas = validas.reduce((a, f) => a + (f.prev ?? 0), 0)
+    const orden = (f) => (!f.conocida ? 0 : f.dif !== null && f.dif < 0 ? 1 : 2)
+    filas.sort((a, b) => orden(a) - orden(b) || nombreCorto(a.sede).localeCompare(nombreCorto(b.sede)))
+    return { filas, faltantes, bajaron, validas, totalNuevo, difTotal: tieneData ? totalNuevo - totalPrevMismas : null }
+  }, [preview, data, sedesConocidas, tieneData])
+
+  const fechaFinalEstado = preview ? (fechaElegida || (!preview.meta.fechaAmbigua ? preview.meta.fechaCorte : null)) : null
+  const fechaFinal = fechaFinalEstado
+  const yaExiste = !!fechaFinal && fechasCargadas.has(fechaFinal)
+  const reemplaza = yaExiste || modoReemplazar
+
+  const confirmarCarga = async (fechaOverride) => {
+    const fechaFinal = fechaOverride || fechaFinalEstado
+    if (!preview || !fechaFinal) return
     setConfirmando(true)
     setError(null)
     try {
-      const fecha = fechaOverride ?? preview.meta.fechaCorte
-      await onUpload(preview.sedes, preview.fileName, reemplazar, fecha)
+      const reemplazar = reemplaza || fechasCargadas.has(fechaFinal)
+      await onUpload(preview.sedes, preview.fileName, reemplazar, fechaFinal)
+      onGuardado?.(`Corte del ${fmtCorto(fechaFinal)} ${reemplazar ? 'reemplazado' : 'guardado'}: ${chequeo.validas.length} sedes, ${chequeo.totalNuevo} inscriptos.`)
       setPreview(null)
       setModoReemplazar(false)
       setMinimized(true)
     } catch (e) {
-      // Si el error es "ya existe", ofrecer reemplazar
       if (e.message && e.message.includes('Ya existe')) {
         setModoReemplazar(true)
         setError(null)
       } else {
         setError(e.message)
-        setPreview(null)
       }
     }
     setConfirmando(false)
@@ -292,298 +335,206 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
   const onDrop = (e) => {
     e.preventDefault()
     setDragging(false)
-    const file = e.dataTransfer.files[0]
-    handleFile(file)
+    handleFile(e.dataTransfer.files[0])
   }
 
-  // Modal de previsualización
-  if (preview) {
-    const top5 = preview.sedes.slice(0, 5)
+  const cancelarPreview = () => { setPreview(null); setModoReemplazar(false); setError(null); if (inputRef.current) inputRef.current.value = '' }
+
+  const marco = { background: '#fff', border: `1px solid ${C.rule}`, borderRadius: 14, overflow: 'hidden', marginBottom: 18, fontFamily: F.body }
+
+  // ── Vista previa: todo lo que hay que mirar antes de guardar ─────────────
+  if (preview && chequeo) {
+    const m = preview.meta
+    const ambiguaSinElegir = m.fechaCorte && m.fechaAmbigua && !fechaElegida
+    const puedeGuardar = !!fechaFinal && chequeo.validas.length > 0 && !confirmando
+    const anteriorAlUltimo = fechaFinal && fechaActual && fechaFinal < fechaActual
 
     return (
-      <div style={{
-        background: '#fff', border: '1px solid #DCE1EA', borderTop: '3px solid #0E1733',
-        borderRadius: 14, overflow: 'hidden', marginBottom: 4,
-      }}>
-        <div style={{ padding: '14px 20px', borderBottom: '1px solid #E9EDF3' }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: '#0E1733' }}>Revisá antes de guardar</div>
-          <div style={{ fontSize: 12, color: '#5A6480', marginTop: 1 }}>Archivo: {preview.fileName}</div>
+      <section aria-label="Revisar el Excel antes de guardarlo" className="animate-fadeUp" style={marco}>
+        <div style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 12, borderBottom: `1px solid ${C.ruleSoft}` }}>
+          <IconoPlanilla />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 16, fontWeight: 800, color: C.ink, fontStretch: '105%' }}>Revisá el corte antes de guardarlo</div>
+            <div style={{ fontSize: 12.5, color: C.inkSoft, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{preview.fileName}</div>
+          </div>
+          <button onClick={cancelarPreview} disabled={confirmando} style={{ ...btnSecundario, height: 38 }}>Cancelar</button>
         </div>
 
-        <div style={{ padding: '16px 20px' }}>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-            <div style={{ background: '#EDF0F5', border: '1px solid #7FB2F0', borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 700, color: '#0E1733' }}>
-              {preview.meta.totalFilas} sedes detectadas
+        <div style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {/* Los tres datos que definen el corte */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10 }}>
+            <div style={{ borderLeft: `4px solid ${fechaFinal ? C.navy : C.crimson}`, padding: '2px 0 2px 12px' }}>
+              <div style={{ fontSize: 12, color: C.inkSoft, fontWeight: 600 }}>Fecha del corte</div>
+              {fechaFinal
+                ? <div style={{ fontSize: 19, fontWeight: 800, color: C.ink, marginTop: 3 }}>{fechaEnPalabras(fechaFinal)}</div>
+                : <div style={{ fontSize: 15, fontWeight: 800, color: C.crimson, marginTop: 3 }}>Elegila abajo</div>}
             </div>
-            <div style={{
-              background: preview.meta.detectadoPorFecha ? '#ecfdf5' : '#fffbeb',
-              border: `1px solid ${preview.meta.detectadoPorFecha ? '#6ee7b7' : '#fde68a'}`,
-              borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 600,
-              color: preview.meta.detectadoPorFecha ? '#0F8A5F' : '#92400e',
-            }}>
-              Columna de totales: "{preview.meta.columnaTotal}"
-              {!preview.meta.detectadoPorFecha && ' verificá que sea correcta'}
-            </div>
-            {preview.meta.fechaCorte && !preview.meta.fechaAmbigua && (
-              <div style={{ background: '#f0f9ff', border: '1px solid #7dd3fc', borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 600, color: '#0369a1' }}>
-                Corte: {preview.meta.fechaCorte}
+            <div style={{ borderLeft: `4px solid ${chequeo.faltantes.length ? C.warn : C.ok}`, padding: '2px 0 2px 12px' }}>
+              <div style={{ fontSize: 12, color: C.inkSoft, fontWeight: 600 }}>Sedes</div>
+              <div style={{ fontSize: 19, fontWeight: 800, color: C.ink, marginTop: 3 }}>
+                {chequeo.validas.length}{tieneData ? <span style={{ color: C.inkSoft, fontWeight: 600 }}> de {data.length}</span> : ''}
               </div>
-            )}
+            </div>
+            <div style={{ borderLeft: `4px solid ${C.navy}`, padding: '2px 0 2px 12px' }}>
+              <div style={{ fontSize: 12, color: C.inkSoft, fontWeight: 600 }}>Inscriptos</div>
+              <div style={{ fontSize: 19, fontWeight: 800, color: C.ink, marginTop: 3 }}>
+                {chequeo.totalNuevo}
+                {chequeo.difTotal !== null && (
+                  <span style={{ fontSize: 13.5, fontWeight: 700, marginLeft: 8, color: chequeo.difTotal > 0 ? C.ok : chequeo.difTotal < 0 ? C.crimson : C.inkSoft }}>
+                    {chequeo.difTotal > 0 ? '+' : ''}{chequeo.difTotal} vs {fmtCorto(fechaActual)}
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
 
-          {/* Fecha ambigua (día y mes ambos <=12, ej "8/3/26"): no se puede
-              saber con certeza si es DD/MM o MM/DD solo con el texto del
-              Excel. Se bloquea la confirmación hasta que el usuario elija. */}
-          {preview.meta.fechaCorte && preview.meta.fechaAmbigua && !fechaConfirmada && (
-            <div style={{
-              background: '#fef2f2', border: '2px solid #dc2626', borderRadius: 10,
-              padding: '12px 16px', marginBottom: 14, fontSize: 13,
-            }}>
-              <div style={{ fontWeight: 700, color: '#991b1b', marginBottom: 6 }}>
-                La fecha del corte es ambigua: elegí la correcta
-              </div>
-              <div style={{ color: '#7f1d1d', marginBottom: 10 }}>
-                El encabezado "{preview.meta.columnaTotal}" se puede leer de dos formas distintas.
-                Elegí la que corresponde — al tocarla se guarda directo:
-              </div>
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                {[preview.meta.fechaCorte, invertirDiaMes(preview.meta.fechaCorte)].map(opcion => (
-                  <button key={opcion} onClick={() => elegirFecha(opcion)} disabled={confirmando} style={{
-                    padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 700,
-                    background: '#dc2626', color: '#fff', border: 'none',
-                    cursor: confirmando ? 'wait' : 'pointer', opacity: confirmando ? 0.6 : 1,
-                  }}>
-                    {fechaEnPalabras(opcion)}
+          {/* Avisos, de lo que bloquea a lo informativo */}
+          {ambiguaSinElegir && (
+            <AvisoCarga tono="bloquea" titulo="¿Qué fecha es el corte?">
+              El Excel dice “{m.columnaTotal}”, que se puede leer de dos formas. Tocá la correcta y el corte se guarda con esa fecha:
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+                {[m.fechaCorte, invertirDiaMes(m.fechaCorte)].map(op => (
+                  <button key={op} disabled={confirmando} onClick={() => { setFechaElegida(op); confirmarCarga(op) }} style={{ ...btnSecundario, height: 38, borderColor: C.crimson, color: '#8E0C22', fontWeight: 800 }}>
+                    Guardar como {fechaEnPalabras(op)}
                   </button>
                 ))}
               </div>
-            </div>
+            </AvisoCarga>
+          )}
+          {!m.fechaCorte && (
+            <AvisoCarga tono="revisar" titulo="El Excel no trae la fecha del corte">
+              Elegí de qué fecha es:
+              <input type="date" value={fechaElegida || ''} onChange={e => setFechaElegida(e.target.value)} aria-label="Fecha del corte"
+                style={{ display: 'block', marginTop: 8, height: 38, padding: '0 10px', borderRadius: 8, border: `1px solid ${C.rule}`, fontFamily: F.body, fontSize: 14 }} />
+            </AvisoCarga>
+          )}
+          {reemplaza && (
+            <AvisoCarga tono="revisar" titulo={`Ya hay un corte del ${fmtCorto(fechaFinal)} cargado`}>
+              Si seguís, este Excel lo reemplaza. Si te equivocás, se vuelve atrás con “Deshacer la última carga”.
+            </AvisoCarga>
+          )}
+          {chequeo.faltantes.length > 0 && (
+            <AvisoCarga tono="revisar" titulo={`${chequeo.faltantes.length === 1 ? 'Falta 1 sede' : `Faltan ${chequeo.faltantes.length} sedes`} en este Excel`}
+              chips={chequeo.faltantes.map(f => nombreCorto(f.sede))}>
+              {chequeo.faltantes.length === 1 ? 'No va a tener dato' : 'No van a tener dato'} en este corte y {chequeo.faltantes.length === 1 ? 'desaparece' : 'desaparecen'} del tablero hasta el próximo. ¿Es el Excel completo?
+            </AvisoCarga>
+          )}
+          {m.sinMatch?.length > 0 && (
+            <AvisoCarga tono="revisar" titulo={`${m.sinMatch.length === 1 ? '1 fila no corresponde' : `${m.sinMatch.length} filas no corresponden`} a ninguna sede registrada`}
+              chips={m.sinMatch.map(s => `${s.cod} · ${s.sede || 'sin nombre'}`)}>
+              No se guardan. Si es una sede nueva, sumala primero en Sedes → Sedes y objetivos.
+            </AvisoCarga>
+          )}
+          {chequeo.bajaron.length > 0 && (
+            <AvisoCarga tono="revisar" titulo={`${chequeo.bajaron.length === 1 ? '1 sede tiene' : `${chequeo.bajaron.length} sedes tienen`} menos inscriptos que en el corte del ${fmtCorto(fechaActual)}`}
+              chips={chequeo.bajaron.map(f => `${nombreCorto(f.sede)} ${f.prev} → ${f.total}`)}>
+              {anteriorAlUltimo ? 'Es normal si estás cargando un corte anterior al último.' : 'Los inscriptos se acumulan, así que suele ser un error del Excel. Revisalo antes de guardar.'}
+            </AvisoCarga>
+          )}
+          {m.duplicados?.length > 0 && (
+            <AvisoCarga tono="info" titulo={`${m.duplicados.length === 1 ? 'Un código aparece' : `${m.duplicados.length} códigos aparecen`} más de una vez`} chips={m.duplicados}>
+              Se guarda la última fila de cada uno.
+            </AvisoCarga>
+          )}
+          {m.filasInvalidas?.length > 0 && (
+            <AvisoCarga tono="revisar" titulo={`${m.filasInvalidas.length === 1 ? '1 fila tiene' : `${m.filasInvalidas.length} filas tienen`} un total que no es un número`}
+              chips={m.filasInvalidas.map(s => `${s.cod} · “${s.valor}”`)}>
+              No se guardan.
+            </AvisoCarga>
+          )}
+          {!m.detectadoPorFecha && m.fechaCorte === null && (
+            <AvisoCarga tono="info" titulo={`Se toman los totales de la columna “${m.columnaTotal}”`}>Verificá que sea la columna correcta.</AvisoCarga>
           )}
 
-          {/* Aviso de filas que no matchean ninguna sede registrada — se descartan si se sigue */}
-          {preview.meta.sinMatch?.length > 0 && (
-            <div style={{
-              background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 10,
-              padding: '12px 16px', marginBottom: 14, fontSize: 13,
-            }}>
-              <div style={{ fontWeight: 700, color: '#C8102E', marginBottom: 6 }}>
-                {preview.meta.sinMatch.length} fila{preview.meta.sinMatch.length > 1 ? 's' : ''} del Excel no coincide{preview.meta.sinMatch.length > 1 ? 'n' : ''} con ninguna sede registrada
-              </div>
-              <div style={{ color: '#9f1239', marginBottom: 8 }}>
-                Estas filas <strong>no se van a guardar</strong> si seguís. Si son sedes nuevas o cambiaron de nombre, agregalas primero en Sedes → Gestionar sedes.
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {preview.meta.sinMatch.map(s => (
-                  <span key={s.cod} style={{ fontSize: 11, background: '#fff', border: '1px solid #fecdd3', color: '#9f1239', padding: '3px 9px', borderRadius: 20, fontWeight: 600 }}>
-                    {s.cod} · {s.sede || '(sin nombre)'}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Aviso de sedes repetidas dentro del mismo archivo — se guarda solo la última fila de cada una */}
-          {preview.meta.duplicados?.length > 0 && (
-            <div style={{
-              background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10,
-              padding: '12px 16px', marginBottom: 14, fontSize: 13,
-            }}>
-              <div style={{ fontWeight: 700, color: '#92400e', marginBottom: 6 }}>
-                {preview.meta.duplicados.length} código{preview.meta.duplicados.length > 1 ? 's' : ''} de sede aparece{preview.meta.duplicados.length > 1 ? 'n' : ''} más de una vez en el archivo
-              </div>
-              <div style={{ color: '#78350f', marginBottom: 8 }}>
-                Se guarda solo la última fila de cada uno. Si no era lo esperado, revisá el Excel antes de confirmar.
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {preview.meta.duplicados.map(cod => (
-                  <span key={cod} style={{ fontSize: 11, background: '#fff', border: '1px solid #fde68a', color: '#92400e', padding: '3px 9px', borderRadius: 20, fontWeight: 600 }}>
-                    {cod}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Aviso de filas con código válido pero un total que no se pudo leer como número */}
-          {preview.meta.filasInvalidas?.length > 0 && (
-            <div style={{
-              background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 10,
-              padding: '12px 16px', marginBottom: 14, fontSize: 13,
-            }}>
-              <div style={{ fontWeight: 700, color: '#C8102E', marginBottom: 6 }}>
-                {preview.meta.filasInvalidas.length} fila{preview.meta.filasInvalidas.length > 1 ? 's' : ''} con un total que no se pudo leer como número
-              </div>
-              <div style={{ color: '#9f1239', marginBottom: 8 }}>
-                Estas filas <strong>no se van a guardar</strong> si seguís.
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {preview.meta.filasInvalidas.map((s, i) => (
-                  <span key={s.cod + '-' + i} style={{ fontSize: 11, background: '#fff', border: '1px solid #fecdd3', color: '#9f1239', padding: '3px 9px', borderRadius: 20, fontWeight: 600 }}>
-                    {s.cod} · {s.sede || '(sin nombre)'} · "{s.valor}"
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Aviso de reemplazo */}
-          {modoReemplazar && (
-            <div style={{
-              background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10,
-              padding: '12px 16px', marginBottom: 16, fontSize: 13,
-            }}>
-              <div style={{ fontWeight: 700, color: '#92400e', marginBottom: 6 }}>
-                Ya existe un corte para esta fecha
-              </div>
-              <div style={{ color: '#78350f', marginBottom: 12 }}>
-                ¿Querés reemplazar los datos existentes con los del nuevo archivo? Si te equivocás, lo podés revertir con "Deshacer" arriba del Dashboard.
-              </div>
-              <div style={{ display: 'flex', gap: 10 }}>
-                <button
-                  onClick={() => confirmarCarga(true)}
-                  disabled={confirmando}
-                  style={{
-                    padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 700,
-                    background: '#b45309', color: '#fff', border: 'none', cursor: 'pointer',
-                    opacity: confirmando ? 0.6 : 1,
-                  }}
-                >
-                  {confirmando ? 'Reemplazando…' : 'Sí, reemplazar'}
-                </button>
-                <button
-                  onClick={() => { setPreview(null); setModoReemplazar(false) }}
-                  disabled={confirmando}
-                  style={{
-                    padding: '8px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600,
-                    background: '#EDF0F5', color: '#5A6480', border: '1px solid #DCE1EA', cursor: 'pointer',
-                  }}
-                >
-                  Cancelar
-                </button>
-              </div>
-            </div>
-          )}
-
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#5A6480', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
-            Primeras filas detectadas
-          </div>
-          <div style={{ border: '1px solid #DCE1EA', borderRadius: 10, overflow: 'hidden', marginBottom: 16 }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead>
-                <tr style={{ background: '#EDF0F5' }}>
-                  <th style={{ padding: '8px 14px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#5A6480', textTransform: 'uppercase' }}>Cod</th>
-                  <th style={{ padding: '8px 14px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#5A6480', textTransform: 'uppercase' }}>Sede</th>
-                  <th style={{ padding: '8px 14px', textAlign: 'center', fontSize: 10, fontWeight: 700, color: '#5A6480', textTransform: 'uppercase' }}>Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {top5.map(s => (
-                  <tr key={s.cod} style={{ borderTop: '1px solid #E9EDF3' }}>
-                    <td style={{ padding: '7px 14px', color: '#5A6480' }}>{s.cod}</td>
-                    <td style={{ padding: '7px 14px', fontWeight: 600 }}>{s.sede}</td>
-                    <td style={{ padding: '7px 14px', textAlign: 'center', fontWeight: 700 }}>{s.total}</td>
+          {/* Todas las filas: primero las que conviene mirar */}
+          <div style={{ border: `1px solid ${C.rule}`, borderRadius: 10, overflow: 'hidden' }}>
+            <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13.5 }}>
+                <thead>
+                  <tr>
+                    {['Sede', tieneData ? `Corte ${fmtCorto(fechaActual)}` : null, 'Este Excel', tieneData ? 'Diferencia' : null].filter(Boolean).map((h, i) => (
+                      <th key={h} style={{ position: 'sticky', top: 0, background: '#FAFBFD', padding: '9px 14px', textAlign: i === 0 ? 'left' : 'right', fontSize: 12, fontWeight: 600, color: C.inkSoft, borderBottom: `1px solid ${C.rule}` }}>{h}</th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-            {preview.sedes.length > 5 && (
-              <div style={{ padding: '8px 14px', fontSize: 11, color: '#5A6480', textAlign: 'center', borderTop: '1px solid #E9EDF3' }}>
-                + {preview.sedes.length - 5} sedes más
-              </div>
+                </thead>
+                <tbody>
+                  {chequeo.filas.map(f => (
+                    <tr key={f.cod} style={{ borderTop: `1px solid ${C.ruleSoft}`, background: !f.conocida ? '#FDF1F3' : f.dif !== null && f.dif < 0 ? '#FBF3E2' : 'transparent' }}>
+                      <td style={{ padding: '8px 14px' }}>
+                        <span style={{ fontWeight: 600, color: C.ink }}>{nombreCorto(f.sede) || f.cod}</span>
+                        <span style={{ fontFamily: F.mono, fontSize: 11, color: C.inkSoft, marginLeft: 8 }}>{f.cod}</span>
+                        {!f.conocida && <span style={{ fontSize: 11.5, color: '#8E0C22', fontWeight: 700, marginLeft: 8 }}>no se guarda</span>}
+                      </td>
+                      {tieneData && <td style={{ padding: '8px 14px', textAlign: 'right', fontFamily: F.mono, color: C.inkSoft }}>{f.prev ?? '—'}</td>}
+                      <td style={{ padding: '8px 14px', textAlign: 'right', fontFamily: F.mono, fontWeight: 700, color: C.ink }}>{f.total}</td>
+                      {tieneData && (
+                        <td style={{ padding: '8px 14px', textAlign: 'right', fontFamily: F.mono, fontWeight: 700, color: f.dif > 0 ? C.ok : f.dif < 0 ? C.crimson : C.inkSoft }}>
+                          {f.dif === null ? '—' : f.dif > 0 ? `+${f.dif}` : f.dif === 0 ? '=' : f.dif}
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {error && <AvisoCarga tono="bloquea" titulo="No se pudo guardar">{error}</AvisoCarga>}
+
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            <button onClick={() => confirmarCarga()} disabled={!puedeGuardar} className="btn-press" style={{
+              ...btnPrimario, background: reemplaza ? C.warn : C.navy,
+              opacity: puedeGuardar ? 1 : 0.45, cursor: puedeGuardar ? 'pointer' : 'not-allowed',
+            }}>
+              {confirmando ? 'Guardando…'
+                : !fechaFinal ? 'Elegí la fecha para guardar'
+                : reemplaza ? `Reemplazar el corte del ${fmtCorto(fechaFinal)}`
+                : `Guardar el corte del ${fmtCorto(fechaFinal)}`}
+            </button>
+            <button onClick={cancelarPreview} disabled={confirmando} style={btnSecundario}>Cancelar</button>
+            {chequeo.validas.length > 0 && fechaFinal && (
+              <span style={{ fontSize: 13, color: C.inkSoft }}>Se guardan {chequeo.validas.length} sedes en {camp?.nombre}.</span>
             )}
           </div>
-
-          {!modoReemplazar && (
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button
-                onClick={() => confirmarCarga(false)}
-                disabled={confirmando || preview.meta.fechaAmbigua}
-                title={preview.meta.fechaAmbigua ? 'Elegí primero la fecha de corte correcta arriba' : undefined}
-                style={{
-                  padding: '10px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700,
-                  background: preview.meta.fechaAmbigua ? '#9ca3af' : '#0E1733', color: '#fff', border: 'none',
-                  cursor: (confirmando || preview.meta.fechaAmbigua) ? 'not-allowed' : 'pointer',
-                  opacity: confirmando ? 0.6 : 1,
-                }}
-              >
-                {confirmando ? 'Guardando…' : preview.meta.fechaAmbigua ? 'Elegí la fecha primero' : 'Confirmar y guardar en Sheets'}
-              </button>
-              <button onClick={() => setPreview(null)} disabled={confirmando} style={{
-                padding: '10px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600,
-                background: '#EDF0F5', color: '#5A6480', border: '1px solid #DCE1EA', cursor: 'pointer',
-              }}>
-                Cancelar
-              </button>
-            </div>
-          )}
-
-          {error && (
-            <div style={{ marginTop: 12, background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#C8102E' }}>
-              {error}
-            </div>
-          )}
         </div>
-      </div>
+      </section>
     )
   }
 
-  // Versión plegada: una línea con el último corte y el botón para cargar
+  // Plegado: con el padre controlando, el botón vive en la línea de la semana
   if (isMinimized && controlado) return null
   if (isMinimized) {
     return (
-      <div style={{
-        background: '#fff', border: '1px solid #DCE1EA', borderRadius: 12,
-        padding: '12px 14px 12px 18px', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap',
-        marginBottom: 18,
-      }}>
+      <div style={{ ...marco, padding: '12px 14px 12px 18px', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
         <IconoPlanilla />
         <div style={{ flex: 1, minWidth: 180 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: '#0E1733' }}>Carga semanal</div>
-          <div style={{ fontSize: 12.5, color: '#5A6480', marginTop: 2 }}>
-            Último corte cargado: <strong style={{ color: '#0E1733' }}>{fmtCorto(fechaActual) || '—'}</strong> · {data.length} sedes
+          <div style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>Carga semanal</div>
+          <div style={{ fontSize: 12.5, color: C.inkSoft, marginTop: 2 }}>
+            Último corte cargado: <strong style={{ color: C.ink }}>{fmtCorto(fechaActual) || '—'}</strong> · {data.length} sedes
           </div>
         </div>
-        <button
-          onClick={() => { if (inputRef.current) inputRef.current.value = ''; setMinimized(false) }}
-          className="btn-press"
-          style={{
-            height: 38, padding: '0 16px', borderRadius: 8, border: 'none', cursor: 'pointer',
-            background: '#1B2A6B', color: '#fff', fontSize: 13.5, fontWeight: 700,
-          }}
-        >
+        <button onClick={() => { if (inputRef.current) inputRef.current.value = ''; setMinimized(false) }} className="btn-press" style={{ ...btnPrimario, height: 38 }}>
           Cargar Excel del corte
         </button>
       </div>
     )
   }
 
+  // Abierto: zona para soltar el archivo
   return (
-    <div style={{
-      background: '#fff',
-      border: '1px solid #DCE1EA',
-      borderRadius: 12,
-      overflow: 'hidden',
-      marginBottom: 18,
-    }}>
-      <div style={{
-        padding: '14px 18px',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
-        borderBottom: '1px solid #E9EDF3',
-      }}>
+    <section aria-label="Cargar el Excel del corte" className="animate-fadeUp" style={marco}>
+      <div style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderBottom: `1px solid ${C.ruleSoft}` }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <IconoPlanilla />
           <div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: '#0E1733' }}>Cargar Excel del corte</div>
-            <div style={{ fontSize: 12.5, color: '#5A6480', marginTop: 2 }}>
-              {camp ? camp.nombre : 'Elegí la campaña primero'} · se guarda directo en la planilla
+            <div style={{ fontSize: 16, fontWeight: 800, color: C.ink, fontStretch: '105%' }}>Cargar el Excel del corte</div>
+            <div style={{ fontSize: 12.5, color: C.inkSoft, marginTop: 2 }}>
+              {camp ? camp.nombre : 'Elegí la campaña primero'} · antes de guardar vas a ver una revisión completa
             </div>
           </div>
         </div>
         {tieneData && (
-          <button onClick={() => setMinimized(true)}
-            style={{ fontSize: 13, color: '#5A6480', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
-            Cancelar
-          </button>
+          <button onClick={() => setMinimized(true)} style={{ ...btnSecundario, height: 38 }}>Cancelar</button>
         )}
       </div>
 
@@ -592,53 +543,34 @@ export default function ExcelUploader({ data, onUpload, campanas, campanaActiva,
         onDragLeave={() => setDragging(false)}
         onDrop={onDrop}
         onClick={() => inputRef.current?.click()}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); inputRef.current?.click() } }}
+        role="button" tabIndex={0} aria-label="Elegir el Excel del corte"
         style={{
-          margin: 16,
-          border: `2px dashed ${dragging ? '#1B2A6B' : loading ? '#7FB2F0' : '#C9D0DC'}`,
-          borderRadius: 12,
-          padding: '32px 20px',
-          textAlign: 'center',
-          cursor: loading ? 'wait' : 'pointer',
-          background: dragging ? '#E4EFFC' : '#F6F8FB',
-          transition: 'all 0.2s',
+          margin: 16, border: `2px dashed ${dragging ? C.navy : loading ? C.celeste : '#C9D0DC'}`,
+          borderRadius: 12, padding: '34px 20px', textAlign: 'center',
+          cursor: loading ? 'wait' : 'pointer', background: dragging ? C.celesteSoft : '#F6F8FB', transition: 'all 0.2s',
         }}
       >
-        <input
-          ref={inputRef}
-          type="file"
-          accept=".xlsx,.xls"
-          style={{ display: 'none' }}
-          onChange={e => handleFile(e.target.files[0])}
-        />
+        <input ref={inputRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={e => handleFile(e.target.files[0])} />
         <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
-          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke={dragging ? '#1B2A6B' : '#5A6480'} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"
-            style={{ animation: loading ? 'pulse-ring 1s ease infinite' : 'none' }}>
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke={dragging ? C.navy : C.inkSoft} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"
+            style={{ animation: loading ? 'pulse-ring 1s ease infinite' : 'none' }} aria-hidden="true">
             <path d="M12 16V4" /><path d="M7 9l5-5 5 5" /><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" />
           </svg>
         </div>
-        <div style={{ fontSize: 14, fontWeight: 600, color: '#0E1733', marginBottom: 4 }}>
-          {loading ? 'Procesando archivo…' :
-           dragging ? 'Soltá el archivo acá' :
-           'Arrastrá el Excel acá o hacé click para seleccionar'}
+        <div style={{ fontSize: 15, fontWeight: 700, color: C.ink, marginBottom: 4 }}>
+          {loading ? 'Leyendo el Excel…' : dragging ? 'Soltalo acá' : 'Arrastrá el Excel acá o tocá para elegirlo'}
         </div>
-        <div style={{ fontSize: 12, color: '#5A6480' }}>
-          Formatos aceptados: .xlsx · .xls · La columna de totales se detecta automáticamente
+        <div style={{ fontSize: 12.5, color: C.inkSoft }}>
+          El mismo Excel de cada semana (.xlsx o .xls). La fecha y la columna de totales se detectan solas.
         </div>
       </div>
 
       {error && (
-        <div style={{
-          margin: '0 16px 16px',
-          background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 8,
-          padding: '10px 14px', fontSize: 12, color: '#C8102E',
-          display: 'flex', gap: 8, alignItems: 'flex-start',
-        }}>
-          <div>
-            <strong>Error al procesar el archivo</strong><br />
-            {error}
-          </div>
+        <div style={{ margin: '0 16px 16px' }}>
+          <AvisoCarga tono="bloquea" titulo="No se pudo leer el Excel">{error}</AvisoCarga>
         </div>
       )}
-    </div>
+    </section>
   )
 }

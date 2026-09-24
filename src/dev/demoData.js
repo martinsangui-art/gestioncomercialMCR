@@ -35,6 +35,20 @@ function semanaActual() {
   })
 }
 
+// Envíos simulados de esta sesión (para que la verificación contra el log
+// y la línea de la semana se comporten como en la realidad)
+const enviosDemo = []
+export function registrarEnvioDemo(p) {
+  const d = new Date(), z = n => String(n).padStart(2, '0')
+  enviosDemo.unshift({ fecha: p.fecha, hora: `${z(d.getHours())}:${z(d.getMinutes())}:00`, campana: p.campana, sede: p.sede, cod_sede: p.cod, email: p.to, estado: 'enviado' })
+}
+
+const NOTAS = [
+  { fecha: '2026-08-20 11:05', cod_sede: '55', nota: 'Llamé, van a cargar esta semana' },
+  { fecha: '2026-08-14 16:40', cod_sede: '110', nota: 'Llamé, no atendieron' },
+  { fecha: '2026-08-02 10:15', cod_sede: '55', nota: 'Mandé mail' },
+]
+
 export function demoJsonp(action, params) {
   const c = params.campana
   switch (action) {
@@ -43,10 +57,10 @@ export function demoJsonp(action, params) {
     case 'objetivos': return c === 'C2' ? objetivos : []
     case 'historial': return c === 'C2' ? historial : []
     case 'semana_actual': return c === 'C2' ? semanaActual() : []
-    case 'log_envios': return []
+    case 'log_envios': return enviosDemo
     case 'ultimo_deshacer': return { id: '1', fecha_hora: '2026-08-21 10:12', accion: 'agregar_semana', descripcion: 'Carga del corte 21/08/2026 · 2do Ingreso 2026' }
     case 'config': return {}
-    case 'notas_sede': return []
+    case 'notas_sede': return params.cod_sede ? NOTAS.filter(n => n.cod_sede === String(params.cod_sede)) : NOTAS
     default: return []
   }
 }
