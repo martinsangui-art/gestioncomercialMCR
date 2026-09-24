@@ -46,6 +46,8 @@ export function registrarEnvioDemo(p) {
 const NOTAS = [
   { fecha: '2026-08-20 11:05', cod_sede: '55', nota: 'Llamé, van a cargar esta semana' },
   { fecha: '2026-08-14 16:40', cod_sede: '110', nota: 'Llamé, no atendieron' },
+  // Nota larga a propósito: una sola línea sin cortes no tiene que ensanchar la columna
+  { fecha: '2026-08-10 09:30', cod_sede: '165', nota: 'el 26 de junio tambien se le consulto por que no estaba haciendo las publicaciones, y me dijo que no tenia computadora porque se le rompio y la estan arreglando, que la semana que viene retoman todo' },
   { fecha: '2026-08-02 10:15', cod_sede: '55', nota: 'Mandé mail' },
 ]
 

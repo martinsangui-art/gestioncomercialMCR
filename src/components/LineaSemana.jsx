@@ -88,7 +88,7 @@ export default function LineaSemana({ data, copied, paraLlamar, ultimaOp, vencid
       </div>
 
       {/* La línea: tramos entre estaciones pintados según avance */}
-      <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', position: 'relative' }}>
+      <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', position: 'relative' }}>
         {estaciones.map((e, i) => {
           const color = colorEstado[e.estado]
           const siguienteHecha = estaciones[i + 1] && (e.estado === 'hecho')

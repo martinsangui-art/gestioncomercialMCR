@@ -361,7 +361,7 @@ export default function Dashboard({ data, stats, historial, campanas, campanaAct
       {/* Tablero: la cifra de la zona + la regla con todas las sedes */}
       <section aria-label="Cumplimiento de la zona" className="animate-fadeUp" style={{
         background: C.ink, borderRadius: 16, color: '#fff', overflow: 'hidden',
-        display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(240px, 290px) 1fr',
+        display: 'grid', gridTemplateColumns: isMobile ? 'minmax(0, 1fr)' : 'minmax(240px, 290px) minmax(0, 1fr)',
       }}>
         <div style={{ padding: isMobile ? '24px 22px 8px' : '30px 28px', borderRight: isMobile ? 'none' : '1px solid rgba(255,255,255,0.1)' }}>
           <div style={{ ...rotulo, color: 'rgba(255,255,255,0.6)' }}>Cumplimiento de la zona</div>
@@ -388,7 +388,7 @@ export default function Dashboard({ data, stats, historial, campanas, campanaAct
 
       <Casilleros data={data} onAbrir={onAbrirSede} />
 
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '2fr 1fr', gap: 18, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'minmax(0, 1fr)' : 'minmax(0, 2fr) minmax(0, 1fr)', gap: 18, alignItems: 'start' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 18, minWidth: 0 }}>
         <Panel delay={100} style={{ padding: '22px 24px', display: 'flex', flexDirection: 'column' }}>
           <TituloPanel titulo="Evolución" sub="Cumplimiento de la zona en cada corte"
@@ -438,7 +438,7 @@ export default function Dashboard({ data, stats, historial, campanas, campanaAct
         </Panel>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 18, minWidth: 0 }}>
           <Panel id="para-llamar" delay={120} style={{ padding: '22px 22px 12px', scrollMarginTop: 90 }}>
             <TituloPanel titulo="Para llamar" sub="Dos cortes seguidos sin sumar y todavía bajo el objetivo" />
             {paraLlamar.length === 0 ? (
@@ -453,7 +453,7 @@ export default function Dashboard({ data, stats, historial, campanas, campanaAct
                       <span style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>{corto(s.sede)}</span>
                       <span style={{ fontFamily: F.mono, fontSize: 12.5, color: C.inkSoft }}>{s.pct}%</span>
                     </span>
-                    <span style={{ display: 'block', fontSize: 12.5, color: nota ? C.inkSoft : C.navy, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <span title={nota ? `${hace(nota.fecha)}: ${nota.nota}` : undefined} style={{ display: 'block', fontSize: 12.5, color: nota ? C.inkSoft : C.navy, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {nota ? `${hace(nota.fecha)}: ${nota.nota}` : 'Sin seguimiento todavía · anotar llamado'}
                     </span>
                   </span>
@@ -476,7 +476,7 @@ export default function Dashboard({ data, stats, historial, campanas, campanaAct
               ))}
             </div>
           } />
-        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', columnGap: 40 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'minmax(0, 1fr)' : 'minmax(0, 1fr) minmax(0, 1fr)', columnGap: 40 }}>
           <div>{ordenadas.slice(0, mitad).map(d => <FilaSede key={d.cod_sede} d={d} onAbrir={onAbrirSede} />)}</div>
           <div>{ordenadas.slice(mitad).map(d => <FilaSede key={d.cod_sede} d={d} onAbrir={onAbrirSede} />)}</div>
         </div>

@@ -21,7 +21,7 @@ export function hace(fecha) {
   if (dias <= 0) return 'hoy'
   if (dias === 1) return 'ayer'
   if (dias < 30) return `hace ${dias} días`
-  const meses = Math.round(dias / 30)
+  const meses = Math.floor(dias / 30)
   return meses === 1 ? 'hace un mes' : `hace ${meses} meses`
 }
 
