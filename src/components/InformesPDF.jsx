@@ -39,16 +39,17 @@ function estilosPDF() {
     .tag-ok{background:#d1fae5;color:#065f46;padding:1px 6px;border-radius:10px;font-weight:700;font-size:10px}
     .tag-w{background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:10px;font-weight:700;font-size:10px}
     .tag-bad{background:#fee2e2;color:#991b1b;padding:1px 6px;border-radius:10px;font-weight:700;font-size:10px}
+    .salto{page-break-before:always;break-before:page}
     @media print{.no-print{display:none}}
   </style>`
 }
 
-function headerPDF(fecha, campNombre) {
+function headerPDF(fecha, campNombre, titulo = 'Informe de Cumplimiento de Ingreso') {
   return `<!DOCTYPE html><html><head><meta charset="UTF-8">${estilosPDF()}</head><body>
     <div class="header">
       <img src="${LOGO_B64}" alt="UCASAL">
       <div class="header-txt">
-        <h1>UCASAL – Informe de Cumplimiento de Ingreso</h1>
+        <h1>UCASAL – ${titulo}</h1>
         <p>Coordinación Nacional de Sedes · Coordinadora Zonal Bs. As. · Dirección Operativa SEAD | Vicerrectorado Académico</p>
       </div>
       <div class="fecha-badge"><div class="n">${fmtFecha(fecha)}</div><div class="l">Fecha del reporte</div></div>
@@ -150,6 +151,12 @@ function generarPDFGeneral(data, campNombre, fecha, onToast) {
 }
 
 function generarPDFSede(d, historial, campNombre, fecha, conHist, onToast) {
+  abrirVentanaPDF(headerPDF(fecha, campNombre) + cuerpoSede(d, historial, campNombre, conHist) + footerPDF(fecha), onToast)
+}
+
+// Contenido de la ficha de una sede (sin membrete ni firma) — se usa suelto
+// y también como anexo "una hoja por sede" del informe de cierre.
+function cuerpoSede(d, historial, campNombre, conHist) {
   const pct = d.pct + '%'
   const faltan = Math.max(0, d.objetivo - d.total)
   const noav = d.var === 0
@@ -177,7 +184,6 @@ function generarPDFSede(d, historial, campNombre, fecha, conHist, onToast) {
 
   const kpiClass = d.pct >= 50 ? 'ok' : d.total > 0 ? 'warn' : 'bad'
   const parts = []
-  parts.push(headerPDF(fecha, campNombre))
   parts.push(`<div class="sede-title"><h2>${d.sede}</h2><p>Código: ${d.cod_sede} - ${campNombre}</p></div>`)
   parts.push('<div class="kpi-grid">')
   parts.push(`<div class="kpi ${kpiClass}"><div class="n">${pct}</div><div class="l">Cumplimiento</div></div>`)
@@ -200,6 +206,109 @@ function generarPDFSede(d, historial, campNombre, fecha, conHist, onToast) {
   parts.push(`<tr><td>Variación semana anterior</td><td>${varTxt}</td></tr>`)
   if (tendTxt) parts.push(`<tr><td>Tendencia general</td><td>${tendTxt}</td></tr>`)
   parts.push('</table>')
+  return parts.join('')
+}
+
+// ── Informe de cierre de campaña ───────────────────────────────────────────
+// Resultado final + evolución del total corte a corte + ranking completo +
+// destacados. Con porSede, agrega un anexo con la ficha de cada sede en su
+// propia hoja (para mandarle a cada una su resultado).
+export function generarInformeCierre({ camp, data, historial, porSede = false, onToast = () => {} }) {
+  const campNombre = camp?.nombre || ''
+  const fecha = data[0]?.fecha || new Date().toISOString().slice(0, 10)
+  const cerrada = camp?.estado === 'cerrada'
+
+  const totIng = data.reduce((a, d) => a + d.total, 0)
+  const totObj = data.reduce((a, d) => a + d.objetivo, 0)
+  const pctGlobal = totObj ? Math.round(totIng / totObj * 100) : 0
+  const enObj = data.filter(d => d.pct >= 50).length
+  const sinIng = data.filter(d => d.total === 0).length
+
+  // Evolución global por corte
+  const porFecha = {}
+  historial.forEach(r => {
+    if (!porFecha[r.fecha]) porFecha[r.fecha] = { total: 0, obj: 0 }
+    porFecha[r.fecha].total += Number(r.total) || 0
+    porFecha[r.fecha].obj += Number(r.objetivo) || 0
+  })
+  const fechas = Object.keys(porFecha).sort()
+  const evol = fechas.map(f => ({ fecha: f, total: porFecha[f].total, pct: porFecha[f].obj ? Math.round(porFecha[f].total / porFecha[f].obj * 100) : 0 }))
+
+  let evolSvg = ''
+  if (evol.length >= 2) {
+    const W = 640, H = 170, mx = Math.max(100, ...evol.map(e => e.pct))
+    const step = (W - 40) / evol.length
+    const bW = Math.max(10, Math.min(40, step - 6))
+    const barras = evol.map((e, i) => {
+      const bH = Math.max(2, Math.round(e.pct / mx * (H - 40)))
+      const x = 20 + i * step + (step - bW) / 2
+      const col = e.pct >= 50 ? '#52b788' : e.pct > 0 ? '#f59e0b' : '#f43f5e'
+      return `<rect x="${x}" y="${H - 22 - bH}" width="${bW}" height="${bH}" rx="2" fill="${col}"/>
+        <text x="${x + bW / 2}" y="${H - 26 - bH}" text-anchor="middle" font-size="9" font-weight="700" fill="#374151">${e.pct}%</text>
+        <text x="${x + bW / 2}" y="${H - 8}" text-anchor="middle" font-size="8" fill="#6b7280">${fmtFecha(e.fecha).slice(0, 5)}</text>`
+    }).join('')
+    const y50 = H - 22 - Math.round(50 / mx * (H - 40))
+    evolSvg = `<svg width="100%" viewBox="0 0 ${W} ${H}" style="display:block">${barras}
+      <line x1="20" y1="${y50}" x2="${W - 20}" y2="${y50}" stroke="#C8102E" stroke-width="1" stroke-dasharray="4,3" opacity=".7"/>
+      <text x="${W - 18}" y="${y50 + 3}" font-size="8" fill="#C8102E">50%</text></svg>`
+  }
+
+  // Crecimiento de cada sede desde su primer corte
+  const primerTotal = {}
+  ;[...historial].sort((a, b) => String(a.fecha).localeCompare(String(b.fecha))).forEach(r => {
+    const cod = String(r.cod_sede)
+    if (primerTotal[cod] === undefined) primerTotal[cod] = Number(r.total) || 0
+  })
+  const crec = (d) => d.total - (primerTotal[String(d.cod_sede)] ?? d.total)
+  const corto = (n) => n.replace(/ - BUENOS AIRES.*/, '').replace(/ - BS AS$/, '')
+
+  const ranking = [...data].sort((a, b) => b.pct - a.pct || b.total - a.total)
+  const filas = ranking.map((d, i) => {
+    const tag = d.pct >= 50 ? '<span class="tag-ok">En objetivo</span>' : d.total > 0 ? '<span class="tag-w">En progreso</span>' : '<span class="tag-bad">Sin ingresos</span>'
+    const c = crec(d)
+    return `<tr><td style="text-align:center;font-weight:700">${i + 1}</td><td>${corto(d.sede)}</td>
+      <td style="text-align:center">${d.objetivo}</td><td style="text-align:center;font-weight:700">${d.total}</td>
+      <td style="text-align:center;font-weight:700">${d.pct}%</td>
+      <td style="text-align:center;color:${c > 0 ? '#16a34a' : '#9ca3af'}">${c > 0 ? '+' + c : c === 0 ? '=' : c}</td><td>${tag}</td></tr>`
+  }).join('')
+
+  const topCrec = [...data].filter(d => crec(d) > 0).sort((a, b) => crec(b) - crec(a)).slice(0, 5)
+  const bajo = ranking.filter(d => d.pct < 50)
+
+  const parts = []
+  parts.push(headerPDF(fecha, campNombre, cerrada ? 'Informe de Cierre de Campaña' : 'Informe de Campaña (parcial)'))
+  parts.push(`<div class="sede-title"><h2>${campNombre}</h2><p>${camp?.inicio ? 'Inicio ' + fmtFecha(camp.inicio) + ' · ' : ''}Último corte ${fmtFecha(fecha)}${camp?.fecha_cierre ? ' · Cerrada el ' + fmtFecha(camp.fecha_cierre) : ''} · ${fechas.length} cortes</p></div>`)
+  parts.push('<div class="kpi-grid">')
+  parts.push(`<div class="kpi ${pctGlobal >= 50 ? 'ok' : 'warn'}"><div class="n">${pctGlobal}%</div><div class="l">Cumplimiento global</div></div>`)
+  parts.push(`<div class="kpi bl"><div class="n">${totIng}</div><div class="l">Inscriptos de ${totObj}</div></div>`)
+  parts.push(`<div class="kpi ok"><div class="n">${enObj}/${data.length}</div><div class="l">Sedes en objetivo</div></div>`)
+  parts.push(`<div class="kpi ${sinIng ? 'bad' : 'ok'}"><div class="n">${sinIng}</div><div class="l">Sedes sin ingresos</div></div>`)
+  parts.push('</div>')
+  if (evolSvg) { parts.push('<h3>Evolución del cumplimiento por corte</h3>'); parts.push(evolSvg) }
+  if (topCrec.length) {
+    parts.push('<h3>Mayor crecimiento en la campaña</h3><table><tr><th>Sede</th><th>Primer corte</th><th>Final</th><th>Crecimiento</th></tr>')
+    topCrec.forEach(d => parts.push(`<tr><td>${corto(d.sede)}</td><td style="text-align:center">${primerTotal[String(d.cod_sede)]}</td><td style="text-align:center;font-weight:700">${d.total}</td><td style="text-align:center;font-weight:700;color:#16a34a">+${crec(d)}</td></tr>`))
+    parts.push('</table>')
+  }
+  if (bajo.length) {
+    parts.push(`<div class="alert"><strong>${bajo.length} sedes</strong> cerraron por debajo del 50%: ${bajo.map(d => corto(d.sede) + ' (' + d.pct + '%)').join(', ')}.</div>`)
+  }
+  parts.push('<h3>Ranking final</h3>')
+  parts.push(`<table><tr><th>#</th><th>Sede</th><th>Objetivo</th><th>Inscriptos</th><th>Cumpl.</th><th>Crec.</th><th>Estado</th></tr>${filas}
+    <tr><td></td><td style="font-weight:700">TOTAL</td><td style="text-align:center;font-weight:700">${totObj}</td><td style="text-align:center;font-weight:700">${totIng}</td><td style="text-align:center;font-weight:700">${pctGlobal}%</td><td></td><td></td></tr></table>`)
+
+  if (porSede) {
+    const histAgrupado = {}
+    historial.forEach(r => {
+      if (!histAgrupado[r.fecha]) histAgrupado[r.fecha] = {}
+      histAgrupado[r.fecha][String(r.cod_sede)] = Number(r.total) || 0
+    })
+    ;[...data].sort((a, b) => a.sede.localeCompare(b.sede)).forEach(d => {
+      parts.push('<div class="salto"></div>')
+      parts.push(cuerpoSede(d, histAgrupado, campNombre, true))
+    })
+  }
+
   parts.push(footerPDF(fecha))
   abrirVentanaPDF(parts.join(''), onToast)
 }
@@ -282,7 +391,9 @@ function generarPDFComparacion(sedesSeleccionadas, campNombre, fecha, historial,
 // ── Componente principal ─────────────────────────────────────────────────
 export default function InformesPDF({ data, historial, campanas, campanaActiva, sedesSeleccionadas = [] }) {
   const [open, setOpen] = useState(false)
-  const [tipo, setTipo] = useState('general')
+  const camp0 = campanas?.find(c => c.id === campanaActiva)
+  const [tipo, setTipo] = useState(camp0?.estado === 'cerrada' ? 'cierre' : 'general')
+  const [cierrePorSede, setCierrePorSede] = useState(false)
   const [sedeElegida, setSedeElegida] = useState('')
   const [conHist, setConHist] = useState(true)
   const [toast, setToast] = useState(null)
@@ -301,7 +412,9 @@ export default function InformesPDF({ data, historial, campanas, campanaActiva, 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3500) }
 
   const handleGenerar = () => {
-    if (tipo === 'general') {
+    if (tipo === 'cierre') {
+      generarInformeCierre({ camp, data, historial, porSede: cierrePorSede, onToast: showToast })
+    } else if (tipo === 'general') {
       generarPDFGeneral(data, campNombre, fecha, showToast)
     } else if (tipo === 'sede') {
       const d = data.find(x => String(x.cod_sede) === String(sedeElegida))
@@ -355,6 +468,7 @@ export default function InformesPDF({ data, historial, campanas, campanaActiva, 
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 18 }}>
                 {[
+                  ['cierre', camp?.estado === 'cerrada' ? '🏁 Informe de cierre' : '🏁 Informe de campaña (parcial)', 'Resultado final, evolución, ranking y destacados'],
                   ['general', '📊 Resumen general', 'Todas las sedes, ordenadas por estado'],
                   ['sede', '🏢 Informe por sede', 'Detalle individual con evolución histórica'],
                   ['comparacion', '🔄 Comparación de sedes', `${sedesSeleccionadas.length} sedes seleccionadas`],
@@ -390,6 +504,13 @@ export default function InformesPDF({ data, historial, campanas, campanaActiva, 
                     Incluir gráfico y detalle histórico
                   </label>
                 </div>
+              )}
+
+              {tipo === 'cierre' && (
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, fontSize: 12, color: '#64748b' }}>
+                  <input type="checkbox" checked={cierrePorSede} onChange={e => setCierrePorSede(e.target.checked)} />
+                  Agregar una hoja por sede (ficha individual de cada una)
+                </label>
               )}
 
               {tipo === 'comparacion' && sedesSeleccionadas.length === 0 && (

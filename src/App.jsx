@@ -5,6 +5,7 @@ import { C, F, useClosingTransition, pageBackgroundStyle } from './lib/theme'
 import Sidebar from './components/Sidebar'
 import ExcelUploader from './components/ExcelUploader'
 import InformesPDF from './components/InformesPDF'
+import CampanaBar from './components/CampanaBar'
 import Login from './components/Login'
 import Dashboard from './views/Dashboard'
 import Sedes from './views/Sedes'
@@ -108,7 +109,7 @@ function AppShell({ onLogout }) {
   const {
     loading, error, campanas, sedes, campanaActiva, data, historial,
     copied, stats, cargarCampana, markCopied, markUncopied, markAllCopied,
-    guardarSemana, subirExcel, refrescarSedes,
+    guardarSemana, subirExcel, refrescarSedes, refrescarCampanas,
   } = useSheets()
 
   if (loading || error) return <LoadingScreen error={error} />
@@ -148,6 +149,15 @@ function AppShell({ onLogout }) {
             transición de entrada (.view-enter) se dispara cada vez — la
             navegación se siente como un cambio de pantalla, no un corte. */}
         <div key={view} className="view-enter">
+          {view === 'dashboard' && (
+            <CampanaBar
+              campanas={campanas} campanaActiva={campanaActiva}
+              data={data} stats={stats} sedes={sedes} historial={historial}
+              onCampanasChanged={refrescarCampanas}
+              onRecargarCampana={cargarCampana}
+            />
+          )}
+
           {view === 'dashboard' && camp?.estado === 'activa' && (
             <ExcelUploader
               data={data}

@@ -209,16 +209,6 @@ export default function Dashboard({ data, stats, historial, campanas, campanaAct
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20, fontFamily: F.body }}>
 
-      {cerrada && (
-        <div style={{
-          background: C.paperRaised, border: `1px solid ${C.rule}`, borderLeft: `3px solid ${C.inkSoft}`,
-          padding: '10px 16px', fontSize: 13, color: C.inkSoft,
-          display: 'flex', alignItems: 'center', gap: 10,
-        }}>
-          🔒 <span><strong style={{ color: C.ink }}>{camp?.nombre}</strong> está cerrada — resultado final: <strong style={{ color: estadoColor(stats.pctGlobal) }}>{stats.pctGlobal}%</strong></span>
-        </div>
-      )}
-
       {diasRestantes !== null && diasRestantes <= 30 && (
         <div style={{
           background: C.paperRaised, border: `1px solid ${C.rule}`, borderLeft: `3px solid ${C.warn}`,

@@ -218,6 +218,15 @@ export function useSheets() {
     })
   }, [])
 
+  // Releer la lista de campañas (después de cerrar/abrir una) y pasar a la
+  // que corresponda — el cambio de campanaActiva dispara la carga de datos.
+  const refrescarCampanas = useCallback((seleccionarId) => {
+    return jsonp('campanas').then(campanas => {
+      setState(s => ({ ...s, campanas, campanaActiva: seleccionarId || s.campanaActiva }))
+      return campanas
+    })
+  }, [])
+
   // Cargar datos cuando cambia campaña activa
   const cargarCampana = useCallback((campanaId) => {
     setState(s => ({ ...s, loading: true, error: null, campanaActiva: campanaId, data: [] }))
@@ -379,6 +388,7 @@ export function useSheets() {
     guardarSemana,
     subirExcel,
     refrescarSedes,
+    refrescarCampanas,
   }
 }
 
@@ -429,6 +439,27 @@ export function editarSede(sede) {
 }
 export function setSedeActiva(cod_sede, activa) {
   return post({ action: 'set_sede_activa', cod_sede, activa })
+}
+
+// ── Cierre de campaña ───────────────────────────────────────────────────────
+export function obtenerObjetivos(campanaId) {
+  return jsonp('objetivos', { campana: campanaId })
+}
+// { campana_id?, nueva?: { nombre, fin, objetivos: [{cod_sede, objetivo}] } }
+export function cerrarCampana(payload) {
+  return post({ action: 'cerrar_campana', ...payload })
+}
+
+// ── Deshacer y backup ───────────────────────────────────────────────────────
+// Última operación reversible (carga de corte o cierre de campaña), o null
+export function obtenerUltimoDeshacer() {
+  return jsonp('ultimo_deshacer')
+}
+export function deshacerUltimo(id) {
+  return post({ action: 'deshacer', id })
+}
+export function obtenerBackup() {
+  return jsonp('backup')
 }
 
 // ── Configuración editable (plantilla de email, etc.) ───────────────────────

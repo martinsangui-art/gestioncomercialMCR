@@ -1,0 +1,427 @@
+import { useState, useEffect, useMemo } from 'react'
+import { obtenerObjetivos, cerrarCampana, obtenerUltimoDeshacer, deshacerUltimo } from '../hooks/useSheets'
+import { C, F } from '../lib/theme'
+import { descargarBackupExcel, descargarResultadosExcel } from '../lib/excel'
+import ModalShell from './ModalShell'
+import { generarInformeCierre } from './InformesPDF'
+
+function fmtFecha(iso) {
+  if (!iso) return ''
+  const p = String(iso).slice(0, 10).split('-')
+  if (p.length !== 3) return iso
+  return `${p[2]}/${p[1]}/${p[0]}`
+}
+
+const labelStyle = { fontSize: 10, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6, fontFamily: F.mono }
+const inputStyle = { width: '100%', padding: '7px 9px', border: `1px solid ${C.rule}`, borderRadius: 2, fontSize: 13, fontFamily: F.body, background: '#fff' }
+
+function Boton({ children, onClick, disabled, tone = 'ink' }) {
+  const tones = {
+    ink:     { background: C.ink, color: '#fff', border: 'none' },
+    crimson: { background: C.crimson, color: '#fff', border: 'none' },
+    ghost:   { background: 'transparent', color: C.ink, border: `1px solid ${C.rule}` },
+  }
+  return (
+    <button onClick={onClick} disabled={disabled} className="btn-press" style={{
+      padding: '9px 18px', borderRadius: 2, fontSize: 12.5, fontWeight: 600, fontFamily: F.body,
+      cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.55 : 1, ...tones[tone],
+    }}>
+      {children}
+    </button>
+  )
+}
+
+function Dato({ label, value, color = C.ink }) {
+  return (
+    <div style={{ background: C.paper, border: `1px solid ${C.ruleSoft}`, padding: '10px 12px', flex: 1, minWidth: 110 }}>
+      <div style={labelStyle}>{label}</div>
+      <div style={{ fontFamily: F.mono, fontSize: 18, fontWeight: 600, color }}>{value}</div>
+    </div>
+  )
+}
+
+// Mismo criterio que el backend: el historial y el log de envíos se asocian
+// a la campaña por nombre (con substring), así que dos nombres donde uno
+// contiene al otro mezclarían datos.
+function nombreSuperpuesto(nombre, campanas) {
+  const n = nombre.trim().toLowerCase()
+  if (!n) return null
+  return campanas.find(c => {
+    const o = String(c.nombre || '').toLowerCase()
+    return o && (o === n || o.includes(n) || n.includes(o))
+  }) || null
+}
+
+// Cierre de la campaña activa + apertura de la siguiente con sus objetivos.
+// Si no hay ninguna campaña activa, el mismo flujo sirve para abrir una nueva.
+function CierreModal({ campanas, campanaActiva, data, stats, sedes, historial, onClose, onDone }) {
+  const camp = campanas.find(c => c.id === campanaActiva)
+  const cerrando = camp?.estado === 'activa' ? camp : null
+
+  const [paso, setPaso] = useState(cerrando ? 'resumen' : 'nueva')
+  const [abrirNueva, setAbrirNueva] = useState(true)
+  const [nombre, setNombre] = useState('')
+  const [fin, setFin] = useState('')
+  const [base, setBase] = useState(campanaActiva || campanas[campanas.length - 1]?.id || '')
+  const [objetivos, setObjetivos] = useState({}) // cod_sede → string
+  const [cargandoObj, setCargandoObj] = useState(false)
+  const [guardando, setGuardando] = useState(false)
+  const [error, setError] = useState(null)
+
+  const sedesOrdenadas = useMemo(
+    () => [...sedes].sort((a, b) => String(a.sede).localeCompare(String(b.sede))),
+    [sedes]
+  )
+
+  // Precarga los objetivos de la campaña base — lo habitual es partir de los
+  // de la campaña anterior y ajustar algunas sedes.
+  useEffect(() => {
+    if (!base) return
+    setCargandoObj(true)
+    obtenerObjetivos(base)
+      .then(rows => {
+        const m = {}
+        rows.forEach(r => { m[String(r.cod_sede)] = String(Number(r.objetivo) || '') })
+        setObjetivos(m)
+      })
+      .catch(() => setObjetivos({}))
+      .finally(() => setCargandoObj(false))
+  }, [base])
+
+  const totalObjetivo = sedesOrdenadas.reduce((acc, s) => acc + (Number(objetivos[String(s.cod_sede)]) || 0), 0)
+  const sedesConObjetivo = sedesOrdenadas.filter(s => Number(objetivos[String(s.cod_sede)]) > 0).length
+  const choque = nombreSuperpuesto(nombre, campanas)
+
+  const errorNueva = !nombre.trim() ? 'Poné un nombre para la campaña nueva'
+    : choque ? `El nombre se superpone con "${choque.nombre}" — agregale el año o algo que lo distinga`
+    : !sedesConObjetivo ? 'Cargá al menos un objetivo'
+    : null
+
+  const confirmar = async () => {
+    setGuardando(true); setError(null)
+    try {
+      const payload = {}
+      if (cerrando) payload.campana_id = cerrando.id
+      if (!cerrando || abrirNueva) {
+        payload.nueva = {
+          nombre: nombre.trim(),
+          fin,
+          objetivos: sedesOrdenadas
+            .map(s => ({ cod_sede: String(s.cod_sede), objetivo: Number(objetivos[String(s.cod_sede)]) || 0 }))
+            .filter(o => o.objetivo > 0),
+        }
+      }
+      const res = await cerrarCampana(payload)
+      await onDone(res.nueva_id || campanaActiva)
+      onClose()
+    } catch (e) {
+      setError(e.message)
+      setGuardando(false)
+    }
+  }
+
+  const footer = (children) => (
+    <div style={{ padding: '14px 20px', borderTop: `1px solid ${C.rule}`, display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap', flexShrink: 0 }}>
+      {children}
+    </div>
+  )
+
+  const cuerpo = { flex: 1, overflow: 'auto', padding: '18px 20px', fontFamily: F.body, color: C.ink }
+
+  if (paso === 'resumen') {
+    const fechaCorte = data[0]?.fecha
+    return (
+      <ModalShell onClose={onClose} title={`Cerrar ${cerrando.nombre}`} sub="Paso 1 · Resultado final" maxWidth={560}>
+        <div style={cuerpo}>
+          {data.length ? (
+            <>
+              <div style={{ fontSize: 13, color: C.inkSoft, marginBottom: 12 }}>
+                La campaña cierra con el último corte cargado{fechaCorte ? <> — <strong style={{ color: C.ink }}>{fmtFecha(fechaCorte)}</strong></> : null}.
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+                <Dato label="Cumplimiento" value={`${stats.pctGlobal}%`} color={stats.pctGlobal >= 50 ? C.ok : C.warn} />
+                <Dato label="Inscriptos" value={`${stats.totalIng} / ${stats.totalObj}`} />
+                <Dato label="En objetivo" value={`${stats.enObj} de ${stats.total}`} />
+              </div>
+            </>
+          ) : (
+            <div style={{ fontSize: 13, color: C.warn, marginBottom: 16 }}>⚠️ Esta campaña no tiene cortes cargados.</div>
+          )}
+
+          <div style={{ background: C.paper, borderLeft: `3px solid ${C.inkSoft}`, padding: '10px 14px', fontSize: 12.5, lineHeight: 1.55, color: C.inkSoft, marginBottom: 16 }}>
+            Al cerrarla queda <strong style={{ color: C.ink }}>en modo consulta</strong>: no se pueden subir más cortes ni mandar mails.
+            Todo su historial se conserva, y la podés comparar contra la nueva desde <strong style={{ color: C.ink }}>Historial → Comparar campañas</strong>.
+          </div>
+
+          {data.length > 0 && (
+            <div style={{ marginBottom: 18 }}>
+              <div style={labelStyle}>Antes de cerrar (opcional)</div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <Boton tone="ghost" onClick={() => generarInformeCierre({ camp: cerrando, data, historial })}>🖨 Informe final</Boton>
+                <Boton tone="ghost" onClick={() => descargarResultadosExcel(cerrando.nombre, data, historial)}>⤓ Resultados en Excel</Boton>
+                <BotonBackup />
+              </div>
+            </div>
+          )}
+
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+            <input type="checkbox" checked={abrirNueva} onChange={e => setAbrirNueva(e.target.checked)} />
+            Abrir la campaña siguiente ahora
+          </label>
+        </div>
+        {footer(<>
+          <Boton tone="ghost" onClick={onClose}>Cancelar</Boton>
+          <Boton onClick={() => setPaso(abrirNueva ? 'nueva' : 'confirmar')}>Siguiente</Boton>
+        </>)}
+      </ModalShell>
+    )
+  }
+
+  if (paso === 'nueva') {
+    return (
+      <ModalShell onClose={onClose} title="Campaña nueva" sub={cerrando ? 'Paso 2 · Nombre y objetivos' : 'Nombre y objetivos por sede'} maxWidth={640}>
+        <div style={cuerpo}>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+            <div style={{ flex: 2, minWidth: 200 }}>
+              <div style={labelStyle}>Nombre</div>
+              <input value={nombre} onChange={e => setNombre(e.target.value)} placeholder="Ej: 1er Ingreso 2027" style={inputStyle} autoFocus />
+            </div>
+            <div style={{ flex: 1, minWidth: 140 }}>
+              <div style={labelStyle}>Fin (opcional)</div>
+              <input type="date" value={fin} onChange={e => setFin(e.target.value)} style={inputStyle} />
+            </div>
+          </div>
+          {choque && <div style={{ color: C.crimson, fontSize: 12, marginTop: -8, marginBottom: 12 }}>❌ {errorNueva}</div>}
+
+          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
+            <div>
+              <div style={labelStyle}>Objetivos por sede</div>
+              <div style={{ fontSize: 12, color: C.inkSoft }}>
+                Precargados desde{' '}
+                <select value={base} onChange={e => setBase(e.target.value)} style={{ ...inputStyle, width: 'auto', padding: '3px 6px', fontSize: 12 }}>
+                  {campanas.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                </select>
+                {' '}— editá los que cambian. Dejá vacío o en 0 para no incluir la sede.
+              </div>
+            </div>
+            <div style={{ fontFamily: F.mono, fontSize: 12, color: C.ink, whiteSpace: 'nowrap' }}>
+              {sedesConObjetivo} sedes · total <strong>{totalObjetivo}</strong>
+            </div>
+          </div>
+
+          <div style={{ border: `1px solid ${C.rule}`, opacity: cargandoObj ? 0.5 : 1 }}>
+            {sedesOrdenadas.map((s, i) => {
+              const cod = String(s.cod_sede)
+              return (
+                <div key={cod} style={{
+                  display: 'flex', alignItems: 'center', gap: 10, padding: '5px 10px',
+                  background: i % 2 ? C.paper : '#fff', borderBottom: i < sedesOrdenadas.length - 1 ? `1px solid ${C.ruleSoft}` : 'none',
+                }}>
+                  <span style={{ fontFamily: F.mono, fontSize: 11, color: C.inkSoft, width: 52, flexShrink: 0 }}>{cod}</span>
+                  <span style={{ flex: 1, fontSize: 12.5, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {String(s.sede).replace(/ - BUENOS AIRES.*/, '').replace(/ - BS AS$/, '')}
+                  </span>
+                  <input
+                    type="number" min="0" inputMode="numeric"
+                    value={objetivos[cod] ?? ''}
+                    onChange={e => setObjetivos(o => ({ ...o, [cod]: e.target.value }))}
+                    style={{ ...inputStyle, width: 90, padding: '4px 8px', fontFamily: F.mono, textAlign: 'right' }}
+                  />
+                </div>
+              )
+            })}
+          </div>
+        </div>
+        {footer(<>
+          {!choque && errorNueva && nombre.trim() && <span style={{ color: C.crimson, fontSize: 12, alignSelf: 'center', marginRight: 'auto' }}>{errorNueva}</span>}
+          <Boton tone="ghost" onClick={cerrando ? () => setPaso('resumen') : onClose}>{cerrando ? 'Atrás' : 'Cancelar'}</Boton>
+          <Boton onClick={() => setPaso('confirmar')} disabled={!!errorNueva || cargandoObj}>Siguiente</Boton>
+        </>)}
+      </ModalShell>
+    )
+  }
+
+  // paso === 'confirmar'
+  const abre = !cerrando || abrirNueva
+  return (
+    <ModalShell onClose={guardando ? () => {} : onClose} title="Confirmar" sub="Revisá antes de aplicar" maxWidth={500}>
+      <div style={cuerpo}>
+        <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13.5, lineHeight: 1.8 }}>
+          {cerrando && <li>Se cierra <strong>{cerrando.nombre}</strong>{data.length ? <> con <strong>{stats.pctGlobal}%</strong> de cumplimiento</> : null}.</li>}
+          {abre && <li>Se abre <strong>{nombre.trim()}</strong> con <strong>{sedesConObjetivo}</strong> sedes y objetivo total <strong>{totalObjetivo}</strong>{fin ? <> (fin {fmtFecha(fin)})</> : null}.</li>}
+          {abre && <li>Desde ahí, los Excel que subas cargan los cortes de la campaña nueva.</li>}
+        </ul>
+        {error && <div style={{ color: C.crimson, fontSize: 12.5, marginTop: 14 }}>❌ {error}</div>}
+      </div>
+      {footer(<>
+        <Boton tone="ghost" onClick={() => setPaso(abre && cerrando ? 'nueva' : cerrando ? 'resumen' : 'nueva')} disabled={guardando}>Atrás</Boton>
+        <Boton tone="crimson" onClick={confirmar} disabled={guardando}>
+          {guardando ? 'Aplicando…' : cerrando ? (abre ? 'Cerrar y abrir nueva' : 'Cerrar campaña') : 'Abrir campaña'}
+        </Boton>
+      </>)}
+    </ModalShell>
+  )
+}
+
+function BotonBackup({ tone = 'ghost' }) {
+  const [estado, setEstado] = useState(null) // null | 'cargando' | 'error'
+  const bajar = async () => {
+    setEstado('cargando')
+    try { await descargarBackupExcel(); setEstado(null) }
+    catch (e) { setEstado('error'); alert('No se pudo generar el backup: ' + e.message) }
+  }
+  return (
+    <Boton tone={tone} onClick={bajar} disabled={estado === 'cargando'}>
+      {estado === 'cargando' ? 'Generando…' : '⤓ Backup completo'}
+    </Boton>
+  )
+}
+
+function DeshacerModal({ op, onClose, onDone }) {
+  const [aplicando, setAplicando] = useState(false)
+  const [error, setError] = useState(null)
+  const aplicar = async () => {
+    setAplicando(true); setError(null)
+    try {
+      const res = await deshacerUltimo(op.id)
+      await onDone(res)
+      onClose()
+    } catch (e) { setError(e.message); setAplicando(false) }
+  }
+  const esCierre = op.accion === 'cerrar_campana'
+  return (
+    <ModalShell onClose={aplicando ? () => {} : onClose} title="Deshacer" sub={`Operación del ${op.fecha_hora}`} maxWidth={480}>
+      <div style={{ padding: '18px 20px', fontFamily: F.body, color: C.ink, fontSize: 13.5, lineHeight: 1.6 }}>
+        <div style={{ marginBottom: 10 }}>Se va a revertir: <strong>{op.descripcion}</strong>.</div>
+        <div style={{ color: C.inkSoft, fontSize: 12.5 }}>
+          {esCierre
+            ? 'La campaña cerrada vuelve a quedar activa y se elimina la campaña nueva con sus objetivos (solo si todavía no se le cargaron cortes).'
+            : 'Se borran los datos de ese corte y, si reemplazó a uno anterior, se restauran los valores que había antes.'}
+        </div>
+        {error && <div style={{ color: C.crimson, fontSize: 12.5, marginTop: 12 }}>❌ {error}</div>}
+      </div>
+      <div style={{ padding: '14px 20px', borderTop: `1px solid ${C.rule}`, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <Boton tone="ghost" onClick={onClose} disabled={aplicando}>Cancelar</Boton>
+        <Boton tone="crimson" onClick={aplicar} disabled={aplicando}>{aplicando ? 'Deshaciendo…' : 'Deshacer'}</Boton>
+      </div>
+    </ModalShell>
+  )
+}
+
+function diasEntre(desdeIso, hastaIso) {
+  return Math.round((new Date(hastaIso) - new Date(desdeIso)) / 86400000)
+}
+
+// Barra de estado de la campaña, arriba del Dashboard: dónde está parada la
+// campaña y las acciones de mantenimiento — cerrar (el botón protagonista),
+// deshacer la última carga/cierre, backup, e informes de la campaña cerrada.
+export default function CampanaBar({ campanas, campanaActiva, data, stats, sedes, historial, onCampanasChanged, onRecargarCampana }) {
+  const [modal, setModal] = useState(null) // 'cierre' | 'deshacer'
+  const [ultimaOp, setUltimaOp] = useState(null)
+  const [informePorSede, setInformePorSede] = useState(false)
+
+  const camp = campanas?.find(c => c.id === campanaActiva)
+  const hayActiva = campanas?.some(c => c.estado === 'activa')
+  const activa = camp?.estado === 'activa'
+  const cerrada = camp?.estado === 'cerrada'
+
+  // Se relee cada vez que cambian los datos (nueva carga, cierre, deshacer)
+  useEffect(() => {
+    obtenerUltimoDeshacer().then(setUltimaOp).catch(() => setUltimaOp(null))
+  }, [historial, campanas])
+
+  const hoyIso = new Date().toISOString().slice(0, 10)
+  const fin = camp?.fin ? String(camp.fin).slice(0, 10) : null
+  const diasAlFin = activa && fin ? diasEntre(hoyIso, fin) : null
+  const vencida = diasAlFin !== null && diasAlFin < 0
+
+  const onDeshecho = async (res) => {
+    const id = res.campana_id || campanaActiva
+    await onCampanasChanged(id)
+    if (id === campanaActiva) onRecargarCampana(id)
+  }
+
+  let detalle
+  if (activa) {
+    detalle = fin
+      ? vencida ? <span style={{ color: C.crimson, fontWeight: 600 }}>Terminó el {fmtFecha(fin)} — cerrala para arrancar la siguiente</span>
+        : <>Fin {fmtFecha(fin)} · quedan {diasAlFin} días</>
+      : <>En curso{camp?.inicio ? ` desde ${fmtFecha(camp.inicio)}` : ''}</>
+  } else if (cerrada) {
+    detalle = <>Cerrada{camp?.fecha_cierre ? ` el ${fmtFecha(camp.fecha_cierre)}` : ''}{data.length ? <> · resultado final <strong style={{ color: stats.pctGlobal >= 50 ? C.ok : C.warn }}>{stats.pctGlobal}%</strong></> : null}</>
+  }
+
+  return (
+    <>
+      <div style={{
+        background: C.paperRaised, border: `1px solid ${vencida ? 'rgba(156,43,52,0.45)' : C.rule}`,
+        borderLeft: `4px solid ${activa ? (vencida ? C.crimson : C.ok) : C.inkSoft}`,
+        borderRadius: 3, padding: '12px 16px', marginBottom: 20,
+        display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', fontFamily: F.body,
+      }}>
+        <div style={{ flex: 1, minWidth: 220 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: activa ? '#4CA678' : C.inkSoft, flexShrink: 0 }} />
+            <span style={{ fontFamily: F.display, fontSize: 16, fontWeight: 600, color: C.ink }}>{camp?.nombre || 'Sin campaña'}</span>
+            <span style={{ fontFamily: F.mono, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: activa ? C.ok : C.inkSoft }}>
+              {activa ? 'activa' : cerrada ? '🔒 cerrada' : ''}
+            </span>
+          </div>
+          {detalle && <div style={{ fontSize: 12.5, color: C.inkSoft, marginTop: 3, marginLeft: 16 }}>{detalle}</div>}
+        </div>
+
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          {ultimaOp && (
+            <button onClick={() => setModal('deshacer')} className="btn-press" title={`${ultimaOp.descripcion} (${ultimaOp.fecha_hora})`} style={{
+              padding: '8px 12px', borderRadius: 2, fontSize: 12, fontWeight: 600, fontFamily: F.body, cursor: 'pointer',
+              background: 'transparent', color: C.ink, border: `1px solid ${C.rule}`, maxWidth: 280,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              ↶ Deshacer: {ultimaOp.descripcion}
+            </button>
+          )}
+          <BotonBackup />
+          {cerrada && data.length > 0 && (
+            <>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: C.inkSoft, cursor: 'pointer' }}>
+                <input type="checkbox" checked={informePorSede} onChange={e => setInformePorSede(e.target.checked)} />
+                con hoja por sede
+              </label>
+              <Boton onClick={() => generarInformeCierre({ camp, data, historial, porSede: informePorSede })}>🖨 Imprimir informe de cierre</Boton>
+              <Boton tone="ghost" onClick={() => descargarResultadosExcel(camp.nombre, data, historial)}>⤓ Resultados Excel</Boton>
+            </>
+          )}
+          {activa && (
+            <button onClick={() => setModal('cierre')} className="btn-press" style={{
+              padding: '10px 20px', borderRadius: 2, fontSize: 13, fontWeight: 700, fontFamily: F.body,
+              letterSpacing: '0.04em', textTransform: 'uppercase', cursor: 'pointer',
+              background: C.crimson, color: '#fff', border: 'none',
+              boxShadow: vencida ? `0 0 0 3px rgba(156,43,52,0.2)` : 'none',
+            }}>
+              🏁 Cerrar campaña
+            </button>
+          )}
+          {!hayActiva && (
+            <button onClick={() => setModal('cierre')} className="btn-press" style={{
+              padding: '10px 20px', borderRadius: 2, fontSize: 13, fontWeight: 700, fontFamily: F.body,
+              letterSpacing: '0.04em', textTransform: 'uppercase', cursor: 'pointer',
+              background: C.ink, color: '#fff', border: 'none',
+            }}>
+              + Nueva campaña
+            </button>
+          )}
+        </div>
+      </div>
+
+      {modal === 'cierre' && (
+        <CierreModal
+          campanas={campanas} campanaActiva={campanaActiva} data={data} stats={stats} sedes={sedes} historial={historial}
+          onClose={() => setModal(null)} onDone={onCampanasChanged}
+        />
+      )}
+      {modal === 'deshacer' && ultimaOp && (
+        <DeshacerModal op={ultimaOp} onClose={() => setModal(null)} onDone={onDeshecho} />
+      )}
+    </>
+  )
+}

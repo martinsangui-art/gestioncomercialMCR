@@ -114,6 +114,12 @@ function doGet(e) {
     else if (action === 'config') {
       result = okData(getConfig());
     }
+    else if (action === 'ultimo_deshacer') {
+      result = okData(getUltimoDeshacer());
+    }
+    else if (action === 'backup') {
+      result = okData(getBackup());
+    }
     else if (action === 'notas_sede') {
       result = okData(getNotasSede(e.parameter.cod_sede));
     }
@@ -161,6 +167,10 @@ function okData(data) { return { ok: true, data: data }; }
 //   eliminar_corte   → borra del historial las filas de una fecha exacta
 //     (uso puntual para corregir cortes cargados con fecha corrupta)
 //     { fecha, campana_nombre }
+//   cerrar_campana   → cierra la campaña activa y/o abre la siguiente
+//     { campana_id?, nueva?: { nombre, fin, objetivos: [{cod_sede, objetivo}] } }
+//   deshacer         → revierte la última operación registrada en 'deshacer'
+//     { id }  (el id que devolvió ultimo_deshacer, para no deshacer otra cosa)
 // ════════════════════════════════════════════════════════════════════════
 function doPost(e) {
   try {
@@ -183,6 +193,8 @@ function doPost(e) {
     if (action === 'set_config') return ok(setConfig(body));
     if (action === 'confirmar_envio_lote') return ok(confirmarEnvioLote(body));
     if (action === 'agregar_nota') return ok(agregarNotaSede(body));
+    if (action === 'cerrar_campana') return ok(cerrarCampana(body));
+    if (action === 'deshacer') return ok(deshacerUltimo(body));
 
     return err('action no reconocida: ' + action);
   } catch(ex) {
@@ -768,9 +780,18 @@ function getHistorial(campanaId) {
     var campanas = getCampanas();
     var campObj = campanas.filter(function(c){ return c.id === campanaId; })[0];
     var nombreExacto = campObj ? campObj.nombre : null;
+    // Nombres exactos de las OTRAS campañas: una fila que es exactamente de
+    // otra campaña no se cuenta acá aunque la contenga como substring (ej:
+    // "2do Ingreso" no se lleva las filas de "2do Ingreso 2027").
+    var otrosNombres = {};
+    campanas.forEach(function(c) { if (c.id !== campanaId) otrosNombres[String(c.nombre)] = true; });
     data = data.filter(function(r) {
       var val = String(r['campaña'] || r['campana'] || r[3] || '');
-      if (nombreExacto) return val === nombreExacto || val.indexOf(nombreExacto) >= 0;
+      if (nombreExacto) {
+        if (val === nombreExacto) return true;
+        if (otrosNombres[val]) return false;
+        return val.indexOf(nombreExacto) >= 0;
+      }
       // fallback
       var patron = campanaId === 'C1' ? '1er Ingreso' : '2do Ingreso';
       return val.indexOf(patron) >= 0;
@@ -859,6 +880,7 @@ function agregarSemana(body) {
   var fechasExistentes = {};
   hist.forEach(function(r) { fechasExistentes[r.fecha] = true; });
 
+  var reemplazadas = [];
   if (fechasExistentes[fecha]) {
     if (!reemplazar) {
       // El front va a capturar este mensaje y ofrecer el botón de reemplazar
@@ -876,6 +898,12 @@ function agregarSemana(body) {
       var rowCampana = String(allRows[i][3] || '');
       if (rowFecha === fecha && rowCampana.indexOf(campanaNombre) >= 0) {
         rowsToDelete.push(i + 1); // +1 porque getValues es 0-indexed, deleteRow es 1-indexed
+        var copia = allRows[i].slice(0, 7);
+        copia[0] = rowFecha;
+        // Sheets lee '62%' como 0.62 — se guarda de nuevo como texto, igual que al cargar
+        var tot = Number(copia[4]) || 0, ob = Number(copia[5]) || 0;
+        copia[6] = ob > 0 ? Math.round(tot / ob * 100) + '%' : '0%';
+        reemplazadas.push(copia);
       }
     }
     rowsToDelete.forEach(function(rowNum) {
@@ -902,7 +930,263 @@ function agregarSemana(body) {
   var lastRow = hHist.getLastRow();
   hHist.getRange(lastRow + 1, 1, filas.length, 7).setValues(filas);
 
+  registrarDeshacer('agregar_semana',
+    (reemplazar ? 'Reemplazo' : 'Carga') + ' del corte ' + fmtFechaDDMMAAAA(fecha) + ' · ' + campanaNombre,
+    { campana_id: campanaId, campana_nombre: campanaNombre, fecha: fecha, reemplazadas: reemplazadas });
+
   return { insertadas: filas.length, fecha: fecha, campana: campanaId, reemplazado: reemplazar };
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// CIERRE DE CAMPAÑA — cierra la activa y abre la siguiente con sus objetivos
+// ════════════════════════════════════════════════════════════════════════
+// El historial de la campaña cerrada no se toca: queda tal cual para consultar
+// y comparar. Cerrar solo cambia su estado (la app ya bloquea carga de Excel y
+// envíos en campañas cerradas). Todo se valida antes de escribir, para no dejar
+// la planilla a medias si algo viene mal.
+function asegurarColumna(sheet, nombre) {
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var idx = headers.indexOf(nombre);
+  if (idx !== -1) return idx;
+  sheet.getRange(1, headers.length + 1).setValue(nombre);
+  return headers.length;
+}
+
+function cerrarCampana(body) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var hoy = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    var campanas = getCampanas();
+    var aCerrar = null;
+    if (body.campana_id) {
+      aCerrar = campanas.filter(function(c) { return c.id === body.campana_id; })[0];
+      if (!aCerrar) throw new Error('No se encontró la campaña ' + body.campana_id);
+      if (aCerrar.estado === 'cerrada') throw new Error('La campaña ya está cerrada');
+    }
+
+    var nueva = body.nueva || null;
+    var objetivos = [];
+    if (nueva) {
+      var nombre = String(nueva.nombre || '').trim();
+      if (!nombre) throw new Error('Falta el nombre de la campaña nueva');
+      // El historial y el log de envíos se asocian a la campaña por nombre
+      // (con búsqueda por substring) — dos nombres donde uno contiene al otro
+      // mezclarían datos entre campañas.
+      var n = nombre.toLowerCase();
+      campanas.forEach(function(c) {
+        var o = String(c.nombre || '').toLowerCase();
+        if (o && (o === n || o.indexOf(n) >= 0 || n.indexOf(o) >= 0)) {
+          throw new Error('El nombre se superpone con la campaña existente "' + c.nombre + '". Usá un nombre distinto (ej: con el año).');
+        }
+      });
+      if (nueva.fin && !/^\d{4}-\d{2}-\d{2}$/.test(String(nueva.fin))) throw new Error('Fecha de fin inválida');
+      objetivos = (nueva.objetivos || [])
+        .map(function(o) { return { cod_sede: String(o.cod_sede), objetivo: Number(o.objetivo) }; })
+        .filter(function(o) { return o.cod_sede && o.objetivo > 0; });
+      if (!objetivos.length) throw new Error('Cargá al menos un objetivo mayor a 0');
+    }
+    if (!aCerrar && !nueva) throw new Error('Nada para hacer');
+
+    var resultado = { cerrada: aCerrar ? aCerrar.id : null, nueva_id: null };
+
+    if (nueva) {
+      // Id correlativo: C1, C2, ... → siguiente número libre
+      var maxNum = 0;
+      campanas.forEach(function(c) {
+        var m = String(c.id).match(/(\d+)$/);
+        if (m) maxNum = Math.max(maxNum, Number(m[1]));
+      });
+      var nuevaId = 'C' + (maxNum + 1);
+
+      var hCamp = SS.getSheetByName('campanas');
+      asegurarColumna(hCamp, 'inicio');
+      asegurarColumna(hCamp, 'fin');
+      var headersCamp = hCamp.getRange(1, 1, 1, hCamp.getLastColumn()).getValues()[0];
+      hCamp.appendRow(headersCamp.map(function(col) {
+        if (col === 'id') return nuevaId;
+        if (col === 'nombre') return nombre;
+        if (col === 'estado') return 'activa';
+        if (col === 'inicio') return hoy;
+        if (col === 'fin') return nueva.fin || '';
+        return '';
+      }));
+
+      var nombresSede = {};
+      getSedesTodas().forEach(function(s) { nombresSede[String(s.cod_sede)] = s.sede; });
+      var hObj = SS.getSheetByName('objetivos');
+      var headersObj = hObj.getRange(1, 1, 1, hObj.getLastColumn()).getValues()[0];
+      var filas = objetivos.map(function(o) {
+        return headersObj.map(function(col) {
+          if (col === 'campana_id') return nuevaId;
+          if (col === 'cod_sede') return o.cod_sede;
+          if (col === 'objetivo') return o.objetivo;
+          if (col === 'sede') return nombresSede[o.cod_sede] || '';
+          if (col === 'campana' || col === 'campaña' || col === 'campana_nombre') return nombre;
+          return '';
+        });
+      });
+      hObj.getRange(hObj.getLastRow() + 1, 1, filas.length, headersObj.length).setValues(filas);
+      resultado.nueva_id = nuevaId;
+    }
+
+    if (aCerrar) {
+      var h = SS.getSheetByName('campanas');
+      var idxCierre = asegurarColumna(h, 'fecha_cierre');
+      var headers = h.getRange(1, 1, 1, h.getLastColumn()).getValues()[0];
+      var idxId = headers.indexOf('id');
+      var idxEstado = headers.indexOf('estado');
+      var rows = h.getDataRange().getValues();
+      for (var i = 1; i < rows.length; i++) {
+        if (String(rows[i][idxId]) === String(aCerrar.id)) {
+          h.getRange(i + 1, idxEstado + 1).setValue('cerrada');
+          h.getRange(i + 1, idxCierre + 1).setValue(hoy);
+          break;
+        }
+      }
+    }
+
+    var partes = [];
+    if (aCerrar) partes.push('Cierre de ' + aCerrar.nombre);
+    if (nueva) partes.push('apertura de ' + nombre);
+    registrarDeshacer('cerrar_campana', partes.join(' y '),
+      { cerrada_id: resultado.cerrada, nueva_id: resultado.nueva_id });
+
+    SpreadsheetApp.flush();
+    return resultado;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// DESHACER — registro de operaciones reversibles
+// ════════════════════════════════════════════════════════════════════════
+// Antes de cada carga de corte y cada cierre de campaña se guarda en la hoja
+// 'deshacer' lo necesario para revertirlo (ej: las filas que un reemplazo
+// pisó). Se deshace siempre la última operación pendiente, en orden inverso,
+// así cada reversión parte del mismo estado que dejó la operación original.
+function getDeshacerSheet() {
+  var h = SS.getSheetByName('deshacer');
+  if (!h) {
+    h = SS.insertSheet('deshacer');
+    h.getRange(1, 1, 1, 6).setValues([['id', 'fecha_hora', 'accion', 'descripcion', 'datos', 'deshecho']]);
+    h.setFrozenRows(1);
+  }
+  return h;
+}
+
+function registrarDeshacer(accion, descripcion, datos) {
+  var h = getDeshacerSheet();
+  var ahora = new Date();
+  var id = String(ahora.getTime());
+  var fechaHora = Utilities.formatDate(ahora, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
+  // Texto plano: si no, Sheets convierte la fecha_hora en Date
+  h.appendRow(["'" + id, "'" + fechaHora, accion, descripcion, JSON.stringify(datos), '']);
+}
+
+// Última operación todavía no deshecha, o null
+function ultimaDeshacerFila() {
+  var h = getDeshacerSheet();
+  var rows = h.getDataRange().getValues();
+  for (var i = rows.length - 1; i >= 1; i--) {
+    if (!rows[i][5]) return { fila: i + 1, id: String(rows[i][0]), fecha_hora: String(rows[i][1]), accion: rows[i][2], descripcion: rows[i][3], datos: rows[i][4] };
+  }
+  return null;
+}
+
+function getUltimoDeshacer() {
+  var u = ultimaDeshacerFila();
+  if (!u) return null;
+  return { id: u.id, fecha_hora: u.fecha_hora, accion: u.accion, descripcion: u.descripcion };
+}
+
+function borrarFilasDonde(sheet, cond) {
+  var rows = sheet.getDataRange().getValues();
+  var n = 0;
+  for (var i = rows.length - 1; i >= 1; i--) {
+    if (cond(rows[i])) { sheet.deleteRow(i + 1); n++; }
+  }
+  return n;
+}
+
+function deshacerUltimo(body) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var u = ultimaDeshacerFila();
+    if (!u) throw new Error('No hay nada para deshacer');
+    if (String(body.id) !== u.id) throw new Error('La última operación cambió mientras tanto — recargá la página y volvé a intentar');
+    var datos = JSON.parse(u.datos);
+    var tz = Session.getScriptTimeZone();
+    var seleccionar = null;
+
+    if (u.accion === 'agregar_semana') {
+      var hHist = SS.getSheetByName('historial');
+      borrarFilasDonde(hHist, function(r) {
+        var f = r[0] instanceof Date ? Utilities.formatDate(r[0], tz, 'yyyy-MM-dd') : String(r[0]);
+        return f === datos.fecha && String(r[3] || '') === datos.campana_nombre;
+      });
+      if (datos.reemplazadas && datos.reemplazadas.length) {
+        hHist.getRange(hHist.getLastRow() + 1, 1, datos.reemplazadas.length, 7).setValues(datos.reemplazadas);
+      }
+      seleccionar = datos.campana_id;
+    }
+    else if (u.accion === 'cerrar_campana') {
+      if (datos.nueva_id) {
+        if (getHistorial(datos.nueva_id).length) {
+          throw new Error('La campaña nueva ya tiene cortes cargados — deshacé primero esas cargas');
+        }
+        borrarFilasDonde(SS.getSheetByName('objetivos'), (function() {
+          var hdr = SS.getSheetByName('objetivos').getRange(1, 1, 1, SS.getSheetByName('objetivos').getLastColumn()).getValues()[0];
+          var idx = hdr.indexOf('campana_id');
+          return function(r) { return String(r[idx]) === String(datos.nueva_id); };
+        })());
+        var hC = SS.getSheetByName('campanas');
+        var idxId = hC.getRange(1, 1, 1, hC.getLastColumn()).getValues()[0].indexOf('id');
+        borrarFilasDonde(hC, function(r) { return String(r[idxId]) === String(datos.nueva_id); });
+      }
+      if (datos.cerrada_id) {
+        var h = SS.getSheetByName('campanas');
+        var headers = h.getRange(1, 1, 1, h.getLastColumn()).getValues()[0];
+        var rows = h.getDataRange().getValues();
+        for (var i = 1; i < rows.length; i++) {
+          if (String(rows[i][headers.indexOf('id')]) === String(datos.cerrada_id)) {
+            h.getRange(i + 1, headers.indexOf('estado') + 1).setValue('activa');
+            var idxCierre = headers.indexOf('fecha_cierre');
+            if (idxCierre !== -1) h.getRange(i + 1, idxCierre + 1).setValue('');
+            break;
+          }
+        }
+        seleccionar = datos.cerrada_id;
+      }
+    }
+    else throw new Error('Operación desconocida: ' + u.accion);
+
+    getDeshacerSheet().getRange(u.fila, 6).setValue("'" + Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm'));
+    SpreadsheetApp.flush();
+    return { accion: u.accion, descripcion: u.descripcion, campana_id: seleccionar };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Copia completa de la base para descargar como Excel de respaldo
+function getBackup() {
+  function hoja(nombre) {
+    var h = SS.getSheetByName(nombre);
+    if (!h) return [];
+    var rows = h.getDataRange().getValues();
+    var keys = rows[0];
+    return rows.slice(1).map(function(r) { return rowToObj(keys, r); });
+  }
+  return {
+    campanas: hoja('campanas'),
+    objetivos: hoja('objetivos'),
+    historial: hoja('historial'),
+    sedes: hoja('sedes'),
+    log_envios: hoja('log_envios'),
+  };
 }
 
 // ════════════════════════════════════════════════════════════════════════
