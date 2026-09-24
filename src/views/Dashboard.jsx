@@ -6,6 +6,7 @@ import { C, F, panel, cifra, rotulo } from '../lib/theme'
 import { hace } from '../components/FichaSede'
 import { nombreCorto as corto, estadoSede } from '../lib/formato'
 import { situacionCampana } from '../components/CampanaAcciones'
+import Casillero, { useAnimarTablero } from '../components/Casillero'
 
 function estadoColor(d) {
   return { ok: C.ok, prog: C.warn, cero: C.danger }[estadoSede(d)]
@@ -187,41 +188,13 @@ function Regla({ data, pctZona, onAbrir }) {
 }
 
 // ── Tablero de casilleros ───────────────────────────────────────────────────
-// Un casillero por sede, agrupadas por estado, como el tablero de andenes de
-// una terminal: cada uno lleva la sigla de su sede (LUJ, MDP…) para ubicarla
-// sin pasar el mouse, y el tamaño de cada grupo se ve sin leer números.
-// Relleno = sumó inscriptos en este corte; claro = igual que el anterior.
-const TONOS_CASILLERO = {
-  ok:   { fuerte: C.ok,     texto: '#fff',   claro: '#DDF0E8', textoClaro: '#0B6B49' },
-  prog: { fuerte: C.warn,   texto: C.ink,    claro: '#F7EEDB', textoClaro: '#6B4A00' },
-  cero: { fuerte: C.danger, texto: '#fff',   claro: '#F9DEE3', textoClaro: '#9B1027' },
-}
-
-function Casillero({ d, sigla, estado, onAbrir, onHover, activo }) {
-  const t = TONOS_CASILLERO[estado]
-  const sumo = d.var !== null && d.var !== undefined && d.var > 0
-  return (
-    <button
-      onMouseEnter={() => onHover(d.cod_sede)} onMouseLeave={() => onHover(null)}
-      onFocus={() => onHover(d.cod_sede)} onBlur={() => onHover(null)}
-      onClick={() => onAbrir(d)}
-      aria-label={`${corto(d.sede)}: ${d.pct}%${sumo ? `, sumó ${d.var} en este corte` : ', no sumó en este corte'}. Abrir ficha`}
-      title={`${corto(d.sede)} · ${d.pct}%`}
-      style={{
-        width: 46, height: 30, borderRadius: 6, cursor: 'pointer', padding: 0,
-        background: sumo ? t.fuerte : t.claro, color: sumo ? t.texto : t.textoClaro,
-        border: sumo ? `1.5px solid ${t.fuerte}` : `1.5px solid ${t.fuerte}66`,
-        fontFamily: F.mono, fontSize: 12, fontWeight: 700, letterSpacing: '0.03em',
-        outline: activo ? `2px solid ${C.ink}` : 'none', outlineOffset: 1,
-        transition: 'transform .12s', transform: activo ? 'translateY(-2px)' : 'none',
-      }}>
-      {sigla}
-    </button>
-  )
-}
-
+// Un casillero por sede, agrupadas por estado, como el tablero de salidas de
+// una terminal: cada placa lleva la sigla de su sede (LUJ, MDP…), la luz de
+// su estado, la franja de avance hacia el objetivo y "+N" si sumó en este
+// corte. El tamaño de cada grupo se ve sin leer números.
 function Casilleros({ data, siglas, onAbrir }) {
   const [hover, setHover] = useState(null)
+  const animar = useAnimarTablero()
   const grupos = [
     { k: 'ok',   label: 'En objetivo',  sub: '50% o más' },
     { k: 'prog', label: 'En progreso',  sub: 'entre 1% y 49%' },
@@ -229,12 +202,13 @@ function Casilleros({ data, siglas, onAbrir }) {
   ].map(g => ({ ...g, items: data.filter(d => estadoSede(d) === g.k).sort((a, b) => b.pct - a.pct) }))
   const sumaron = data.filter(d => d.var > 0).length
   const h = hover && data.find(d => d.cod_sede === hover)
+  let orden = 0
 
   return (
     <div className="animate-fadeUp" style={{ ...panel({ padding: '20px 22px 16px' }), animationDelay: '60ms' }}>
-      <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+      <div style={{ display: 'flex', gap: 30, flexWrap: 'wrap', alignItems: 'flex-start' }}>
         {grupos.map(g => (
-          <div key={g.k} style={{ flexGrow: Math.max(g.items.length, 4), flexBasis: 0, minWidth: 160 }}>
+          <div key={g.k} style={{ flexGrow: Math.max(g.items.length, 4), flexBasis: 0, minWidth: `min(${Math.min(Math.max(g.items.length, 3), 8) * 68 - 6}px, 100%)` }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 12 }}>
               <span style={{ ...cifra(36), color: C.ink }}>{g.items.length}</span>
               <div>
@@ -242,30 +216,49 @@ function Casilleros({ data, siglas, onAbrir }) {
                 <div style={{ fontSize: 12, color: C.inkSoft }}>{g.sub}</div>
               </div>
             </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-              {g.items.length === 0 && <div style={{ height: 30, fontSize: 12.5, color: C.inkSoft, display: 'flex', alignItems: 'center' }}>Ninguna</div>}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {g.items.length === 0 && <div style={{ height: 50, fontSize: 12.5, color: C.inkSoft, display: 'flex', alignItems: 'center' }}>Ninguna</div>}
               {g.items.map(d => (
-                <Casillero key={d.cod_sede} d={d} sigla={siglas[String(d.cod_sede)]} estado={g.k}
-                  onAbrir={onAbrir} onHover={setHover} activo={hover === d.cod_sede} />
+                <Casillero key={d.cod_sede}
+                  sigla={siglas[String(d.cod_sede)]} estado={g.k} pct={d.pct} variacion={d.var}
+                  animar={animar} retraso={140 + (orden++) * 28}
+                  activo={hover === d.cod_sede}
+                  onHover={on => setHover(on ? d.cod_sede : null)}
+                  onClick={() => onAbrir(d)}
+                  etiqueta={`${corto(d.sede)}: ${d.pct}%, ${d.total} de ${d.objetivo}${d.var > 0 ? `, sumó ${d.var} en este corte` : ''}. Abrir ficha`}
+                />
               ))}
             </div>
           </div>
         ))}
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginTop: 16, paddingTop: 12, borderTop: `1px solid ${C.ruleSoft}`, fontSize: 13, color: C.inkSoft, minHeight: 22 }}>
+
+      {/* Leyenda: lo que dice cada placa, o la sede señalada */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap', marginTop: 16, paddingTop: 12, borderTop: `1px solid ${C.ruleSoft}`, fontSize: 13, color: C.inkSoft, minHeight: 26 }}>
         {h ? (
-          <span><strong style={{ fontFamily: F.mono, color: C.ink }}>{siglas[String(h.cod_sede)]}</strong> = <strong style={{ color: C.ink }}>{corto(h.sede)}</strong> · <span style={{ fontFamily: F.mono }}>{h.pct}% · {h.total} de {h.objetivo}</span>{h.var > 0 ? ` · sumó ${h.var}` : h.var < 0 ? ` · bajó ${-h.var}` : h.var === 0 ? ' · sin cambios' : ''} · tocá para abrir la ficha</span>
+          <span>
+            <strong style={{ fontFamily: F.mono, color: C.ink, letterSpacing: '0.06em' }}>{siglas[String(h.cod_sede)]}</strong> = <strong style={{ color: C.ink }}>{corto(h.sede)}</strong>
+            {' · '}<span style={{ fontFamily: F.mono }}>{h.pct}% · {h.total} de {h.objetivo}</span>
+            {h.var > 0 ? ` · sumó ${h.var} en este corte` : h.var < 0 ? ` · bajó ${-h.var}` : h.var === 0 ? ' · sin cambios' : ''}
+            {' · '}tocá para abrir la ficha
+          </span>
         ) : (
           <>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-              <span style={{ width: 16, height: 12, borderRadius: 3, background: C.ok }} />
-              <span><strong style={{ color: C.ink }}>{sumaron}</strong> {sumaron === 1 ? 'sumó' : 'sumaron'} inscriptos en este corte</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#3DD598', boxShadow: '0 0 0 2px #0E1733' }} />
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#F5B83D', boxShadow: '0 0 0 2px #0E1733' }} />
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#FF6B7D', boxShadow: '0 0 0 2px #0E1733' }} />
+              estado
             </span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-              <span style={{ width: 16, height: 12, borderRadius: 3, background: '#DDF0E8', border: `1.5px solid ${C.ok}66` }} />
-              <span><strong style={{ color: C.ink }}>{data.length - sumaron}</strong> no {data.length - sumaron === 1 ? 'sumó' : 'sumaron'}</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 22, height: 4, borderRadius: 2, background: `linear-gradient(90deg, #3DD598 60%, rgba(14,23,51,0.18) 60%)` }} />
+              avance hacia el objetivo
             </span>
-            <span>Tocá una sigla para ver la sede.</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontFamily: F.mono, fontSize: 11, fontWeight: 700, color: C.navy, background: C.celesteSoft, borderRadius: 4, padding: '1px 5px' }}>+2</span>
+              sumó en este corte ({sumaron} de {data.length})
+            </span>
+            <span>Tocá una placa para ver su sede.</span>
           </>
         )}
       </div>

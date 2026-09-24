@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { enviarEmailViaScript, obtenerLogEnvios, enviarResumenCele, onAuthExpired, obtenerConfig, guardarConfig, confirmarEnvioLote } from '../hooks/useSheets'
 import { C, F, panel, cifra } from '../lib/theme'
 import ModalShell from '../components/ModalShell'
+import Casillero from '../components/Casillero'
 import { fmtFecha, hoyIso, nombreCorto, estadoSede } from '../lib/formato'
 
 const BORRADOR_KEY = 'ucasal_borrador_semana'
@@ -594,24 +595,18 @@ export default function Envio({ data, copied, onCopied, onUncopied, campanas, ca
           <span style={{ ...cifra(40), color: C.ink }}>{enviadas.length}</span>
           <span style={{ fontSize: 15, color: C.inkSoft }}>de <strong style={{ color: C.ink, fontFamily: F.mono }}>{data.length}</strong> mails enviados</span>
         </div>
-        {/* Una sede por casillero, con su sigla y siempre en el mismo lugar
-            (orden alfabético): se llena a medida que sale cada mail */}
+        {/* El tablero de envío: una placa por sede (con su sigla y siempre en
+            el mismo lugar, en orden alfabético) que se enciende cuando sale
+            su mail. Luz roja: la sede no tiene email cargado. */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, flex: 1, minWidth: 260 }}>
           {[...data].sort((a, b) => nombreCorto(a.sede).localeCompare(nombreCorto(b.sede))).map(d => {
-            const ok = copied[d.cod_sede]
+            const ok = !!copied[d.cod_sede]
             const sinEmail = !String(d.email || '').trim()
             return (
-              <span key={d.cod_sede} title={`${nombreCorto(d.sede)} · ${ok ? 'enviado' : sinEmail ? 'sin email' : 'sin enviar'}`}
-                aria-label={`${nombreCorto(d.sede)}: ${ok ? 'enviado' : sinEmail ? 'sin email' : 'sin enviar'}`}
-                style={{
-                  width: 44, height: 28, borderRadius: 6, display: 'inline-grid', placeItems: 'center',
-                  fontFamily: F.mono, fontSize: 11.5, fontWeight: 700, letterSpacing: '0.03em',
-                  background: ok ? C.ok : '#fff', color: ok ? '#fff' : sinEmail ? C.crimson : C.inkSoft,
-                  border: `1.5px solid ${ok ? C.ok : sinEmail ? C.crimson + '88' : C.rule}`,
-                  transition: 'background .3s, border-color .3s, color .3s',
-                }}>
-                {siglas[String(d.cod_sede)] || '···'}
-              </span>
+              <Casillero key={d.cod_sede} compacto
+                sigla={siglas[String(d.cod_sede)]} estado="ok" encendido={ok} alerta={!ok && sinEmail}
+                etiqueta={`${nombreCorto(d.sede)}: ${ok ? 'mail enviado' : sinEmail ? 'sin email cargado' : 'sin enviar'}`}
+              />
             )
           })}
         </div>
