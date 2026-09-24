@@ -8,7 +8,7 @@ const normalizar = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '
 // "Ir a una sede": cuando una sede llama o hay que revisar una puntual, se
 // escribe parte del nombre (o el código) y Enter abre su ficha. Se abre con
 // Ctrl+K / ⌘K desde cualquier pantalla.
-export default function BuscadorSedes({ data, onElegir, onClose }) {
+export default function BuscadorSedes({ data, siglas = {}, onElegir, onClose }) {
   const [q, setQ] = useState('')
   const [sel, setSel] = useState(0)
   const inputRef = useRef(null)
@@ -21,9 +21,11 @@ export default function BuscadorSedes({ data, onElegir, onClose }) {
     const base = [...data].sort((a, b) => String(a.sede).localeCompare(String(b.sede)))
     if (!n) return base
     return base
-      .filter(d => normalizar(d.sede).includes(n) || String(d.cod_sede).startsWith(n))
-      .sort((a, b) => normalizar(a.sede).indexOf(n) - normalizar(b.sede).indexOf(n))
-  }, [q, data])
+      .filter(d => normalizar(d.sede).includes(n) || String(d.cod_sede).startsWith(n) || normalizar(siglas[String(d.cod_sede)]) === n)
+      // primero la sede cuya sigla es exactamente lo escrito ("tla")
+      .sort((a, b) => (normalizar(siglas[String(b.cod_sede)]) === n) - (normalizar(siglas[String(a.cod_sede)]) === n)
+        || normalizar(a.sede).indexOf(n) - normalizar(b.sede).indexOf(n))
+  }, [q, data, siglas])
 
   useEffect(() => { setSel(0) }, [q])
   useEffect(() => {
@@ -49,7 +51,7 @@ export default function BuscadorSedes({ data, onElegir, onClose }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '0 18px', borderBottom: `1px solid ${C.rule}` }}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.inkSoft} strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M20 20l-4-4" /></svg>
           <input ref={inputRef} value={q} onChange={e => setQ(e.target.value)} onKeyDown={onKey}
-            placeholder="Nombre o código de la sede" aria-label="Buscar sede"
+            placeholder="Nombre, sigla o código de la sede" aria-label="Buscar sede"
             role="combobox" aria-expanded="true" aria-controls="lista-sedes" aria-activedescendant={resultados[sel] ? `sede-${resultados[sel].cod_sede}` : undefined}
             style={{ flex: 1, height: 58, border: 'none', outline: 'none', fontSize: 17, fontFamily: F.body, color: C.ink, background: 'transparent' }} />
           <kbd style={{ fontFamily: F.mono, fontSize: 11, color: C.inkSoft, border: `1px solid ${C.rule}`, borderRadius: 5, padding: '2px 6px' }}>Esc</kbd>
@@ -69,6 +71,7 @@ export default function BuscadorSedes({ data, onElegir, onClose }) {
                   background: activo ? C.celesteSoft : 'transparent',
                 }}>
                 <span style={{ width: 9, height: 9, borderRadius: '50%', background: e.color, flexShrink: 0 }} />
+                <span style={{ fontFamily: F.mono, fontSize: 12, fontWeight: 700, color: C.navy, background: C.celesteSoft, borderRadius: 5, padding: '2px 6px', flexShrink: 0 }}>{siglas[String(d.cod_sede)]}</span>
                 <span style={{ flex: 1, minWidth: 0 }}>
                   <span style={{ fontSize: 14.5, fontWeight: 700, color: C.ink }}>{nombreCorto(d.sede)}</span>
                   <span style={{ fontFamily: F.mono, fontSize: 11.5, color: C.inkSoft, marginLeft: 8 }}>{d.cod_sede}</span>

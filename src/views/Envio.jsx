@@ -306,7 +306,7 @@ function ConfirmModal({ title, sub, items, footNote, onClose, onConfirm, confirm
   )
 }
 
-export default function Envio({ data, copied, onCopied, onUncopied, campanas, campanaActiva, guardarSemana }) {
+export default function Envio({ data, copied, onCopied, onUncopied, campanas, campanaActiva, guardarSemana, siglas = {} }) {
   const [seleccion, setSeleccion] = useState({})
   const [log, setLog] = useState([])
   const [enviando, setEnviando] = useState(false)
@@ -594,14 +594,25 @@ export default function Envio({ data, copied, onCopied, onUncopied, campanas, ca
           <span style={{ ...cifra(40), color: C.ink }}>{enviadas.length}</span>
           <span style={{ fontSize: 15, color: C.inkSoft }}>de <strong style={{ color: C.ink, fontFamily: F.mono }}>{data.length}</strong> mails enviados</span>
         </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, flex: 1, minWidth: 260 }} aria-hidden="true">
-          {[...enviadas, ...pendientes].map(d => {
+        {/* Una sede por casillero, con su sigla y siempre en el mismo lugar
+            (orden alfabético): se llena a medida que sale cada mail */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, flex: 1, minWidth: 260 }}>
+          {[...data].sort((a, b) => nombreCorto(a.sede).localeCompare(nombreCorto(b.sede))).map(d => {
             const ok = copied[d.cod_sede]
-            return <span key={d.cod_sede} title={`${d.sede} · ${ok ? 'enviado' : 'pendiente'}`} style={{
-              width: 18, height: 18, borderRadius: 4,
-              background: ok ? C.ok : 'transparent', border: `2px solid ${ok ? C.ok : C.rule}`,
-              transition: 'background .3s, border-color .3s',
-            }} />
+            const sinEmail = !String(d.email || '').trim()
+            return (
+              <span key={d.cod_sede} title={`${nombreCorto(d.sede)} · ${ok ? 'enviado' : sinEmail ? 'sin email' : 'sin enviar'}`}
+                aria-label={`${nombreCorto(d.sede)}: ${ok ? 'enviado' : sinEmail ? 'sin email' : 'sin enviar'}`}
+                style={{
+                  width: 44, height: 28, borderRadius: 6, display: 'inline-grid', placeItems: 'center',
+                  fontFamily: F.mono, fontSize: 11.5, fontWeight: 700, letterSpacing: '0.03em',
+                  background: ok ? C.ok : '#fff', color: ok ? '#fff' : sinEmail ? C.crimson : C.inkSoft,
+                  border: `1.5px solid ${ok ? C.ok : sinEmail ? C.crimson + '88' : C.rule}`,
+                  transition: 'background .3s, border-color .3s, color .3s',
+                }}>
+                {siglas[String(d.cod_sede)] || '···'}
+              </span>
+            )
           })}
         </div>
         {pendientes.length === 0 && data.length > 0 && (

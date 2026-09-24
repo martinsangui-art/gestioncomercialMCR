@@ -188,24 +188,53 @@ function Regla({ data, pctZona, onAbrir }) {
 
 // ── Tablero de casilleros ───────────────────────────────────────────────────
 // Un casillero por sede, agrupadas por estado, como el tablero de andenes de
-// una terminal: el tamaño de cada grupo se ve sin leer números. Las que no
-// sumaron nada desde el corte anterior llevan rayado. Cada casillero abre la
-// ficha de su sede.
-function Casilleros({ data, onAbrir }) {
+// una terminal: cada uno lleva la sigla de su sede (LUJ, MDP…) para ubicarla
+// sin pasar el mouse, y el tamaño de cada grupo se ve sin leer números.
+// Relleno = sumó inscriptos en este corte; claro = igual que el anterior.
+const TONOS_CASILLERO = {
+  ok:   { fuerte: C.ok,     texto: '#fff',   claro: '#DDF0E8', textoClaro: '#0B6B49' },
+  prog: { fuerte: C.warn,   texto: C.ink,    claro: '#F7EEDB', textoClaro: '#6B4A00' },
+  cero: { fuerte: C.danger, texto: '#fff',   claro: '#F9DEE3', textoClaro: '#9B1027' },
+}
+
+function Casillero({ d, sigla, estado, onAbrir, onHover, activo }) {
+  const t = TONOS_CASILLERO[estado]
+  const sumo = d.var !== null && d.var !== undefined && d.var > 0
+  return (
+    <button
+      onMouseEnter={() => onHover(d.cod_sede)} onMouseLeave={() => onHover(null)}
+      onFocus={() => onHover(d.cod_sede)} onBlur={() => onHover(null)}
+      onClick={() => onAbrir(d)}
+      aria-label={`${corto(d.sede)}: ${d.pct}%${sumo ? `, sumó ${d.var} en este corte` : ', no sumó en este corte'}. Abrir ficha`}
+      title={`${corto(d.sede)} · ${d.pct}%`}
+      style={{
+        width: 46, height: 30, borderRadius: 6, cursor: 'pointer', padding: 0,
+        background: sumo ? t.fuerte : t.claro, color: sumo ? t.texto : t.textoClaro,
+        border: sumo ? `1.5px solid ${t.fuerte}` : `1.5px solid ${t.fuerte}66`,
+        fontFamily: F.mono, fontSize: 12, fontWeight: 700, letterSpacing: '0.03em',
+        outline: activo ? `2px solid ${C.ink}` : 'none', outlineOffset: 1,
+        transition: 'transform .12s', transform: activo ? 'translateY(-2px)' : 'none',
+      }}>
+      {sigla}
+    </button>
+  )
+}
+
+function Casilleros({ data, siglas, onAbrir }) {
   const [hover, setHover] = useState(null)
   const grupos = [
-    { k: 'ok',   label: 'En objetivo',  sub: '50% o más',        color: C.ok },
-    { k: 'prog', label: 'En progreso',  sub: 'entre 1% y 49%',   color: C.warn },
-    { k: 'cero', label: 'Sin ingresos', sub: 'todavía en cero',  color: C.danger },
+    { k: 'ok',   label: 'En objetivo',  sub: '50% o más' },
+    { k: 'prog', label: 'En progreso',  sub: 'entre 1% y 49%' },
+    { k: 'cero', label: 'Sin ingresos', sub: 'todavía en cero' },
   ].map(g => ({ ...g, items: data.filter(d => estadoSede(d) === g.k).sort((a, b) => b.pct - a.pct) }))
-  const sinAvance = data.filter(d => d.var === 0).length
+  const sumaron = data.filter(d => d.var > 0).length
   const h = hover && data.find(d => d.cod_sede === hover)
 
   return (
     <div className="animate-fadeUp" style={{ ...panel({ padding: '20px 22px 16px' }), animationDelay: '60ms' }}>
       <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap', alignItems: 'flex-start' }}>
         {grupos.map(g => (
-          <div key={g.k} style={{ flexGrow: Math.max(g.items.length, 4), flexBasis: 0, minWidth: 150 }}>
+          <div key={g.k} style={{ flexGrow: Math.max(g.items.length, 4), flexBasis: 0, minWidth: 160 }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 12 }}>
               <span style={{ ...cifra(36), color: C.ink }}>{g.items.length}</span>
               <div>
@@ -213,37 +242,30 @@ function Casilleros({ data, onAbrir }) {
                 <div style={{ fontSize: 12, color: C.inkSoft }}>{g.sub}</div>
               </div>
             </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-              {g.items.length === 0 && <div style={{ height: 24, fontSize: 12.5, color: C.inkSoft, display: 'flex', alignItems: 'center' }}>Ninguna</div>}
-              {g.items.map(d => {
-                const estancada = d.var === 0
-                return (
-                  <button key={d.cod_sede}
-                    onMouseEnter={() => setHover(d.cod_sede)} onMouseLeave={() => setHover(null)}
-                    onFocus={() => setHover(d.cod_sede)} onBlur={() => setHover(null)}
-                    onClick={() => onAbrir(d)}
-                    aria-label={`${corto(d.sede)}: ${d.pct}%${estancada ? ', sin avance' : ''}. Abrir ficha`}
-                    style={{
-                      width: 24, height: 24, borderRadius: 6, cursor: 'pointer', border: 'none', padding: 0,
-                      background: estancada
-                        ? `repeating-linear-gradient(135deg, ${g.color} 0 3px, ${g.color}55 3px 6px)`
-                        : g.color,
-                      outline: hover === d.cod_sede ? `2px solid ${C.ink}` : 'none', outlineOffset: 1,
-                      transition: 'transform .12s', transform: hover === d.cod_sede ? 'scale(1.15)' : 'none',
-                    }} />
-                )
-              })}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+              {g.items.length === 0 && <div style={{ height: 30, fontSize: 12.5, color: C.inkSoft, display: 'flex', alignItems: 'center' }}>Ninguna</div>}
+              {g.items.map(d => (
+                <Casillero key={d.cod_sede} d={d} sigla={siglas[String(d.cod_sede)]} estado={g.k}
+                  onAbrir={onAbrir} onHover={setHover} activo={hover === d.cod_sede} />
+              ))}
             </div>
           </div>
         ))}
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 16, paddingTop: 12, borderTop: `1px solid ${C.ruleSoft}`, fontSize: 13, color: C.inkSoft, minHeight: 22 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginTop: 16, paddingTop: 12, borderTop: `1px solid ${C.ruleSoft}`, fontSize: 13, color: C.inkSoft, minHeight: 22 }}>
         {h ? (
-          <span><strong style={{ color: C.ink }}>{corto(h.sede)}</strong> · <span style={{ fontFamily: F.mono }}>{h.pct}% · {h.total} de {h.objetivo}</span>{h.var === 0 ? ' · sin avance' : ''} · tocá para abrir la ficha</span>
+          <span><strong style={{ fontFamily: F.mono, color: C.ink }}>{siglas[String(h.cod_sede)]}</strong> = <strong style={{ color: C.ink }}>{corto(h.sede)}</strong> · <span style={{ fontFamily: F.mono }}>{h.pct}% · {h.total} de {h.objetivo}</span>{h.var > 0 ? ` · sumó ${h.var}` : h.var < 0 ? ` · bajó ${-h.var}` : h.var === 0 ? ' · sin cambios' : ''} · tocá para abrir la ficha</span>
         ) : (
           <>
-            <span style={{ width: 14, height: 14, borderRadius: 3, flexShrink: 0, background: `repeating-linear-gradient(135deg, ${C.inkSoft} 0 3px, ${C.inkSoft}55 3px 6px)` }} />
-            <span><strong style={{ color: C.ink, fontFamily: F.mono }}>{sinAvance}</strong> rayadas: no sumaron desde el corte anterior. Cada casillero es una sede; tocalo para ver su ficha.</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+              <span style={{ width: 16, height: 12, borderRadius: 3, background: C.ok }} />
+              <span><strong style={{ color: C.ink }}>{sumaron}</strong> {sumaron === 1 ? 'sumó' : 'sumaron'} inscriptos en este corte</span>
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+              <span style={{ width: 16, height: 12, borderRadius: 3, background: '#DDF0E8', border: `1.5px solid ${C.ok}66` }} />
+              <span><strong style={{ color: C.ink }}>{data.length - sumaron}</strong> no {data.length - sumaron === 1 ? 'sumó' : 'sumaron'}</span>
+            </span>
+            <span>Tocá una sigla para ver la sede.</span>
           </>
         )}
       </div>
@@ -309,7 +331,7 @@ function FilaSede({ d, onAbrir }) {
   )
 }
 
-export default function Dashboard({ data, stats, historial, campanas, campanaActiva, paraLlamar = [], notasPorSede = {}, onAbrirSede, vacio }) {
+export default function Dashboard({ data, stats, historial, campanas, campanaActiva, paraLlamar = [], notasPorSede = {}, siglas = {}, onAbrirSede, vacio }) {
   const camp = campanas?.find(c => c.id === campanaActiva)
   const { activa, vencida } = situacionCampana(camp)
   const isMobile = useIsMobile()
@@ -406,7 +428,7 @@ export default function Dashboard({ data, stats, historial, campanas, campanaAct
         </div>
       </section>
 
-      <Casilleros data={data} onAbrir={onAbrirSede} />
+      <Casilleros data={data} siglas={siglas} onAbrir={onAbrirSede} />
 
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'minmax(0, 1fr)' : 'minmax(0, 2fr) minmax(0, 1fr)', gap: 18, alignItems: 'start' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 18, minWidth: 0 }}>

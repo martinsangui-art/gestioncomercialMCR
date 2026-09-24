@@ -10,7 +10,7 @@ import LineaSemana from './components/LineaSemana'
 import FichaSede from './components/FichaSede'
 import BuscadorSedes from './components/BuscadorSedes'
 import { calcularParaLlamar, ultimaNotaPorSede } from './lib/analisis'
-import { fmtFecha } from './lib/formato'
+import { fmtFecha, siglasSedes } from './lib/formato'
 import Login from './components/Login'
 import Dashboard from './views/Dashboard'
 import Sedes from './views/Sedes'
@@ -132,6 +132,7 @@ function AppShell({ onLogout }) {
   useEffect(() => { if (!loading) cargarNotas() }, [loading]) // eslint-disable-line
   const notasPorSede = useMemo(() => ultimaNotaPorSede(notas), [notas])
   const paraLlamar = useMemo(() => calcularParaLlamar(historial, data), [historial, data])
+  const siglas = useMemo(() => siglasSedes(data), [data])
 
   // Ctrl+K / ⌘K abre el buscador de sedes desde cualquier pantalla (si hay
   // un corte cargado: sin datos no hay nada que buscar)
@@ -237,7 +238,7 @@ function AppShell({ onLogout }) {
           {view === 'dashboard' && (
             <Dashboard
               data={data} stats={stats} historial={historial} campanas={campanas} campanaActiva={campanaActiva}
-              paraLlamar={paraLlamar} notasPorSede={notasPorSede}
+              paraLlamar={paraLlamar} notasPorSede={notasPorSede} siglas={siglas}
               onAbrirSede={(d) => setFichaCod(d.cod_sede)}
               vacio={cerrada ? {
                 titulo: 'Esta campaña no tiene cortes cargados',
@@ -261,17 +262,17 @@ function AppShell({ onLogout }) {
             <Envio
               data={data} copied={copied} onCopied={markCopied} onUncopied={markUncopied}
               campanas={campanas} campanaActiva={campanaActiva}
-              guardarSemana={guardarSemana}
+              guardarSemana={guardarSemana} siglas={siglas}
             />
           )}
         </div>
       </main>
 
       {fichaSede && (
-        <FichaSede d={fichaSede} historial={historial} onClose={() => setFichaCod(null)} onNotaAgregada={cargarNotas} />
+        <FichaSede d={fichaSede} sigla={siglas[String(fichaSede.cod_sede)]} historial={historial} onClose={() => setFichaCod(null)} onNotaAgregada={cargarNotas} />
       )}
       {buscando && (
-        <BuscadorSedes data={data} onClose={() => setBuscando(false)}
+        <BuscadorSedes data={data} siglas={siglas} onClose={() => setBuscando(false)}
           onElegir={(d) => { setBuscando(false); setFichaCod(d.cod_sede) }} />
       )}
       {deshaciendo && ultimaOp && (

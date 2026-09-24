@@ -168,7 +168,7 @@ function Recorrido({ filas }) {
 // Ficha de la sede: su número del corte en grande, cómo viene contra el
 // objetivo, el recorrido corte a corte y el seguimiento. Se abre desde
 // cualquier lugar donde aparece una sede.
-export default function FichaSede({ d, historial, onClose, onNotaAgregada }) {
+export default function FichaSede({ d, sigla, historial, onClose, onNotaAgregada }) {
   const e = ESTADOS[estadoSede(d)]
   const faltan = Math.max(0, d.objetivo - d.total)
 
@@ -185,7 +185,7 @@ export default function FichaSede({ d, historial, onClose, onNotaAgregada }) {
   const chip = (txt, fg, bg) => <span style={{ fontSize: 12.5, fontWeight: 600, color: fg, background: bg, padding: '4px 10px', borderRadius: 20, whiteSpace: 'nowrap' }}>{txt}</span>
 
   return (
-    <ModalShell onClose={onClose} title={d.sede} sub={`Código ${d.cod_sede} · ${d.email || 'sin email cargado'}`} maxWidth={600}>
+    <ModalShell onClose={onClose} title={d.sede} sub={`${sigla ? sigla + ' · ' : ''}Código ${d.cod_sede} · ${d.email || 'sin email cargado'}`} maxWidth={600}>
       <div style={{ flex: 1, overflow: 'auto', padding: '22px 22px 20px', display: 'flex', flexDirection: 'column', gap: 26, fontFamily: F.body }}>
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 18, flexWrap: 'wrap' }}>
           <div style={{ ...cifra(64), color: e.color }}>{d.pct}<span style={{ fontSize: 30 }}>%</span></div>
