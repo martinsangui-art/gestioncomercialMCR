@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { obtenerObjetivos, cerrarCampana, obtenerUltimoDeshacer, deshacerUltimo, restaurarBackup } from '../hooks/useSheets'
+import { obtenerObjetivos, cerrarCampana, obtenerUltimoDeshacer, deshacerUltimo, restaurarBackup, simularRestauracion } from '../hooks/useSheets'
 import { C, F } from '../lib/theme'
 import { descargarBackupExcel, descargarResultadosExcel, leerBackupExcel } from '../lib/excel'
 import ModalShell from './ModalShell'
@@ -357,12 +357,17 @@ function RestaurarModal({ onClose, onDone }) {
   const inputRef = useRef(null)
   const [leido, setLeido] = useState(null) // { hojas, resumen, fileName }
   const [paso, setPaso] = useState('elegir') // elegir | aplicando
+  const [simulacion, setSimulacion] = useState(null) // qué cambiaría, sin escribir nada
   const [error, setError] = useState(null)
 
   const elegir = async (file) => {
     if (!file) return
-    setError(null); setLeido(null)
-    try { setLeido({ ...(await leerBackupExcel(file)), fileName: file.name }) }
+    setError(null); setLeido(null); setSimulacion(null)
+    try {
+      const l = { ...(await leerBackupExcel(file)), fileName: file.name }
+      setLeido(l)
+      setSimulacion(await simularRestauracion(l.hojas))
+    }
     catch (e) { setError(e.message) }
   }
 
@@ -400,6 +405,27 @@ function RestaurarModal({ onClose, onDone }) {
           </div>
         )}
 
+        {leido && !simulacion && !error && <div style={{ marginTop: 12, fontSize: 12.5, color: C.inkSoft }}>Comparando con la base actual…</div>}
+        {simulacion && (() => {
+          const h = simulacion.hojas
+          const total = Object.values(h).reduce((a, x) => a + x.celdas_distintas, 0)
+          const nombres = { campanas: 'Campañas', objetivos: 'Objetivos', historial: 'Cortes (historial)' }
+          return (
+            <div style={{ marginTop: 14, fontSize: 12.5 }}>
+              <div style={labelStyle}>Qué cambiaría</div>
+              {total === 0 ? (
+                <div style={{ color: C.ok, fontWeight: 600 }}>✓ El backup es idéntico a la base actual — restaurarlo no cambia nada.</div>
+              ) : Object.entries(h).map(([k, x]) => (
+                <div key={k} style={{ marginBottom: 6 }}>
+                  <strong>{nombres[k]}</strong>: {x.filas_actuales} filas hoy → {x.filas_backup} en el backup
+                  {x.celdas_distintas ? <> · {x.celdas_distintas} celdas distintas</> : ' · sin cambios'}
+                  {x.ejemplos.map(e => <div key={e} style={{ fontFamily: F.mono, fontSize: 10.5, color: C.inkSoft, marginLeft: 10 }}>{e}</div>)}
+                </div>
+              ))}
+            </div>
+          )
+        })()}
+
         {r && (
           <div style={{ marginTop: 14, borderLeft: `3px solid ${C.crimson}`, background: 'rgba(156,43,52,0.05)', padding: '10px 14px', fontSize: 12.5, color: C.ink }}>
             Todo lo que se haya cargado o cerrado <strong>después</strong> de este backup se reemplaza por lo que tiene el archivo.
@@ -410,7 +436,7 @@ function RestaurarModal({ onClose, onDone }) {
       </div>
       <div style={{ padding: '14px 20px', borderTop: `1px solid ${C.rule}`, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
         <Boton tone="ghost" onClick={onClose} disabled={paso === 'aplicando'}>Cancelar</Boton>
-        <Boton tone="crimson" onClick={aplicar} disabled={!leido || paso === 'aplicando'}>
+        <Boton tone="crimson" onClick={aplicar} disabled={!leido || !simulacion || paso === 'aplicando'}>
           {paso === 'aplicando' ? 'Restaurando…' : 'Restaurar este backup'}
         </Boton>
       </div>

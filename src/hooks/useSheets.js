@@ -465,6 +465,10 @@ export function obtenerBackup() {
 export function restaurarBackup(hojas) {
   return post({ action: 'restaurar_backup', hojas })
 }
+// Misma validación y comparación contra la base actual, sin escribir nada
+export function simularRestauracion(hojas) {
+  return post({ action: 'restaurar_backup', hojas, simular: true })
+}
 
 // ── Configuración editable (plantilla de email, etc.) ───────────────────────
 export function obtenerConfig() {

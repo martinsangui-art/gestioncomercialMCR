@@ -1202,6 +1202,40 @@ var HOJAS_RESTAURABLES = {
   historial: ['fecha', 'cod_sede', 'total'],
 };
 
+// Compara el backup con la base actual sin escribir nada: filas de más o de
+// menos y celdas distintas por hoja (la columna de % no cuenta: se recalcula).
+function normCelda(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  if (v === null || v === undefined) return '';
+  return String(v).trim();
+}
+
+function simularRestauracion(hojas) {
+  var res = {};
+  Object.keys(HOJAS_RESTAURABLES).forEach(function(nombre) {
+    var actual = SS.getSheetByName(nombre).getDataRange().getValues();
+    var backup = hojas[nombre];
+    var hA = actual[0].map(normCelda), hB = backup[0].map(normCelda);
+    var ejemplos = [], distintas = 0;
+    var ignorar = nombre === 'historial' ? (hA.indexOf('pct') !== -1 ? hA.indexOf('pct') : 6) : -1;
+    var n = Math.max(actual.length, backup.length);
+    var ancho = Math.max(hA.length, hB.length);
+    for (var i = 0; i < n; i++) {
+      for (var c = 0; c < ancho; c++) {
+        if (i > 0 && c === ignorar) continue;
+        var a = actual[i] ? normCelda(actual[i][c]) : '(no existe)';
+        var b = backup[i] ? normCelda(backup[i][c]) : '(no existe)';
+        if (a !== b) {
+          distintas++;
+          if (ejemplos.length < 5) ejemplos.push('fila ' + (i + 1) + ', ' + (hA[c] || hB[c] || 'col ' + (c + 1)) + ': actual "' + a + '" → backup "' + b + '"');
+        }
+      }
+    }
+    res[nombre] = { filas_actuales: actual.length - 1, filas_backup: backup.length - 1, celdas_distintas: distintas, ejemplos: ejemplos };
+  });
+  return { simulacion: true, hojas: res };
+}
+
 function restaurarBackup(body) {
   var hojas = body.hojas || {};
   Object.keys(HOJAS_RESTAURABLES).forEach(function(nombre) {
@@ -1214,9 +1248,19 @@ function restaurarBackup(body) {
     if (nombre === 'campanas' && filas.length < 2) throw new Error('El backup no tiene ninguna campaña');
   });
 
+  if (body.simular) return simularRestauracion(hojas);
+
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
+    // Resguardo dentro de la misma planilla antes de pisar nada: una copia de
+    // cada hoja como 'resguardo_<hoja>' (se reemplaza en cada restauración).
+    Object.keys(HOJAS_RESTAURABLES).forEach(function(nombre) {
+      var previo = SS.getSheetByName('resguardo_' + nombre);
+      if (previo) SS.deleteSheet(previo);
+      SS.getSheetByName(nombre).copyTo(SS).setName('resguardo_' + nombre).hideSheet();
+    });
+
     var resumen = {};
     Object.keys(HOJAS_RESTAURABLES).forEach(function(nombre) {
       var filas = hojas[nombre];
@@ -1237,6 +1281,13 @@ function restaurarBackup(body) {
           f[idxPct] = ob > 0 ? Math.round(tot / ob * 100) + '%' : '0%';
         });
       }
+      // Un texto como '060' se convertiría en el número 60 al escribirlo:
+      // se fuerza como texto para que el código no cambie.
+      datos.forEach(function(f) {
+        for (var c = 0; c < f.length; c++) {
+          if (typeof f[c] === 'string' && /^0\d+$/.test(f[c])) f[c] = "'" + f[c];
+        }
+      });
       var h = SS.getSheetByName(nombre);
       h.clearContents();
       h.getRange(1, 1, 1, ancho).setValues([header]);
