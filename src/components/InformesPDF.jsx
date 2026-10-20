@@ -3,6 +3,7 @@ import { LOGO_B64 } from '../assets/logo'
 import { FIRMA_B64 } from '../assets/firma'
 import { C, F } from '../lib/theme'
 import ModalShell from './ModalShell'
+import { hoyIso } from '../lib/formato'
 
 function fmtFecha(iso) {
   if (!iso) return ''
@@ -225,7 +226,7 @@ function cuerpoSede(d, historial, campNombre, conHist) {
 // propia hoja (para mandarle a cada una su resultado).
 export function generarInformeCierre({ camp, data, historial, porSede = false, onToast = () => {} }) {
   const campNombre = camp?.nombre || ''
-  const fecha = data[0]?.fecha || new Date().toISOString().slice(0, 10)
+  const fecha = data[0]?.fecha || hoyIso()
   const cerrada = camp?.estado === 'cerrada'
 
   const totIng = data.reduce((a, d) => a + d.total, 0)
@@ -410,7 +411,7 @@ export default function InformesPDF({ data, historial, campanas, campanaActiva, 
 
   const camp = campanas?.find(c => c.id === campanaActiva)
   const campNombre = camp?.nombre || ''
-  const fecha = data[0]?.fecha || new Date().toISOString().slice(0, 10)
+  const fecha = data[0]?.fecha || hoyIso()
 
   // Reconstruir historial agrupado por fecha->cod_sede->total
   const historialAgrupado = {}

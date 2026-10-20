@@ -46,7 +46,10 @@ function Regla({ data, pctZona, onAbrir }) {
   // En pantallas chicas el SVG se achica demasiado para leer nombres: las
   // rezagadas se listan debajo en vez de etiquetarse sobre la regla.
   const compacta = useIsMobile()
-  const W = 720, PAD_X = 14, R = 6.5, LANE_H = 17
+  // En el celu la regla se dibuja con la mitad de ancho lógico: el SVG se
+  // escala casi 1:1 y los rótulos del eje (0%, 50%, 100% objetivo, zona…)
+  // se leen; con 720 quedaban en ~5 px.
+  const W = compacta ? 360 : 720, PAD_X = 14, R = compacta ? 6 : 6.5, LANE_H = 17
   const x = (pct) => PAD_X + (Math.min(pct, REGLA_MAX) / REGLA_MAX) * (W - PAD_X * 2)
 
   const puntos = useMemo(() => {
@@ -59,7 +62,7 @@ function Regla({ data, pctZona, onAbrir }) {
       ;(filas[fila] = filas[fila] || []).push(px)
       return { d, px, fila }
     })
-  }, [data]) // eslint-disable-line
+  }, [data, compacta]) // eslint-disable-line
 
   // Las rezagadas (bajo 50%) llevan su nombre: son las que importan. Cada
   // etiqueta ocupa el primer carril libre de arriba y baja con una línea guía.
@@ -75,7 +78,7 @@ function Regla({ data, pctZona, onAbrir }) {
       carriles[carril] = izq + ancho
       return { ...p, texto, izq, carril }
     })
-  }, [puntos, compacta])
+  }, [puntos, compacta, W])
 
   const rezagadas = compacta ? puntos.filter(p => p.d.pct < 50) : []
   const nCarriles = etiquetas.length ? Math.max(...etiquetas.map(e => e.carril)) + 1 : 0

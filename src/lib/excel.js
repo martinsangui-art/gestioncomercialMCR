@@ -1,16 +1,10 @@
 import { obtenerBackup } from '../hooks/useSheets'
+import { cargarXLSX } from './xlsxLoader'
+import { hoyIso as hoy } from './formato'
 
-// Exportaciones a .xlsx con SheetJS (cargado por CDN en index.html, el mismo
-// que usa ExcelUploader para leer).
-function xlsx() {
-  const X = window.XLSX
-  if (!X) throw new Error('SheetJS no disponible — recargá la página')
-  return X
-}
-
-function hoy() {
-  return new Date().toISOString().slice(0, 10)
-}
+// Exportaciones a .xlsx con SheetJS (se carga bajo demanda: ver xlsxLoader).
+// hoy() es la fecha local — toISOString daba la de Greenwich y a la noche el
+// archivo salía con la fecha de mañana.
 
 function nombreArchivo(txt) {
   return txt.replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, ' ').trim()
@@ -19,7 +13,7 @@ function nombreArchivo(txt) {
 // Copia completa de la base (campañas, objetivos, historial, sedes y log de
 // envíos) — el respaldo para guardar fuera de la planilla.
 export async function descargarBackupExcel() {
-  const X = xlsx()
+  const X = await cargarXLSX()
   const data = await obtenerBackup()
   const wb = X.utils.book_new()
   const ahora = new Date()
@@ -39,7 +33,7 @@ export async function descargarBackupExcel() {
 // (header + filas), listas para mandar al backend, y un resumen para mostrar
 // antes de confirmar.
 export async function leerBackupExcel(file) {
-  const X = xlsx()
+  const X = await cargarXLSX()
   const wb = X.read(await file.arrayBuffer(), { type: 'array', cellDates: true })
   const aIso = (v) => {
     // Si alguien abrió y guardó el backup en Excel, las fechas vuelven como Date
@@ -75,8 +69,8 @@ export async function leerBackupExcel(file) {
 
 // Resultados de una campaña: el corte final por sede + la evolución de cada
 // sede corte a corte (una columna por fecha).
-export function descargarResultadosExcel(campNombre, data, historial) {
-  const X = xlsx()
+export async function descargarResultadosExcel(campNombre, data, historial) {
+  const X = await cargarXLSX()
   const wb = X.utils.book_new()
 
   const final = [...data].sort((a, b) => b.pct - a.pct).map((d, i) => ({

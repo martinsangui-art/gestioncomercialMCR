@@ -196,7 +196,7 @@ function CierreModal({ campanas, campanaActiva, data, stats, sedes, historial, o
               <div style={labelStyle}>Antes de cerrar (opcional)</div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <Boton tone="ghost" onClick={() => generarInformeCierre({ camp: cerrando, data, historial })}>Informe final</Boton>
-                <Boton tone="ghost" onClick={() => descargarResultadosExcel(cerrando.nombre, data, historial)}>Resultados en Excel</Boton>
+                <Boton tone="ghost" onClick={() => descargarResultadosExcel(cerrando.nombre, data, historial).catch(e => alert('No se pudo armar el Excel: ' + e.message))}>Resultados en Excel</Boton>
                 <BotonBackup />
               </div>
             </div>
@@ -582,7 +582,7 @@ export function PanelCerrada({ camp, data, stats, historial }) {
       {data.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-end' }}>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <Boton tone="ghost" onClick={() => descargarResultadosExcel(camp.nombre, data, historial)}>Resultados en Excel</Boton>
+            <Boton tone="ghost" onClick={() => descargarResultadosExcel(camp.nombre, data, historial).catch(e => alert('No se pudo armar el Excel: ' + e.message))}>Resultados en Excel</Boton>
             <Boton onClick={() => generarInformeCierre({ camp, data, historial, porSede })}>Imprimir informe de cierre</Boton>
           </div>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: C.inkSoft, cursor: 'pointer' }}>

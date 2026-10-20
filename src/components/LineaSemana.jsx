@@ -73,6 +73,7 @@ export default function LineaSemana({ data, copied, paraLlamar, ultimaOp, vencid
         {accion ? (
           <button onClick={accion.onClick} className="btn-press" style={{
             height: 44, padding: '0 20px', borderRadius: 10, border: 'none', cursor: 'pointer',
+            ...(isMobile ? { width: '100%', justifyContent: 'center' } : {}),
             background: C.navy, color: '#fff', fontSize: 14.5, fontWeight: 800, fontFamily: F.body,
             display: 'flex', alignItems: 'center', gap: 10, boxShadow: `0 6px 18px -8px ${C.navy}`,
           }}>
@@ -88,14 +89,25 @@ export default function LineaSemana({ data, copied, paraLlamar, ultimaOp, vencid
       </div>
 
       {/* La línea: tramos entre estaciones pintados según avance */}
-      <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', position: 'relative' }}>
+      {/* En el celu la línea va vertical: en tres columnas de ~100 px los
+          títulos y los links se partían en tres o cuatro renglones. */}
+      <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gridTemplateColumns: isMobile ? 'minmax(0, 1fr)' : 'repeat(3, minmax(0, 1fr))', position: 'relative' }}>
         {estaciones.map((e, i) => {
           const color = colorEstado[e.estado]
           const siguienteHecha = estaciones[i + 1] && (e.estado === 'hecho')
+          const ultima = i === estaciones.length - 1
           return (
-            <li key={e.titulo} style={{ position: 'relative', paddingRight: 12, minWidth: 0 }} aria-current={e.estado === 'actual' ? 'step' : undefined}>
-              <div style={{ position: 'relative', height: 26, marginBottom: 10 }}>
-                {i < estaciones.length - 1 && (
+            <li key={e.titulo} style={isMobile
+              ? { position: 'relative', display: 'grid', gridTemplateColumns: '26px minmax(0, 1fr)', columnGap: 14, paddingBottom: ultima ? 0 : 18, minWidth: 0 }
+              : { position: 'relative', paddingRight: 12, minWidth: 0 }} aria-current={e.estado === 'actual' ? 'step' : undefined}>
+              {isMobile && !ultima && (
+                <span aria-hidden="true" style={{
+                  position: 'absolute', left: 10, top: 13, bottom: -13, width: 6, borderRadius: 3,
+                  background: siguienteHecha ? C.navy : C.ruleSoft,
+                }} />
+              )}
+              <div style={{ position: 'relative', height: 26, marginBottom: isMobile ? 0 : 10 }}>
+                {!isMobile && !ultima && (
                   <span aria-hidden="true" style={{
                     position: 'absolute', left: 13, right: -13, top: 10, height: 6, borderRadius: 3,
                     background: siguienteHecha ? C.navy : C.ruleSoft,
@@ -111,8 +123,9 @@ export default function LineaSemana({ data, copied, paraLlamar, ultimaOp, vencid
                   )}
                 </span>
               </div>
-              <div style={{ fontSize: isMobile ? 13 : 14.5, fontWeight: 800, color: e.estado === 'pendiente' ? C.inkSoft : C.ink, fontStretch: '105%' }}>{e.titulo}</div>
-              <div style={{ fontSize: isMobile ? 12 : 13, color: e.estado === 'alerta' ? '#8A5D00' : C.inkSoft, marginTop: 3 }}>{e.detalle}</div>
+              <div style={{ minWidth: 0, paddingTop: isMobile ? 3 : 0 }}>
+              <div style={{ fontSize: 14.5, fontWeight: 800, color: e.estado === 'pendiente' ? C.inkSoft : C.ink, fontStretch: '105%' }}>{e.titulo}</div>
+              <div style={{ fontSize: 13, color: e.estado === 'alerta' ? '#8A5D00' : C.inkSoft, marginTop: 3 }}>{e.detalle}</div>
               {e.extra && <div style={{ fontSize: 12.5, color: '#8A5D00', fontWeight: 700, marginTop: 3 }}>{e.extra}</div>}
               {e.links.length > 0 && (
                 <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 6 }}>
@@ -124,6 +137,7 @@ export default function LineaSemana({ data, copied, paraLlamar, ultimaOp, vencid
                   ))}
                 </div>
               )}
+              </div>
             </li>
           )
         })}

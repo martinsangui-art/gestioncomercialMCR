@@ -332,6 +332,7 @@ export default function Envio({ data, copied, dirEnviadas = {}, onCopied, onUnco
   const [modoReemplazarSemana, setModoReemplazarSemana] = useState(false)
   const [logEnvios, setLogEnvios] = useState([])
   const [cargandoLog, setCargandoLog] = useState(false)
+  const [errorLog, setErrorLog] = useState(null)
   const [mostrarLog, setMostrarLog] = useState(false)
   const [template, setTemplate] = useState(DEFAULT_TEMPLATE)
   const [mostrarEditorPlantilla, setMostrarEditorPlantilla] = useState(false)
@@ -428,7 +429,7 @@ export default function Envio({ data, copied, dirEnviadas = {}, onCopied, onUnco
 
   const enviarUno = async (d, htmlCustom = null) => {
     const htmlRich = htmlCustom || buildEmailHTML(d, camp?.nombre || '', template)
-    const fecha = d.fecha || new Date().toISOString().slice(0,10)
+    const fecha = d.fecha || hoyIso()
     const campNom = camp?.nombre || ''
     const dirs = destinosDe(d)
     await mandarA(d, dirs, { html: htmlRich, subject: 'Como Vamos — ' + campNom + ' — ' + fmtFecha(fecha), fecha, campNom })
@@ -456,7 +457,7 @@ export default function Envio({ data, copied, dirEnviadas = {}, onCopied, onUnco
     addLog(`${esReenvio ? 'Reenviando' : 'Iniciando envío de'} ${lista.length} emails…`, 'info')
     const resumenItems = []
     const campNom = camp?.nombre || ''
-    const fechaRef = lista[0]?.fecha || new Date().toISOString().slice(0,10)
+    const fechaRef = lista[0]?.fecha || hoyIso()
     // Fecha de ENVÍO (local), no de corte: log_envios guarda el día en que se
     // mandó. Comparar contra fechaRef (corte) marcaba todo como error cuando
     // el corte del viernes se mandaba otro día (bug del 19/10, corte 16/10).
@@ -580,10 +581,15 @@ export default function Envio({ data, copied, dirEnviadas = {}, onCopied, onUnco
     setMostrarLog(next)
     if (next) {
       setCargandoLog(true)
+      setErrorLog(null)
       try {
         const datos = await obtenerLogEnvios(300)
         setLogEnvios(datos)
-      } catch (e) { /* silencioso */ }
+      } catch (e) {
+        // Antes el error se tragaba y se veía "Todavía no hay envíos", que
+        // es justo lo contrario de lo que pasó.
+        setErrorLog(e?.message === 'AUTH_REQUIRED' ? 'La sesión venció: volvé a entrar.' : 'No se pudo leer el registro. Probá de nuevo en un rato.')
+      }
       setCargandoLog(false)
     }
   }
@@ -672,7 +678,7 @@ export default function Envio({ data, copied, dirEnviadas = {}, onCopied, onUnco
                 Salen desde mcrossi@ucasal.edu.ar · {seleccionadas.length > 0 ? `${aEnviar.length} seleccionadas` : `${pendientes.length} sin enviar`}
               </div>
             </div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <div className="envio-acciones" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               {!enviando && (
                 <button onClick={() => setMostrarEditorPlantilla(true)} className="btn-press" style={{
                   height: 40, padding: '0 14px', borderRadius: 8, fontSize: 13.5, fontWeight: 600, fontFamily: F.body,
@@ -710,14 +716,16 @@ export default function Envio({ data, copied, dirEnviadas = {}, onCopied, onUnco
 
           {pendientes.length > 0 && (
             <div style={{ padding: '16px 24px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px 10px', marginBottom: 12, flexWrap: 'wrap' }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: C.ink, whiteSpace: 'nowrap' }}>
                   Pendientes <span style={{ fontFamily: F.mono, fontWeight: 500, color: C.inkSoft, fontSize: 12.5 }}>{pendientes.length}</span>
                 </div>
                 <TooltipHelp text="Si no tildás ninguna, se envían todas las pendientes. Tildá algunas para mandar solo esas. “Ver” muestra cómo le llega el mail a esa sede." />
                 <div style={{ flex: 1 }} />
-                <button onClick={selAll} style={{ fontSize: 13, color: C.navy, background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, fontFamily: F.body }}>Seleccionar todas</button>
-                <button onClick={deselAll} style={{ fontSize: 13, color: C.inkSoft, background: 'none', border: 'none', cursor: 'pointer', fontFamily: F.body }}>Limpiar selección</button>
+                <span style={{ display: 'flex', gap: 10 }}>
+                  <button onClick={selAll} style={{ fontSize: 13, color: C.navy, background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, fontFamily: F.body, whiteSpace: 'nowrap', padding: '4px 0' }}>Seleccionar todas</button>
+                  <button onClick={deselAll} style={{ fontSize: 13, color: C.inkSoft, background: 'none', border: 'none', cursor: 'pointer', fontFamily: F.body, whiteSpace: 'nowrap', padding: '4px 0' }}>Limpiar selección</button>
+                </span>
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', maxHeight: 360, overflowY: 'auto', border: `1px solid ${C.rule}`, borderRadius: 10 }}>
@@ -898,6 +906,8 @@ export default function Envio({ data, copied, dirEnviadas = {}, onCopied, onUnco
           <div className="animate-fadeIn" style={{ padding: '16px 22px' }}>
             {cargandoLog ? (
               <div style={{ padding: '20px 0', color: C.inkSoft, fontSize: 13.5 }}>Cargando el registro…</div>
+            ) : errorLog ? (
+              <div role="alert" style={{ padding: '20px 0', color: C.crimson, fontSize: 13.5 }}>{errorLog}</div>
             ) : logAgrupado.length === 0 ? (
               <div style={{ padding: '20px 0', color: C.inkSoft, fontSize: 13.5 }}>Todavía no hay envíos registrados.</div>
             ) : (

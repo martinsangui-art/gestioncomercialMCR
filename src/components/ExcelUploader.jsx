@@ -1,17 +1,15 @@
 import { useState, useRef, useMemo } from 'react'
 import { C, F } from '../lib/theme'
 import { fmtCorto, hoyIso as hoyLocal, nombreCorto } from '../lib/formato'
+import { cargarXLSX } from '../lib/xlsxLoader'
 
-// Parser de Excel usando SheetJS (cargado via CDN en index.html)
+// Parser de Excel usando SheetJS (se carga bajo demanda: ver xlsxLoader)
 // Formato esperado: Cod Sede | Sede | Objetivo | % Objetivo | [fecha del corte = columna de totales]
 // La columna de totales se detecta automáticamente:
 //   1. Por header con texto "total", "ingresado" o "acumulado"
 //   2. Por header que sea una fecha (texto dd/mm/aa, objeto Date, o número serial Excel)
 //   3. Último recurso: última columna no vacía
-function parseExcelData(arrayBuffer) {
-  const XLSX = window.XLSX
-  if (!XLSX) throw new Error('SheetJS no disponible')
-
+function parseExcelData(arrayBuffer, XLSX) {
   const wb = XLSX.read(arrayBuffer, { type: 'array', cellDates: true })
   const ws = wb.Sheets[wb.SheetNames[0]]
   const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, dateNF: 'dd/mm/yyyy' })
@@ -48,8 +46,8 @@ function parseExcelData(arrayBuffer) {
     if (!h) return false
     const s = String(h).trim()
     // Patrones de texto: dd/mm/aa, dd-mm-aaaa, yyyy-mm-dd, etc.
-    if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/.test(s)) return true
-    if (/^\d{4}[\/\-]\d{2}[\/\-]\d{2}/.test(s)) return true
+    if (/^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$/.test(s)) return true
+    if (/^\d{4}[/-]\d{2}[/-]\d{2}/.test(s)) return true
     // SheetJS con dateNF convierte fechas a dd/mm/yyyy — ya cubierto arriba
     // Número serial de Excel (fechas suelen ser > 40000)
     if (/^\d{5}$/.test(s) && Number(s) > 40000) return true
@@ -108,7 +106,7 @@ function parseExcelData(arrayBuffer) {
     columnaLabel = `${dd}/${mm}/${yyyy}`
   } else if (typeof hRaw === 'string') {
     // Intentar parsear string de fecha (encabezado guardado como texto plano)
-    const m1 = hRaw.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/)
+    const m1 = hRaw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/)
     if (m1) {
       let [, d, mo, y] = m1
       const yyyy = y.length === 2 ? '20' + y : y
@@ -127,7 +125,7 @@ function parseExcelData(arrayBuffer) {
       fechaCorte = `${yyyy}-${mo.padStart(2,'0')}-${d.padStart(2,'0')}`
       columnaLabel = `${d.padStart(2,'0')}/${mo.padStart(2,'0')}/${yyyy}`
     }
-    const m2 = hRaw.match(/^(\d{4})[\/\-](\d{2})[\/\-](\d{2})/)
+    const m2 = hRaw.match(/^(\d{4})[/-](\d{2})[/-](\d{2})/)
     if (m2) {
       fechaCorte = `${m2[1]}-${m2[2]}-${m2[3]}`
       columnaLabel = hRaw
@@ -265,8 +263,8 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
     setModoReemplazar(false)
     setFechaElegida(null)
     try {
-      const buffer = await file.arrayBuffer()
-      const { sedes, meta } = parseExcelData(buffer)
+      const [buffer, XLSX] = await Promise.all([file.arrayBuffer(), cargarXLSX()])
+      const { sedes, meta } = parseExcelData(buffer, XLSX)
       // Filas del Excel que no coinciden con ninguna sede registrada — se
       // descartarían en silencio al guardar si no se avisa acá primero.
       const sinMatch = sedes.filter(s => !sedesConocidas.some(sc => String(sc.cod_sede) === String(s.cod)))

@@ -4,6 +4,7 @@ import { C, F } from '../lib/theme'
 import ModalShell from '../components/ModalShell'
 import { estadoSede, ESTADOS } from '../components/FichaSede'
 import { direccionesDe } from '../lib/formato'
+import { useIsMobile } from '../hooks/useIsMobile'
 
 // Grupos de la tabla: misma regla de estado que el resto de la app
 function getEstado(d) {
@@ -67,6 +68,36 @@ function SedeRow({ d, onAbrir }) {
   )
 }
 
+// En el celu la tabla de 7 columnas obligaba a deslizar de costado y lo que
+// importa (inscriptos y %) quedaba fuera de pantalla. Cada sede es una tarjeta
+// de una sola columna: nombre y %, la barra, y debajo los números.
+function SedeCard({ d, onAbrir }) {
+  const e = E[getEstado(d)]
+  const noav = d.var !== null && d.var === 0
+  const faltan = Math.max(0, d.objetivo - d.total)
+  const varColor = d.var > 0 ? C.ok : C.danger
+  return (
+    <button onClick={() => onAbrir(d)} aria-label={`Abrir la ficha de ${d.sede}`} style={{
+      display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none',
+      borderBottom: `1px solid ${C.ruleSoft}`, padding: '12px 16px', cursor: 'pointer', fontFamily: F.body, color: C.ink,
+    }}>
+      <span style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+        <span style={{ flex: 1, minWidth: 0, fontWeight: 700, fontSize: 14 }}>{d.sede}</span>
+        <span style={{ fontFamily: F.mono, fontSize: 14, fontWeight: 700 }}>{d.pct}%</span>
+      </span>
+      <span style={{ display: 'block', height: 6, background: C.ruleSoft, borderRadius: 3, overflow: 'hidden', margin: '8px 0 7px' }}>
+        <span style={{ display: 'block', width: `${Math.min(100, d.pct)}%`, height: '100%', background: e.color, borderRadius: 3 }} />
+      </span>
+      <span style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 14px', fontSize: 12.5, color: C.inkSoft }}>
+        <span><strong style={{ color: C.ink, fontFamily: F.mono }}>{d.total}</strong> de <span style={{ fontFamily: F.mono }}>{d.objetivo}</span> inscriptos</span>
+        {faltan > 0 && <span>faltan <span style={{ fontFamily: F.mono }}>{faltan}</span></span>}
+        {d.var !== null && d.var !== 0 && <span style={{ color: varColor, fontWeight: 600 }}><span style={{ fontFamily: F.mono }}>{d.var > 0 ? '+' + d.var : d.var}</span> en el corte</span>}
+        {noav && <span style={{ fontSize: 11.5, fontWeight: 600, color: '#8A5D00', background: '#FBF0D9', padding: '2px 8px', borderRadius: 20 }}>Sin avance</span>}
+      </span>
+    </button>
+  )
+}
+
 function isActiva(s) {
   const v = s.activa
   if (v === undefined || v === null || v === '') return true
@@ -99,7 +130,7 @@ const linkBtn = (color = C.navy) => ({ fontSize: 13, fontWeight: 700, color, bac
 // Los mails de una sede, uno por renglón, con "+ Agregar otro mail" para
 // sumar una dirección sin tocar la que ya está (antes era un solo campo y
 // había que saber escribir "a, b"). Cada dirección recibe su propio mail.
-function EmailsEditor({ value, onChange }) {
+function EmailsEditor({ value, onChange, grande = false }) {
   const lista = value.length ? value : ['']
   const cambiar = (i, v) => onChange(lista.map((x, j) => (j === i ? v : x)))
   const quitar = (i) => onChange(lista.filter((_, j) => j !== i))
@@ -109,21 +140,21 @@ function EmailsEditor({ value, onChange }) {
         <div key={i} style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
           <input aria-label={`Email ${i + 1}`} type="email" inputMode="email" autoCapitalize="off" autoCorrect="off"
             placeholder="nombre@ucasal.edu.ar" value={em} onChange={e => cambiar(i, e.target.value)}
-            autoFocus={i > 0 && !em} style={inputStyle} />
+            autoFocus={i > 0 && !em} style={grande ? { ...inputStyle, height: 40, fontSize: 16 } : inputStyle} />
           {lista.length > 1 && (
             <button type="button" onClick={() => quitar(i)} title="Quitar este mail" aria-label={`Quitar ${em || 'este mail'}`}
               style={{ ...linkBtn(C.crimson), fontSize: 15, padding: '0 4px', flexShrink: 0 }}>✕</button>
           )}
         </div>
       ))}
-      <button type="button" onClick={() => onChange([...lista, ''])} style={{ ...linkBtn(), alignSelf: 'flex-start', fontSize: 12.5 }}>
+      <button type="button" onClick={() => onChange([...lista, ''])} style={{ ...linkBtn(), alignSelf: 'flex-start', fontSize: grande ? 14 : 12.5, padding: grande ? '6px 2px' : '4px 2px' }}>
         + Agregar otro mail
       </button>
     </div>
   )
 }
 
-function FilaSedeEditable({ s, objetivo, campanaActiva, onGuardado }) {
+function FilaSedeEditable({ s, objetivo, campanaActiva, onGuardado, compacto = false }) {
   const [editando, setEditando] = useState(false)
   const [form, setForm] = useState({ sede: s.sede || '', emails: direccionesDe(s.email), saludo: s.saludo || '', objetivo: objetivo ?? '' })
   const [guardando, setGuardando] = useState(false)
@@ -152,6 +183,67 @@ function FilaSedeEditable({ s, objetivo, campanaActiva, onGuardado }) {
       onGuardado()
     } catch (e) { setError(e.message) }
     setGuardando(false)
+  }
+
+  const switchActiva = (
+    <button onClick={toggleActiva} disabled={guardando || editando} role="switch" aria-checked={activa}
+      aria-label={`${s.sede}: ${activa ? 'activa' : 'inactiva'}`} title={activa ? 'Desactivar (deja de aparecer y de recibir mails)' : 'Activar'}
+      style={{ width: 38, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer', position: 'relative', background: activa ? C.ok : C.rule, transition: 'background .15s', opacity: editando ? 0.5 : 1, flexShrink: 0 }}>
+      <span style={{ position: 'absolute', top: 3, left: activa ? 19 : 3, width: 16, height: 16, borderRadius: '50%', background: '#fff', transition: 'left .15s' }} />
+    </button>
+  )
+
+  // En el celu, una ficha por sede en vez de una fila de tabla de 720 px:
+  // al editar, cada campo va en su renglón con su rótulo y "Guardar" queda a
+  // la vista (antes había que deslizar la tabla de costado para encontrarlo).
+  if (compacto) {
+    const rot = { display: 'block', fontSize: 12, fontWeight: 600, color: C.inkSoft, marginBottom: 4 }
+    const btnBase = { height: 40, borderRadius: 8, fontSize: 14, fontWeight: 700, fontFamily: F.body, cursor: 'pointer', flex: 1 }
+    return (
+      <div style={{ borderBottom: `1px solid ${C.ruleSoft}`, padding: '12px 8px', fontFamily: F.body, background: editando ? C.celesteSoft : 'transparent' }}>
+        {editando ? (
+          <div style={{ display: 'grid', gap: 12 }}>
+            <div style={{ fontSize: 14, fontWeight: 800, color: C.ink }}>{s.sede} <span style={{ fontFamily: F.mono, fontSize: 11, fontWeight: 400, color: C.inkSoft }}>{s.cod_sede}</span></div>
+            <label><span style={rot}>Nombre</span>
+              <input value={form.sede} onChange={e => setForm(f => ({ ...f, sede: e.target.value }))} style={{ ...inputStyle, height: 40, fontSize: 16 }} />
+            </label>
+            <div><span style={rot}>Mails que reciben el envío</span>
+              <EmailsEditor value={form.emails} onChange={emails => setForm(f => ({ ...f, emails }))} grande />
+            </div>
+            <label><span style={rot}>Saludo del mail</span>
+              <input value={form.saludo} onChange={e => setForm(f => ({ ...f, saludo: e.target.value }))} style={{ ...inputStyle, height: 40, fontSize: 16 }} />
+            </label>
+            {campanaActiva && (
+              <label><span style={rot}>Objetivo en {campanaActiva.nombre}</span>
+                <input type="number" min="0" inputMode="numeric" value={form.objetivo} onChange={e => setForm(f => ({ ...f, objetivo: e.target.value }))} style={{ ...inputStyle, height: 40, fontSize: 16, width: 120, fontFamily: F.mono }} />
+              </label>
+            )}
+            {error && <div role="alert" style={{ color: C.crimson, fontSize: 13 }}>{error}</div>}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => { setEditando(false); setError(null) }} disabled={guardando} style={{ ...btnBase, background: '#fff', color: C.ink, border: `1px solid ${C.rule}` }}>Cancelar</button>
+              <button onClick={guardar} disabled={guardando} style={{ ...btnBase, background: C.navy, color: '#fff', border: 'none', opacity: guardando ? 0.6 : 1 }}>{guardando ? 'Guardando…' : 'Guardar'}</button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: activa ? C.ink : C.inkSoft }}>{s.sede} <span style={{ fontFamily: F.mono, fontSize: 11, fontWeight: 400, color: C.inkSoft }}>{s.cod_sede}</span></div>
+              <div style={{ fontSize: 12.5, color: C.inkSoft, marginTop: 3, overflowWrap: 'anywhere' }}>
+                {direccionesDe(s.email).length ? direccionesDe(s.email).map(a => <div key={a}>{a}</div>) : <span style={{ color: C.crimson }}>Falta email</span>}
+              </div>
+              <div style={{ fontSize: 12.5, color: C.inkSoft, marginTop: 3 }}>
+                {s.saludo || 'Sin saludo'}{campanaActiva ? <> · objetivo <strong style={{ color: objetivo ? C.ink : C.crimson, fontFamily: F.mono }}>{objetivo || 'falta'}</strong></> : null}
+              </div>
+              {error && <div role="alert" style={{ color: C.crimson, fontSize: 12.5, marginTop: 4 }}>{error}</div>}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
+              {switchActiva}
+              <button onClick={() => setEditando(true)} style={{ ...linkBtn(), fontSize: 14 }}>Editar</button>
+            </div>
+          </div>
+        )}
+      </div>
+    )
   }
 
   const td = { padding: '9px 10px', verticalAlign: 'middle' }
@@ -183,13 +275,7 @@ function FilaSedeEditable({ s, objetivo, campanaActiva, onGuardado }) {
           </td>
         </>
       )}
-      <td style={{ ...td, textAlign: 'center' }}>
-        <button onClick={toggleActiva} disabled={guardando || editando} role="switch" aria-checked={activa}
-          aria-label={`${s.sede}: ${activa ? 'activa' : 'inactiva'}`} title={activa ? 'Desactivar (deja de aparecer y de recibir mails)' : 'Activar'}
-          style={{ width: 38, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer', position: 'relative', background: activa ? C.ok : C.rule, transition: 'background .15s', opacity: editando ? 0.5 : 1 }}>
-          <span style={{ position: 'absolute', top: 3, left: activa ? 19 : 3, width: 16, height: 16, borderRadius: '50%', background: '#fff', transition: 'left .15s' }} />
-        </button>
-      </td>
+      <td style={{ ...td, textAlign: 'center' }}>{switchActiva}</td>
       <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
         {editando ? (
           <>
@@ -208,6 +294,9 @@ function FilaSedeEditable({ s, objetivo, campanaActiva, onGuardado }) {
 // Sedes y objetivos: datos de contacto (para los mails), activar/desactivar
 // y el objetivo de cada sede en la campaña activa — todo sin tocar la planilla.
 function GestionSedesModal({ onClose, onChanged, campanaActiva }) {
+  const compacto = useIsMobile()
+  // En el celu el formulario de alta ocupaba media pantalla y achicaba la lista
+  const [mostrarSumar, setMostrarSumar] = useState(!compacto)
   const [sedes, setSedes] = useState([])
   const [objetivos, setObjetivos] = useState({})
   const [cargando, setCargando] = useState(true)
@@ -273,6 +362,14 @@ function GestionSedesModal({ onClose, onChanged, campanaActiva }) {
                 <strong>{sinObjetivo} {sinObjetivo === 1 ? 'sede activa no tiene' : 'sedes activas no tienen'} objetivo</strong> en {campanaActiva.nombre}: no aparecen en el tablero hasta que se lo cargues con “Editar”.
               </div>
             )}
+            {compacto ? (
+              <div>
+                {sedes.map(s => (
+                  <FilaSedeEditable key={s.cod_sede + ':' + (objetivos[String(s.cod_sede)] ?? '')} s={s} compacto
+                    objetivo={objetivos[String(s.cod_sede)]} campanaActiva={campanaActiva} onGuardado={handleGuardado} />
+                ))}
+              </div>
+            ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 720 }}>
               <thead>
                 <tr>
@@ -287,11 +384,15 @@ function GestionSedesModal({ onClose, onChanged, campanaActiva }) {
                 ))}
               </tbody>
             </table>
+            )}
           </>
         )}
       </div>
 
       <div style={{ padding: '16px 20px', borderTop: `1px solid ${C.rule}`, flexShrink: 0, background: '#FAFBFD', fontFamily: F.body }}>
+        {!mostrarSumar ? (
+          <button onClick={() => setMostrarSumar(true)} style={{ ...linkBtn(), fontSize: 14 }}>+ Sumar una sede</button>
+        ) : (<>
         <div style={{ fontSize: 14, fontWeight: 700, color: C.ink, marginBottom: 10 }}>Sumar una sede</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(70px,90px) minmax(120px,1.4fr) minmax(140px,1.6fr) minmax(90px,1fr) minmax(70px,90px) auto', gap: 8, alignItems: 'center' }} className="grid-sumar-sede">
           <input aria-label="Código de la sede" placeholder="Código" value={nueva.cod_sede} onChange={e => setNueva(n => ({ ...n, cod_sede: e.target.value }))} style={{ ...inputStyle, fontFamily: F.mono }} />
@@ -307,12 +408,14 @@ function GestionSedesModal({ onClose, onChanged, campanaActiva }) {
           </button>
         </div>
         {errorNueva && <div role="alert" style={{ color: C.crimson, fontSize: 12.5, marginTop: 8 }}>{errorNueva}</div>}
+        </>)}
       </div>
     </ModalShell>
   )
 }
 
 export default function Sedes({ data, campanas, campanaActiva, onSedesChanged, onAbrirSede }) {
+  const isMobile = useIsMobile()
   const [filtro, setFiltro] = useState('')
   const [busq, setBusq] = useState('')
   const [mostrarGestion, setMostrarGestion] = useState(false)
@@ -364,12 +467,12 @@ export default function Sedes({ data, campanas, campanaActiva, onSedesChanged, o
 
       {/* Filtros */}
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-        <div style={{ position: 'relative' }}>
+        <div style={{ position: 'relative', width: isMobile ? '100%' : undefined }}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={C.inkSoft} strokeWidth="2" strokeLinecap="round" style={{ position: 'absolute', left: 12, top: 12 }}>
             <circle cx="11" cy="11" r="7" /><path d="M20 20l-4-4" />
           </svg>
           <input type="search" value={busq} onChange={e => setBusq(e.target.value)} placeholder="Buscar sede" aria-label="Buscar sede"
-            style={{ height: 40, padding: '0 12px 0 34px', border: `1px solid ${C.rule}`, borderRadius: 10, fontSize: 14, outline: 'none', width: 220, fontFamily: F.body, background: '#fff' }} />
+            style={{ height: 40, padding: '0 12px 0 34px', border: `1px solid ${C.rule}`, borderRadius: 10, fontSize: isMobile ? 16 : 14, outline: 'none', width: isMobile ? '100%' : 220, fontFamily: F.body, background: '#fff' }} />
         </div>
         <div role="group" aria-label="Filtrar por estado" style={{ display: 'flex', gap: 4, background: '#fff', border: `1px solid ${C.rule}`, borderRadius: 10, padding: 3, flexWrap: 'wrap' }}>
           {FILTROS.map(([k, l]) => {
@@ -414,12 +517,16 @@ export default function Sedes({ data, campanas, campanaActiva, onSedesChanged, o
               <span style={{ fontFamily: F.mono, fontSize: 12.5, color: C.inkSoft }}>{items.length}</span>
             </div>
             <div style={{ background: C.paperRaised, border: `1px solid ${C.rule}`, borderRadius: 12, overflow: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                <thead>{thead}</thead>
-                <tbody>
-                  {items.map(d => <SedeRow key={d.cod_sede} d={d} onAbrir={onAbrirSede} />)}
-                </tbody>
-              </table>
+              {isMobile ? (
+                items.map(d => <SedeCard key={d.cod_sede} d={d} onAbrir={onAbrirSede} />)
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>{thead}</thead>
+                  <tbody>
+                    {items.map(d => <SedeRow key={d.cod_sede} d={d} onAbrir={onAbrirSede} />)}
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
         )

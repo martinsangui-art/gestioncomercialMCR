@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { direccionesDe } from '../lib/formato'
+import { direccionesDe, hoyIso } from '../lib/formato'
 
 // Modo demo (solo en `npm run dev`, abriendo con ?demo): datos inventados y
 // sin tocar la planilla — para revisar el diseño sin contraseña.
@@ -153,9 +153,13 @@ function jsonp(action, params = {}) {
 function post(body) {
   if (DEMO) return Promise.reject(new Error('Modo demo: no se guardan cambios'))
   return fetch(API, { method: 'POST', body: JSON.stringify({ ...body, token: getToken() }) })
+    .catch(() => { throw new Error('Sin conexión con la planilla: revisá internet y probá de nuevo') })
     .then(r => r.text())
     .then(t => {
-      const r = JSON.parse(t)
+      let r
+      try { r = JSON.parse(t) } catch {
+        throw new Error('La planilla respondió algo inesperado (puede estar con demora): probá de nuevo en un minuto')
+      }
       if (!r.ok) {
         if (r.error === 'AUTH_REQUIRED') { setToken(''); notifyAuthExpired() }
         throw new Error(r.error)
@@ -429,7 +433,7 @@ export function useSheets() {
   // ya existe un corte para esa fecha) y la fecha detectada por el parser del
   // header (prioritaria sobre la extraída del nombre del archivo).
   const subirExcel = useCallback(async (sedesData, fileName, reemplazar = false, fechaDesdeParser = null) => {
-    let fecha = new Date().toISOString().slice(0, 10)
+    let fecha = hoyIso()
     if (fechaDesdeParser) {
       fecha = fechaDesdeParser
     } else {
