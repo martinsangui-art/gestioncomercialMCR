@@ -22,6 +22,12 @@ export function hoyIso() {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
 }
 
+// Las direcciones del campo email de una sede ("a@x, b@y" → ['a@x', 'b@y']).
+// Una sede puede tener más de un mail: cada dirección recibe su propio mail.
+export function direccionesDe(email) {
+  return String(email || '').split(/[,;\s]+/).map(s => s.trim()).filter(Boolean)
+}
+
 export function diasEntre(desdeIso, hastaIso) {
   return Math.round((new Date(hastaIso + 'T12:00:00') - new Date(desdeIso + 'T12:00:00')) / 86400000)
 }

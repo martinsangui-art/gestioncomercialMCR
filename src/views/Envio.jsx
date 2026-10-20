@@ -3,7 +3,7 @@ import { enviarEmailViaScript, obtenerLogEnvios, enviarResumenCele, onAuthExpire
 import { C, F, panel, cifra } from '../lib/theme'
 import ModalShell from '../components/ModalShell'
 import Casillero from '../components/Casillero'
-import { fmtFecha, hoyIso, nombreCorto, estadoSede } from '../lib/formato'
+import { fmtFecha, hoyIso, nombreCorto, estadoSede, direccionesDe } from '../lib/formato'
 
 const BORRADOR_KEY = 'ucasal_borrador_semana'
 
@@ -246,7 +246,7 @@ const btnPri = { height: 40, padding: '0 18px', borderRadius: 8, fontSize: 14, f
 const btnSec = { height: 40, padding: '0 16px', borderRadius: 8, fontSize: 14, fontWeight: 600, fontFamily: F.body, background: '#fff', color: C.ink, border: `1px solid ${C.rule}`, cursor: 'pointer' }
 
 // Modal preview de email por sede
-function PreviewModal({ sede, campNombre, template, onClose, onSend }) {
+function PreviewModal({ sede, destinos = [], yaRecibieron = [], campNombre, template, onClose, onSend }) {
   const [enviando, setEnviando] = useState(false)
   const [errorEnvio, setErrorEnvio] = useState(null)
   const htmlBase = buildEmailHTML(sede, campNombre, template)
@@ -268,7 +268,7 @@ function PreviewModal({ sede, campNombre, template, onClose, onSend }) {
   }
 
   return (
-    <ModalShell onClose={onClose} cerrable={!enviando} maxWidth={640} title={`Mail para ${sede.sede}`} sub={`Para: ${sede.email || 'sin email cargado'}`}>
+    <ModalShell onClose={onClose} cerrable={!enviando} maxWidth={640} title={`Mail para ${sede.sede}`} sub={destinos.length ? `Para: ${destinos.join(', ')}${yaRecibieron.length ? ` (ya lo recibió ${yaRecibieron.join(', ')})` : ''}` : 'Para: sin email cargado'}>
       <div style={{ flex: 1, overflow: 'auto', padding: '18px 20px', fontFamily: F.body }}>
         <div style={{ fontSize: 12, fontWeight: 600, color: C.inkSoft, marginBottom: 8 }}>Así le llega</div>
         <div style={{ border: `1px solid ${C.rule}`, borderRadius: 10, padding: 18, fontSize: 13.5, lineHeight: 1.7, color: '#222', background: '#fff', boxShadow: '0 1px 0 rgba(14,23,51,.04)' }}
@@ -278,7 +278,7 @@ function PreviewModal({ sede, campNombre, template, onClose, onSend }) {
         {errorEnvio && <div role="alert" style={{ marginRight: 'auto', fontSize: 13, color: C.danger }}>No salió: {errorEnvio}</div>}
         <button onClick={onClose} disabled={enviando} className="btn-press" style={btnSec}>Cerrar</button>
         <button onClick={handleSend} disabled={enviando || !sede.email} className="btn-press" style={{ ...btnPri, opacity: (enviando || !sede.email) ? 0.6 : 1 }}>
-          {enviando ? 'Enviando…' : 'Enviar solo este mail'}
+          {enviando ? 'Enviando…' : destinos.length > 1 ? `Enviar los ${destinos.length} mails` : yaRecibieron.length ? `Enviar a ${destinos[0]}` : 'Enviar solo este mail'}
         </button>
       </div>
     </ModalShell>
@@ -307,7 +307,7 @@ function ConfirmModal({ title, sub, items, footNote, onClose, onConfirm, confirm
   )
 }
 
-export default function Envio({ data, copied, onCopied, onUncopied, campanas, campanaActiva, guardarSemana, siglas = {} }) {
+export default function Envio({ data, copied, dirEnviadas = {}, onCopied, onUncopied, campanas, campanaActiva, guardarSemana, siglas = {} }) {
   const [seleccion, setSeleccion] = useState({})
   const [log, setLog] = useState([])
   const [enviando, setEnviando] = useState(false)
@@ -373,6 +373,40 @@ export default function Envio({ data, copied, onCopied, onUncopied, campanas, ca
     ? data.filter(d => seleccionadas.includes(String(d.cod_sede)) && !copied[d.cod_sede])
     : pendientes
 
+  // Cada dirección de una sede recibe su propio mail (Make no acepta varias
+  // en "To"). Al mandar una sede pendiente sale solo a las direcciones que
+  // todavía no recibieron este corte: si a Morón se le agrega un mail, tocar
+  // Morón le manda solo al nuevo. Si ya las recibieron todas, es un reenvío.
+  const yaRecibieron = (d) => {
+    const ya = dirEnviadas[String(d.cod_sede)] || []
+    return direccionesDe(d.email).filter(a => ya.includes(a.toLowerCase()))
+  }
+  const destinosDe = (d) => {
+    const todas = direccionesDe(d.email)
+    const ya = yaRecibieron(d).map(a => a.toLowerCase())
+    const faltan = todas.filter(a => !ya.includes(a.toLowerCase()))
+    return faltan.length ? faltan : todas
+  }
+  const mailsDe = (lista) => lista.reduce((n, d) => n + destinosDe(d).length, 0)
+
+  // Manda el mail de una sede a cada dirección de `dirs`, una por una, y
+  // marca cada una apenas sale. Si una falla, el error dice a cuáles ya salió.
+  const mandarA = async (d, dirs, { html, subject, fecha, campNom }) => {
+    const salieron = []
+    for (const to of dirs) {
+      try {
+        await enviarEmailViaScript({ to, subject, html, sede: d.sede, cod: String(d.cod_sede), fecha, campana: campNom })
+      } catch (e) {
+        if (e?.message === 'AUTH_REQUIRED') throw e
+        throw new Error((e?.message || 'Error al enviar') + ' — no salió a ' + to +
+          (salieron.length ? ' (sí salió a ' + salieron.join(', ') + ')' : ''))
+      }
+      salieron.push(to)
+      onCopied(d.cod_sede, [to])
+    }
+    return salieron
+  }
+
   const addLog = (msg, tipo = 'info') => {
     setLog(prev => {
       const next = [...prev, { msg, tipo, ts: new Date().toLocaleTimeString() }]
@@ -389,18 +423,10 @@ export default function Envio({ data, copied, onCopied, onUncopied, campanas, ca
     const htmlRich = htmlCustom || buildEmailHTML(d, camp?.nombre || '', template)
     const fecha = d.fecha || new Date().toISOString().slice(0,10)
     const campNom = camp?.nombre || ''
-    await enviarEmailViaScript({
-      to:      d.email,
-      subject: 'Como Vamos — ' + campNom + ' — ' + fmtFecha(fecha),
-      html:    htmlRich,
-      sede:    d.sede,
-      cod:     String(d.cod_sede),
-      fecha:   fecha,
-      campana: campNom,
-    })
-    onCopied(d.cod_sede)
+    const dirs = destinosDe(d)
+    await mandarA(d, dirs, { html: htmlRich, subject: 'Como Vamos — ' + campNom + ' — ' + fmtFecha(fecha), fecha, campNom })
     // Resumen a Cele de este envío individual
-    enviarResumenCele(campNom, fecha, [{ sede: d.sede, email: d.email, estado: 'enviado' }]).catch(() => {})
+    enviarResumenCele(campNom, fecha, [{ sede: d.sede, email: dirs.join(', '), estado: 'enviado' }]).catch(() => {})
   }
 
   // Reenvío individual de una sede ya marcada como enviada — no toca la
@@ -432,6 +458,7 @@ export default function Envio({ data, copied, onCopied, onUncopied, campanas, ca
     // en la lista (el 03/08 Trenque Lauquen salió duplicado).
     const yaMandadas = new Set()
     const okCods = []
+    const okDirs = {}  // {cod: [direcciones que salieron en esta tanda]}
 
     for (let i = 0; i < lista.length; i++) {
       const d = lista[i]
@@ -448,19 +475,20 @@ export default function Envio({ data, copied, onCopied, onUncopied, campanas, ca
         setProgreso(Math.round((i + 1) / lista.length * 100))
         continue
       }
+      const dirs = esReenvio ? direccionesDe(d.email) : destinosDe(d)
+      const parcial = dirs.length < direccionesDe(d.email).length
       try {
         const htmlRich = buildEmailHTML(d, campNom, template)
-        await enviarEmailViaScript({
-          to: d.email, subject: 'Como Vamos — ' + campNom + ' — ' + fmtFecha(d.fecha || fechaRef),
-          html: htmlRich, sede: d.sede, cod, fecha: d.fecha || fechaRef, campana: campNom,
+        okDirs[cod] = await mandarA(d, dirs, {
+          html: htmlRich, subject: 'Como Vamos — ' + campNom + ' — ' + fmtFecha(d.fecha || fechaRef),
+          fecha: d.fecha || fechaRef, campNom,
         })
-        onCopied(d.cod_sede)
         okCods.push(cod)
-        addLog(`✓ ${d.sede}${esReenvio ? ' (reenviado)' : ''}`, 'ok')
-        resumenItems.push({ sede: d.sede, email: d.email, estado: 'enviado' })
+        addLog(`✓ ${d.sede}${parcial ? ' (solo a ' + dirs.join(', ') + ')' : ''}${esReenvio ? ' (reenviado)' : ''}`, 'ok')
+        resumenItems.push({ sede: d.sede, email: dirs.join(', '), estado: 'enviado' })
       } catch (e) {
         addLog(`✗ Error en ${d.sede}${e?.message ? ' — ' + e.message : ''}`, 'error')
-        resumenItems.push({ sede: d.sede, email: d.email, estado: 'error' })
+        resumenItems.push({ sede: d.sede, email: dirs.join(', '), estado: 'error' })
       }
       setProgreso(Math.round((i + 1) / lista.length * 100))
     }
@@ -468,7 +496,7 @@ export default function Envio({ data, copied, onCopied, onUncopied, campanas, ca
     // Verificación contra el log real: el tilde verde vale solo si Apps Script
     // dejó la fila en log_envios. Si no quedó registrada, se saca el tilde acá
     // mismo en vez de que la sede aparezca como enviada hasta el próximo F5.
-    const noRegistradas = await verificarContraLog(okCods, desdeEnvio, campNom, lista)
+    const noRegistradas = await verificarContraLog(okCods, okDirs, desdeEnvio, campNom, lista)
     lista.forEach(d => {
       const cod = String(d.cod_sede)
       if (!noRegistradas.includes(cod)) return
@@ -486,7 +514,7 @@ export default function Envio({ data, copied, onCopied, onUncopied, campanas, ca
   // registró en log_envios. Devuelve los códigos que no aparecen registrados.
   // `desde` es la fecha local en que arrancó la tanda: vale cualquier fila
   // registrada desde ese día (cubre una tanda que cruza la medianoche).
-  const verificarContraLog = async (okCods, desde, campNom, lista) => {
+  const verificarContraLog = async (okCods, okDirs, desde, campNom, lista) => {
     if (!okCods.length) return []
     let registro
     try {
@@ -495,18 +523,22 @@ export default function Envio({ data, copied, onCopied, onUncopied, campanas, ca
       addLog('No se pudo verificar contra el log de envíos — revisá el historial a mano.', 'error')
       return []
     }
-    const registradas = new Set(
-      registro
-        .filter(r => String(r.fecha).slice(0,10) >= String(desde).slice(0,10) &&
-                     r.estado === 'enviado' &&
-                     (!campNom || String(r.campana || '').indexOf(campNom) >= 0))
-        .map(r => String(r.cod_sede))
-    )
-    const faltantes = okCods.filter(c => !registradas.has(c))
-    faltantes.forEach(cod => {
+    // Registrado = una fila 'enviado' de esa sede y esa dirección desde el
+    // día en que arrancó la tanda.
+    const registradas = new Set()
+    registro
+      .filter(r => String(r.fecha).slice(0,10) >= String(desde).slice(0,10) &&
+                   r.estado === 'enviado' &&
+                   (!campNom || String(r.campana || '').indexOf(campNom) >= 0))
+      .forEach(r => direccionesDe(r.email).forEach(a => registradas.add(String(r.cod_sede) + '|' + a.toLowerCase())))
+    const faltantes = []
+    okCods.forEach(cod => {
+      const sinRegistro = (okDirs[cod] || []).filter(a => !registradas.has(cod + '|' + a.toLowerCase()))
+      if (!sinRegistro.length) return
+      faltantes.push(cod)
       const d = lista.find(x => String(x.cod_sede) === cod)
-      addLog(`✗ ${d?.sede || cod}: no quedó registrada, hay que reenviarla`, 'error')
-      if (onUncopied) onUncopied(d ? d.cod_sede : cod)
+      addLog(`✗ ${d?.sede || cod}: no quedó registrado el envío a ${sinRegistro.join(', ')}, hay que reenviarlo`, 'error')
+      if (onUncopied) onUncopied(d ? d.cod_sede : cod, sinRegistro)
     })
     if (faltantes.length) {
       addLog(`${faltantes.length} sede(s) quedaron sin registrar y volvieron a pendientes.`, 'error')
@@ -578,6 +610,8 @@ export default function Envio({ data, copied, onCopied, onUncopied, campanas, ca
       {previewSede && (
         <PreviewModal
           sede={previewSede}
+          destinos={destinosDe(previewSede)}
+          yaRecibieron={copied[previewSede.cod_sede] ? [] : yaRecibieron(previewSede)}
           campNombre={camp?.nombre || ''}
           template={template}
           onClose={() => setPreviewSede(null)}
@@ -642,7 +676,7 @@ export default function Envio({ data, copied, onCopied, onUncopied, campanas, ca
               )}
               {pendientes.length > 0 && !enviando && (
                 <button onClick={() => setModalConfirm(true)} className="btn-press" style={{ height: 44, padding: '0 20px', borderRadius: 10, fontSize: 15, fontWeight: 800, fontFamily: F.body, background: C.celeste, color: C.ink, border: 'none', cursor: 'pointer' }}>
-                  {aEnviar.length === 1 ? 'Enviar 1 mail' : `Enviar ${aEnviar.length} mails`}
+                  {mailsDe(aEnviar) === 1 ? 'Enviar 1 mail' : `Enviar ${mailsDe(aEnviar)} mails`}
                 </button>
               )}
               {enviando && <div role="status" style={{ color: '#fff', fontSize: 14, fontWeight: 700 }}>Enviando… <span style={{ fontFamily: F.mono }}>{progreso}%</span></div>}
@@ -701,7 +735,14 @@ export default function Envio({ data, copied, onCopied, onUncopied, campanas, ca
                       }}>
                         {sel && <span style={{ color: '#fff', fontSize: 10, lineHeight: 1 }}>✓</span>}
                       </div>
-                      <span style={{ fontWeight: 700, fontSize: 13.5, flex: 1, color: C.ink, fontFamily: F.body, minWidth: 0 }}>{d.sede}</span>
+                      <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <span style={{ fontWeight: 700, fontSize: 13.5, color: C.ink, fontFamily: F.body }}>{d.sede}</span>
+                        {yaRecibieron(d).length > 0 && (
+                          <span style={{ fontSize: 12, color: C.inkSoft, fontFamily: F.body, overflowWrap: 'anywhere' }}>
+                            Falta <strong style={{ color: C.navy }}>{destinosDe(d).join(', ')}</strong> · ya salió a {yaRecibieron(d).join(', ')}
+                          </span>
+                        )}
+                      </span>
                       <span className="hide-mobile" style={{ fontSize: 12.5, color: d.email ? C.inkSoft : C.crimson, fontWeight: d.email ? 400 : 700 }}>{d.email || 'Falta el email'}</span>
                       <span style={{ fontSize: 12.5, fontWeight: 700, color: C.ink, minWidth: 44, textAlign: 'right', fontFamily: F.mono, display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
                         <span style={{ width: 7, height: 7, borderRadius: '50%', background: color }} />{pct}%
@@ -901,13 +942,13 @@ export default function Envio({ data, copied, onCopied, onUncopied, campanas, ca
       {/* Modal confirmación masiva */}
       {modalConfirm && (
         <ConfirmModal
-          title={aEnviar.length === 1 ? '¿Enviar 1 mail?' : `¿Enviar ${aEnviar.length} mails?`}
-          sub="Salen desde mcrossi@ucasal.edu.ar, uno por sede"
-          items={aEnviar}
+          title={mailsDe(aEnviar) === 1 ? '¿Enviar 1 mail?' : `¿Enviar ${mailsDe(aEnviar)} mails?`}
+          sub="Salen desde mcrossi@ucasal.edu.ar, uno por dirección"
+          items={aEnviar.map(d => ({ ...d, email: destinosDe(d).join(', ') }))}
           footNote={'Cada sede recibe su propio mail con sus números. Para ver cómo le llega a una en particular, cancelá y tocá “Ver” en esa sede.'}
           onClose={() => setModalConfirm(false)}
           onConfirm={() => { setModalConfirm(false); enviarTodos() }}
-          confirmLabel={aEnviar.length === 1 ? 'Enviar el mail' : `Enviar los ${aEnviar.length} mails`}
+          confirmLabel={mailsDe(aEnviar) === 1 ? 'Enviar el mail' : `Enviar los ${mailsDe(aEnviar)} mails`}
         />
       )}
 

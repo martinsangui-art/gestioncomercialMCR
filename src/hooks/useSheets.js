@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { direccionesDe } from '../lib/formato'
 
 // Modo demo (solo en `npm run dev`, abriendo con ?demo): datos inventados y
 // sin tocar la planilla — para revisar el diseño sin contraseña.
@@ -216,7 +217,11 @@ export function useSheets() {
     historial: [],      // historial completo
   })
 
-  const [copied, setCopied] = useState({})  // {cod: true}
+  // Qué direcciones ya recibieron el corte en pantalla: {cod: ['a@x', ...]}
+  // (en minúscula). Una sede cuenta como enviada recién cuando TODAS sus
+  // direcciones están acá — así, si a una sede se le agrega un mail, vuelve a
+  // pendientes y al mandarla sale solo a la dirección que falta.
+  const [dirEnviadas, setDirEnviadas] = useState({})
 
   // Carga inicial
   useEffect(() => {
@@ -288,7 +293,7 @@ export function useSheets() {
     ]).then(([data, historial]) => {
       // Si mientras tanto se pidió otra campaña, esta respuesta ya no sirve
       if (pedido !== pedidoActual.current) return
-      setCopied({})
+      setDirEnviadas({})
       cargadaRef.current = campanaId
       setState(s => ({ ...s, loading: false, recargando: false, campanaActiva: campanaId, data, historial }))
 
@@ -303,10 +308,23 @@ export function useSheets() {
             // r.fecha es el día de ENVÍO; `fecha` es el del corte. Cuenta todo
             // lo mandado desde el corte en adelante (antes exigía el mismo día
             // y un corte mandado otro día quedaba todo como pendiente).
-            const enviados = log
+            const porSede = {}
+            log
               .filter(r => String(r.fecha).slice(0, 10) >= String(fecha).slice(0, 10) && r.estado === 'enviado' && String(r.campana || '').indexOf(camp.nombre) >= 0)
-              .map(r => String(r.cod_sede))
-            if (enviados.length) markAllCopied(enviados)
+              .forEach(r => {
+                const cod = String(r.cod_sede)
+                porSede[cod] = porSede[cod] || []
+                direccionesDe(r.email).forEach(a => porSede[cod].push(a.toLowerCase()))
+              })
+            if (Object.keys(porSede).length) {
+              setDirEnviadas(prev => {
+                const next = { ...prev }
+                Object.entries(porSede).forEach(([cod, dirs]) => {
+                  next[cod] = [...new Set([...(next[cod] || []), ...dirs])]
+                })
+                return next
+              })
+            }
           })
           .catch(() => {}) // no crítico — si falla, simplemente no se pre-marca nada
       }
@@ -328,34 +346,49 @@ export function useSheets() {
     if (state.campanaActiva && state.campanaActiva !== cargadaRef.current) cargarCampana(state.campanaActiva)
   }, [state.campanaActiva === null ? null : state.campanaActiva]) // eslint-disable-line
 
-  // Marcar sede como copiada
-  const markCopied = useCallback((cod) => {
-    setCopied(prev => ({ ...prev, [cod]: true }))
+  // Una sede se marca enviada por dirección. Sin `dirs`, se marcan todas
+  // las direcciones que tiene hoy (lo que antes era "toda la sede").
+  const dataRef = useRef([])
+  dataRef.current = state.data
+  const dirsActuales = (cod) => {
+    const d = dataRef.current.find(x => String(x.cod_sede) === String(cod))
+    return direccionesDe(d?.email).map(a => a.toLowerCase())
+  }
+  const markCopied = useCallback((cod, dirs) => {
+    const k = String(cod)
+    const agregar = (dirs || dirsActuales(k)).map(a => a.toLowerCase())
+    setDirEnviadas(prev => ({ ...prev, [k]: [...new Set([...(prev[k] || []), ...agregar])] }))
   }, [])
 
-  // Sacar el tilde de una sede — se usa cuando la verificación contra
-  // log_envios muestra que el envío nunca quedó registrado.
-  const markUncopied = useCallback((cod) => {
-    setCopied(prev => {
-      if (!prev[cod]) return prev
+  // Sacar el tilde de una sede (todas sus direcciones, o solo `dirs`) — se usa
+  // cuando la verificación contra log_envios muestra que el envío no quedó.
+  const markUncopied = useCallback((cod, dirs) => {
+    const k = String(cod)
+    setDirEnviadas(prev => {
+      if (!prev[k]) return prev
       const next = { ...prev }
-      delete next[cod]
+      if (dirs) {
+        const sacar = dirs.map(a => a.toLowerCase())
+        next[k] = next[k].filter(a => !sacar.includes(a))
+      } else delete next[k]
       return next
     })
   }, [])
 
-  // Reemplaza el estado completo (útil para desmarcar también)
   const markAllCopied = useCallback((cods) => {
-    if (Array.isArray(cods)) {
-      setCopied(prev => {
-        const next = { ...prev }
-        cods.forEach(c => { next[c] = true })
-        return next
-      })
-    } else {
-      setCopied(cods)
-    }
-  }, [])
+    (cods || []).forEach(c => markCopied(c))
+  }, [markCopied])
+
+  // Enviada = todas sus direcciones actuales ya recibieron el corte
+  const copied = useMemo(() => {
+    const out = {}
+    state.data.forEach(d => {
+      const dirs = direccionesDe(d.email).map(a => a.toLowerCase())
+      const ya = dirEnviadas[String(d.cod_sede)] || []
+      if (dirs.length && dirs.every(a => ya.includes(a))) out[d.cod_sede] = true
+    })
+    return out
+  }, [state.data, dirEnviadas])
 
   // Guardar semana nueva en Sheets (o reemplazar si ya existe el corte — misma lógica que subirExcel)
   const guardarSemana = useCallback(async (fecha, sedesData, reemplazar = false) => {
@@ -444,6 +477,7 @@ export function useSheets() {
   return {
     ...state,
     copied,
+    dirEnviadas,
     stats,
     cargarCampana,
     markCopied,

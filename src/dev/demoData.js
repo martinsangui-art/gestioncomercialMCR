@@ -40,7 +40,8 @@ function semanaActual() {
 const enviosDemo = []
 export function registrarEnvioDemo(p) {
   const d = new Date(), z = n => String(n).padStart(2, '0')
-  enviosDemo.unshift({ fecha: p.fecha, hora: `${z(d.getHours())}:${z(d.getMinutes())}:00`, campana: p.campana, sede: p.sede, cod_sede: p.cod, email: p.to, estado: 'enviado' })
+  // Como Apps Script: 'fecha' es el día del ENVÍO, no el del corte
+  enviosDemo.unshift({ fecha: `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`, hora: `${z(d.getHours())}:${z(d.getMinutes())}:00`, campana: p.campana, sede: p.sede, cod_sede: p.cod, email: p.to, estado: 'enviado' })
 }
 
 const NOTAS = [
