@@ -3,6 +3,7 @@ import { obtenerSedesTodas, agregarSede, editarSede, setSedeActiva, obtenerObjet
 import { C, F } from '../lib/theme'
 import ModalShell from '../components/ModalShell'
 import { estadoSede, ESTADOS } from '../components/FichaSede'
+import { direccionesDe } from '../lib/formato'
 
 // Grupos de la tabla: misma regla de estado que el resto de la app
 function getEstado(d) {
@@ -95,15 +96,42 @@ function normalizarEmails(raw) {
 
 const linkBtn = (color = C.navy) => ({ fontSize: 13, fontWeight: 700, color, background: 'none', border: 'none', cursor: 'pointer', fontFamily: F.body, padding: '4px 2px' })
 
+// Los mails de una sede, uno por renglón, con "+ Agregar otro mail" para
+// sumar una dirección sin tocar la que ya está (antes era un solo campo y
+// había que saber escribir "a, b"). Cada dirección recibe su propio mail.
+function EmailsEditor({ value, onChange }) {
+  const lista = value.length ? value : ['']
+  const cambiar = (i, v) => onChange(lista.map((x, j) => (j === i ? v : x)))
+  const quitar = (i) => onChange(lista.filter((_, j) => j !== i))
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {lista.map((em, i) => (
+        <div key={i} style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+          <input aria-label={`Email ${i + 1}`} type="email" inputMode="email" autoCapitalize="off" autoCorrect="off"
+            placeholder="nombre@ucasal.edu.ar" value={em} onChange={e => cambiar(i, e.target.value)}
+            autoFocus={i > 0 && !em} style={inputStyle} />
+          {lista.length > 1 && (
+            <button type="button" onClick={() => quitar(i)} title="Quitar este mail" aria-label={`Quitar ${em || 'este mail'}`}
+              style={{ ...linkBtn(C.crimson), fontSize: 15, padding: '0 4px', flexShrink: 0 }}>✕</button>
+          )}
+        </div>
+      ))}
+      <button type="button" onClick={() => onChange([...lista, ''])} style={{ ...linkBtn(), alignSelf: 'flex-start', fontSize: 12.5 }}>
+        + Agregar otro mail
+      </button>
+    </div>
+  )
+}
+
 function FilaSedeEditable({ s, objetivo, campanaActiva, onGuardado }) {
   const [editando, setEditando] = useState(false)
-  const [form, setForm] = useState({ sede: s.sede || '', email: s.email || '', saludo: s.saludo || '', objetivo: objetivo ?? '' })
+  const [form, setForm] = useState({ sede: s.sede || '', emails: direccionesDe(s.email), saludo: s.saludo || '', objetivo: objetivo ?? '' })
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState(null)
   const activa = isActiva(s)
 
   const guardar = async () => {
-    const emailCheck = normalizarEmails(form.email)
+    const emailCheck = normalizarEmails(form.emails.map(x => x.trim()).filter(Boolean).join(', '))
     if (emailCheck.error) { setError(emailCheck.error); return }
     const obj = form.objetivo === '' ? null : Number(form.objetivo)
     if (obj !== null && !(obj >= 0)) { setError('El objetivo tiene que ser un número'); return }
@@ -132,7 +160,7 @@ function FilaSedeEditable({ s, objetivo, campanaActiva, onGuardado }) {
       {editando ? (
         <>
           <td style={td}><input aria-label="Nombre" value={form.sede} onChange={e => setForm(f => ({ ...f, sede: e.target.value }))} style={inputStyle} /></td>
-          <td style={td}><input aria-label="Email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} style={inputStyle} /></td>
+          <td style={td}><EmailsEditor value={form.emails} onChange={emails => setForm(f => ({ ...f, emails }))} /></td>
           <td style={td}><input aria-label="Saludo" value={form.saludo} onChange={e => setForm(f => ({ ...f, saludo: e.target.value }))} style={inputStyle} /></td>
           <td style={td}>{campanaActiva
             ? <input aria-label="Objetivo" type="number" min="0" value={form.objetivo} onChange={e => setForm(f => ({ ...f, objetivo: e.target.value }))} style={{ ...inputStyle, width: 72, textAlign: 'right', fontFamily: F.mono }} />
@@ -144,7 +172,11 @@ function FilaSedeEditable({ s, objetivo, campanaActiva, onGuardado }) {
             <div style={{ fontSize: 13.5, fontWeight: 700, color: activa ? C.ink : C.inkSoft }}>{s.sede}</div>
             <div style={{ fontFamily: F.mono, fontSize: 11, color: C.inkSoft }}>{s.cod_sede}</div>
           </td>
-          <td style={{ ...td, fontSize: 12.5, color: C.inkSoft, wordBreak: 'break-word' }}>{s.email || <span style={{ color: C.crimson }}>Falta email</span>}</td>
+          <td style={{ ...td, fontSize: 12.5, color: C.inkSoft, wordBreak: 'break-word' }}>
+            {direccionesDe(s.email).length
+              ? direccionesDe(s.email).map(a => <div key={a}>{a}</div>)
+              : <span style={{ color: C.crimson }}>Falta email</span>}
+          </td>
           <td style={{ ...td, fontSize: 12.5, color: C.inkSoft }}>{s.saludo}</td>
           <td style={{ ...td, textAlign: 'right', fontFamily: F.mono, fontWeight: 700, color: objetivo ? C.ink : C.crimson }}>
             {objetivo || (activa ? <span title="Sin objetivo no aparece en el tablero">falta</span> : '—')}
