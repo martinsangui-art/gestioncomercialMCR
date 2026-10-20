@@ -58,12 +58,19 @@ function buildTablaHTML(d, campNombre) {
 </table>`
 }
 
+// Firma de Cele al pie de cada mail a las sedes. Va como imagen alojada en
+// la propia web (public/ → GitHub Pages) porque Gmail no muestra imágenes
+// embebidas en base64. Si se cambia la imagen, subirla con otro nombre
+// (-v2, -v3…): Gmail la guarda en caché por URL.
+const FIRMA_URL = 'https://martinsangui-art.github.io/gestioncomercialMCR/firma-cele-v1.jpg'
+const FIRMA_HTML = `<p style="margin-top:18px"><img src="${FIRMA_URL}" width="520" alt="Ing. María Celeste Rossi · Coordinadora Académica · Delegación Bahía Blanca-UAM 042 · UCASAL" style="display:block;width:520px;max-width:100%;height:auto;border:0"></p>`
+
 function buildEmailHTML(d, campNombre, template) {
   return renderTemplate(template || DEFAULT_TEMPLATE, {
     saludo: esc(d.saludo),
     fecha: fmtFecha(d.fecha),
     tabla: buildTablaHTML(d, campNombre),
-  })
+  }) + '\n' + FIRMA_HTML
 }
 
 // Convierte **texto** a <strong>texto</strong> — la única marca que alguien
