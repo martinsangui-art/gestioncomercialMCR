@@ -424,6 +424,10 @@ export default function Envio({ data, copied, onCopied, onUncopied, campanas, ca
     const resumenItems = []
     const campNom = camp?.nombre || ''
     const fechaRef = lista[0]?.fecha || new Date().toISOString().slice(0,10)
+    // Fecha de ENVÍO (local), no de corte: log_envios guarda el día en que se
+    // mandó. Comparar contra fechaRef (corte) marcaba todo como error cuando
+    // el corte del viernes se mandaba otro día (bug del 19/10, corte 16/10).
+    const desdeEnvio = hoyIso()
     // Una sede no se manda dos veces en la misma tanda aunque venga repetida
     // en la lista (el 03/08 Trenque Lauquen salió duplicado).
     const yaMandadas = new Set()
@@ -464,7 +468,7 @@ export default function Envio({ data, copied, onCopied, onUncopied, campanas, ca
     // Verificación contra el log real: el tilde verde vale solo si Apps Script
     // dejó la fila en log_envios. Si no quedó registrada, se saca el tilde acá
     // mismo en vez de que la sede aparezca como enviada hasta el próximo F5.
-    const noRegistradas = await verificarContraLog(okCods, fechaRef, campNom, lista)
+    const noRegistradas = await verificarContraLog(okCods, desdeEnvio, campNom, lista)
     lista.forEach(d => {
       const cod = String(d.cod_sede)
       if (!noRegistradas.includes(cod)) return
@@ -480,7 +484,9 @@ export default function Envio({ data, copied, onCopied, onUncopied, campanas, ca
 
   // Compara lo que el front cree que mandó contra lo que Apps Script realmente
   // registró en log_envios. Devuelve los códigos que no aparecen registrados.
-  const verificarContraLog = async (okCods, fechaRef, campNom, lista) => {
+  // `desde` es la fecha local en que arrancó la tanda: vale cualquier fila
+  // registrada desde ese día (cubre una tanda que cruza la medianoche).
+  const verificarContraLog = async (okCods, desde, campNom, lista) => {
     if (!okCods.length) return []
     let registro
     try {
@@ -491,7 +497,7 @@ export default function Envio({ data, copied, onCopied, onUncopied, campanas, ca
     }
     const registradas = new Set(
       registro
-        .filter(r => String(r.fecha).slice(0,10) === String(fechaRef).slice(0,10) &&
+        .filter(r => String(r.fecha).slice(0,10) >= String(desde).slice(0,10) &&
                      r.estado === 'enviado' &&
                      (!campNom || String(r.campana || '').indexOf(campNom) >= 0))
         .map(r => String(r.cod_sede))

@@ -29,8 +29,31 @@ export function onAuthExpired(fn) {
   return () => authExpiredListeners.delete(fn)
 }
 
-// Enviar email via Apps Script (evita CORS del browser con Make)
-export function enviarEmailViaScript(payload) {
+// Enviar email via Apps Script (evita CORS del browser con Make).
+// El módulo Gmail de Make no acepta varias direcciones en el campo "To": con
+// "a@x, b@y" el webhook igual contesta 200 y el mail no sale (Morón, 14/08).
+// Por eso una sede con varios mails recibe un mail por dirección — mismo
+// contenido y saludo — uno detrás del otro. Si alguno falla, el error dice
+// a cuáles ya salió, para no reenviar de más.
+export async function enviarEmailViaScript(payload) {
+  const direcciones = String(payload.to || '').split(/[,;\s]+/).map(s => s.trim()).filter(Boolean)
+  if (direcciones.length <= 1) return enviarUnaDireccion(payload)
+  const enviadas = []
+  let ultimo
+  for (const to of direcciones) {
+    try {
+      ultimo = await enviarUnaDireccion({ ...payload, to })
+      enviadas.push(to)
+    } catch (e) {
+      if (e?.message === 'AUTH_REQUIRED') throw e
+      throw new Error((e?.message || 'Error al enviar') + ' — falló ' + to +
+        (enviadas.length ? ' (ya salió a ' + enviadas.join(', ') + ')' : ''))
+    }
+  }
+  return ultimo
+}
+
+function enviarUnaDireccion(payload) {
   if (DEMO) {
     return import('../dev/demoData').then(m => new Promise(res => setTimeout(() => {
       m.registrarEnvioDemo(payload); res({ ok: true, data: { status: 200 } })
@@ -277,8 +300,11 @@ export function useSheets() {
       if (fecha && camp) {
         jsonp('log_envios', { limite: 500 })
           .then(log => {
+            // r.fecha es el día de ENVÍO; `fecha` es el del corte. Cuenta todo
+            // lo mandado desde el corte en adelante (antes exigía el mismo día
+            // y un corte mandado otro día quedaba todo como pendiente).
             const enviados = log
-              .filter(r => r.fecha === fecha && r.estado === 'enviado' && String(r.campana || '').indexOf(camp.nombre) >= 0)
+              .filter(r => String(r.fecha).slice(0, 10) >= String(fecha).slice(0, 10) && r.estado === 'enviado' && String(r.campana || '').indexOf(camp.nombre) >= 0)
               .map(r => String(r.cod_sede))
             if (enviados.length) markAllCopied(enviados)
           })
