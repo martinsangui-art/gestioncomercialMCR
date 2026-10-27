@@ -1,6 +1,5 @@
-import { useState } from 'react'
-import { LOGO_B64 } from '../assets/logo'
-import { FIRMA_B64 } from '../assets/firma'
+import { useState, useEffect } from 'react'
+import { ASSETS_PDF, precargarAssetsPDF } from '../lib/assetsPDF'
 import { C, F } from '../lib/theme'
 import ModalShell from './ModalShell'
 import { hoyIso } from '../lib/formato'
@@ -58,7 +57,7 @@ function estilosPDF() {
 function headerPDF(fecha, campNombre, titulo = 'Informe de cumplimiento') {
   return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>${titulo} · ${campNombre}</title>${estilosPDF()}</head><body>
     <div class="header">
-      <div class="marca"><img src="${LOGO_B64}" alt="UCASAL"><span>Gestión comercial<br>Zona Buenos Aires</span></div>
+      <div class="marca">${ASSETS_PDF.logo ? `<img src="${ASSETS_PDF.logo}" alt="UCASAL">` : '<strong>UCASAL</strong>'}<span>Gestión comercial<br>Zona Buenos Aires</span></div>
       <div class="header-txt">
         <h1>${titulo}</h1>
         <p>${campNombre ? campNombre + ' · ' : ''}Coordinación Zonal Buenos Aires · Dirección Operativa SEAD</p>
@@ -69,7 +68,7 @@ function headerPDF(fecha, campNombre, titulo = 'Informe de cumplimiento') {
 
 function footerPDF(fecha) {
   return `<div class="footer" style="margin-top:32px;border-top:3px solid #C8102E;padding-top:14px">
-      <img src="${FIRMA_B64}" alt="Firma Ing. Maria Celeste Rossi" style="max-width:480px;width:100%;display:block;margin-bottom:10px">
+      <img src="${ASSETS_PDF.firma}" alt="Firma Ing. Maria Celeste Rossi" style="max-width:480px;width:100%;display:block;margin-bottom:10px">
       <div style="display:flex;justify-content:space-between;font-family:'Chivo Mono',monospace;font-size:8.5px;color:#5A6480;margin-top:6px">
         <span>Sistema de seguimiento UCASAL · Zona Buenos Aires</span>
         <span>Corte del ${fmtFecha(fecha)}</span>
@@ -402,6 +401,7 @@ function generarPDFComparacion(sedesSeleccionadas, campNombre, fecha, historial,
 // ── Componente principal ─────────────────────────────────────────────────
 export default function InformesPDF({ data, historial, campanas, campanaActiva, sedesSeleccionadas = [] }) {
   const [open, setOpen] = useState(false)
+  useEffect(() => { if (open) precargarAssetsPDF() }, [open])
   const camp0 = campanas?.find(c => c.id === campanaActiva)
   const [tipo, setTipo] = useState(camp0?.estado === 'cerrada' ? 'cierre' : 'general')
   const [cierrePorSede, setCierrePorSede] = useState(false)

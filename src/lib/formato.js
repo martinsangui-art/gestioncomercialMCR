@@ -34,7 +34,11 @@ export function diasEntre(desdeIso, hastaIso) {
 
 // Nombre de la sede sin el sufijo de la provincia ("SAN NICOLÁS- BUENOS AIRES",
 // "X - BS AS", etc.)
-export const nombreCorto = (n) => String(n || '').replace(/\s*-\s*(BUENOS AIRES|BS\.?\s*AS\.?)\b.*$/i, '').trim()
+// y sin el código adelante que trae el Excel nacional ("87-JUNIN - BS AS" → "JUNIN")
+export const nombreCorto = (n) => String(n || '')
+  .replace(/^\s*\d{1,4}\s*-\s*/, '')
+  .replace(/\s*-\s*(BUENOS AIRES|BS\.?\s*AS\.?)\b.*$/i, '')
+  .trim()
 
 // ── Siglas de sede ──────────────────────────────────────────────────────────
 // Tres letras por sede, como las de un cartel de terminal o aeropuerto

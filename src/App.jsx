@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from 'react'
 import { useIsMobile } from './hooks/useIsMobile'
 import { useSheets, useAuth, obtenerNotasTodas } from './hooks/useSheets'
 import { C, F, useClosingTransition, pageBackgroundStyle, rotulo } from './lib/theme'
@@ -13,9 +13,12 @@ import { calcularParaLlamar, ultimaNotaPorSede } from './lib/analisis'
 import { fmtFecha, siglasSedes } from './lib/formato'
 import Login from './components/Login'
 import Dashboard from './views/Dashboard'
-import Sedes from './views/Sedes'
-import Historial from './views/Historial'
-import Envio from './views/Envio'
+import { precargarAssetsPDF } from './lib/assetsPDF'
+// Las secciones que no son la de entrada se bajan recién cuando se abren
+// (Historial arrastra los gráficos de comparación; Envío, el editor de mails)
+const Sedes = lazy(() => import('./views/Sedes'))
+const Historial = lazy(() => import('./views/Historial'))
+const Envio = lazy(() => import('./views/Envio'))
 import { ISOTIPO_B64 } from './assets/isotipo'
 
 // Pantalla de carga: la regla vacía que se va llenando de marcas mientras
@@ -129,7 +132,16 @@ function AppShell({ onLogout }) {
   const cargarNotas = useCallback(() => {
     obtenerNotasTodas().then(setNotas).catch(() => {})
   }, [])
-  useEffect(() => { if (!loading) cargarNotas() }, [loading]) // eslint-disable-line
+  useEffect(() => {
+    if (loading) return
+    cargarNotas()
+    // Con la pantalla ya dibujada: traer en segundo plano lo que se usa después
+    const t = setTimeout(() => {
+      precargarAssetsPDF()
+      import('./views/Envio'); import('./views/Historial'); import('./views/Sedes')
+    }, 1500)
+    return () => clearTimeout(t)
+  }, [loading]) // eslint-disable-line
   const notasPorSede = useMemo(() => ultimaNotaPorSede(notas), [notas])
   const paraLlamar = useMemo(() => calcularParaLlamar(historial, data), [historial, data])
   const siglas = useMemo(() => siglasSedes(data), [data])
@@ -208,6 +220,7 @@ function AppShell({ onLogout }) {
         {/* key={view} fuerza un remonte al cambiar de sección, así la
             transición de entrada (.view-enter) se dispara cada vez — la
             navegación se siente como un cambio de pantalla, no un corte. */}
+        <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: C.inkSoft, fontFamily: F.body }}>Cargando…</div>}>
         <div key={view} className="view-enter">
           {view === 'dashboard' && activa && (
             <LineaSemana
@@ -266,6 +279,7 @@ function AppShell({ onLogout }) {
             />
           )}
         </div>
+        </Suspense>
       </main>
 
       {fichaSede && (

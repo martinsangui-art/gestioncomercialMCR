@@ -2,179 +2,12 @@ import { useState, useRef, useMemo } from 'react'
 import { C, F } from '../lib/theme'
 import { fmtCorto, hoyIso as hoyLocal, nombreCorto } from '../lib/formato'
 import { cargarXLSX } from '../lib/xlsxLoader'
+import { parseCorte } from '../lib/parserCorte'
+import { setObjetivo } from '../hooks/useSheets'
 
-// Parser de Excel usando SheetJS (se carga bajo demanda: ver xlsxLoader)
-// Formato esperado: Cod Sede | Sede | Objetivo | % Objetivo | [fecha del corte = columna de totales]
-// La columna de totales se detecta automáticamente:
-//   1. Por header con texto "total", "ingresado" o "acumulado"
-//   2. Por header que sea una fecha (texto dd/mm/aa, objeto Date, o número serial Excel)
-//   3. Último recurso: última columna no vacía
-function parseExcelData(arrayBuffer, XLSX) {
-  const wb = XLSX.read(arrayBuffer, { type: 'array', cellDates: true })
-  const ws = wb.Sheets[wb.SheetNames[0]]
-  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, dateNF: 'dd/mm/yyyy' })
-
-  if (!rows.length) throw new Error('El archivo está vacío')
-
-  // La fila de encabezado no siempre es la primera: el 03/08/2026 vino con
-  // la fila 1 vacía y los títulos en la fila 2, y eso tiró "error de
-  // formato" porque el código asumía rows[0] a ciegas. Ahora se busca entre
-  // las primeras filas cuál tiene pinta de encabezado real (una celda con
-  // "cod" y otra con "sede"/"nombre") en vez de asumir la posición.
-  const pareceHeader = (row) => {
-    const cells = (row || []).map(h => String(h || '').toLowerCase().trim())
-    return cells.some(h => h.includes('cod')) && cells.some(h => h.includes('sede') || h.includes('nombre'))
-  }
-  let headerRowIdx0 = rows.slice(0, 20).findIndex(pareceHeader) // índice dentro de `rows` (0 = primera fila del archivo)
-  if (headerRowIdx0 === -1) headerRowIdx0 = 0 // no se encontró: se sigue con la fila 1 para no romper, el chequeo de abajo va a avisar
-
-  const headerRaw = rows[headerRowIdx0]
-  const header = headerRaw.map(h => String(h || '').toLowerCase().trim())
-
-  const iCod  = header.findIndex(h => h.includes('cod'))
-  // Con "Cod Sede" en una sola columna, buscar "sede" sin excluir iCod
-  // matchea esa misma columna dos veces y la columna real del nombre (la
-  // de al lado) queda sin detectar — el código de sede termina apareciendo
-  // como si fuera el nombre en la vista previa. Se excluye iCod acá.
-  const iSede = header.findIndex((h, idx) => idx !== iCod && (h.includes('sede') || h.includes('nombre')))
-
-  // Detectar columna de totales — orden de prioridad:
-  // 1. Header explícito (total/ingresado/acumulado)
-  // 2. Header que sea una fecha en cualquier formato (texto o serializado)
-  // 3. Última columna no vacía
-  const esFecha = (h) => {
-    if (!h) return false
-    const s = String(h).trim()
-    // Patrones de texto: dd/mm/aa, dd-mm-aaaa, yyyy-mm-dd, etc.
-    if (/^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$/.test(s)) return true
-    if (/^\d{4}[/-]\d{2}[/-]\d{2}/.test(s)) return true
-    // SheetJS con dateNF convierte fechas a dd/mm/yyyy — ya cubierto arriba
-    // Número serial de Excel (fechas suelen ser > 40000)
-    if (/^\d{5}$/.test(s) && Number(s) > 40000) return true
-    return false
-  }
-
-  let iTotal = header.findIndex(h => h.includes('total') || h.includes('ingresado') || h.includes('acumulado'))
-  let detectadoPorFecha = false
-  let columnaLabel = ''
-
-  if (iTotal === -1) {
-    for (let i = header.length - 1; i >= 0; i--) {
-      if (esFecha(headerRaw[i]) || esFecha(header[i])) {
-        iTotal = i
-        detectadoPorFecha = true
-        break
-      }
-    }
-  }
-  if (iTotal === -1) {
-    for (let i = header.length - 1; i >= 0; i--) {
-      if (header[i]) { iTotal = i; break }
-    }
-  }
-
-  if (iCod === -1 || iTotal === -1) {
-    throw new Error('No se encontraron las columnas esperadas (Cod Sede / columna de totales). Verificá el formato del Excel.')
-  }
-
-  columnaLabel = String(headerRaw[iTotal] || '').trim() || `Columna ${iTotal + 1}`
-
-  // Intentar extraer fecha real del header de la columna de totales.
-  //
-  // OJO: sheet_to_json fue llamado con raw:false + dateNF más arriba, así que
-  // headerRaw[iTotal] SIEMPRE llega como string ya formateado — incluso si en
-  // Excel esa celda es una fecha nativa real. Por eso NO alcanza con mirar
-  // headerRaw[iTotal]: hay que consultar la celda cruda del worksheet para
-  // saber si de verdad es una fecha nativa (sin ambigüedad posible) o texto
-  // suelto (donde sí puede haber ambigüedad DD/MM vs MM/DD).
-  const range = XLSX.utils.decode_range(ws['!ref'])
-  const headerRowIdx = range.s.r + headerRowIdx0 // fila real del encabezado en la planilla (puede no ser la primera)
-  const headerCellRef = ws[XLSX.utils.encode_cell({ r: headerRowIdx, c: iTotal })]
-  const esFechaNativa = headerCellRef?.t === 'd' // tipo 'd' = fecha real de Excel, con cellDates:true
-
-  let fechaCorte = null
-  let fechaAmbigua = false // día y mes ambos <=12: no se puede saber DD/MM vs MM/DD por texto
-  const hRaw = esFechaNativa ? headerCellRef.v : headerRaw[iTotal]
-  if (esFechaNativa && hRaw instanceof Date) {
-    // Fecha nativa de Excel confirmada por el tipo de celda — no hay
-    // ambigüedad posible, se usa el valor real sin adivinar nada.
-    const d = hRaw
-    const dd = String(d.getDate()).padStart(2, '0')
-    const mm = String(d.getMonth() + 1).padStart(2, '0')
-    const yyyy = d.getFullYear()
-    fechaCorte = `${yyyy}-${mm}-${dd}`
-    columnaLabel = `${dd}/${mm}/${yyyy}`
-  } else if (typeof hRaw === 'string') {
-    // Intentar parsear string de fecha (encabezado guardado como texto plano)
-    const m1 = hRaw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/)
-    if (m1) {
-      let [, d, mo, y] = m1
-      const yyyy = y.length === 2 ? '20' + y : y
-      // Se espera DD/MM/AAAA. Si el segundo valor no puede ser un mes válido
-      // (>12) y el primero sí, es inequívocamente MM/DD/AAAA y se invierte.
-      // Pero si AMBOS son <=12 (ej. "8/3/26"), es ambiguo de verdad: no hay
-      // forma de saber si es 8 de marzo o 3 de agosto solo con el texto.
-      // Antes acá se adivinaba en silencio (bug real del 03/08/2026, guardó
-      // el corte como si fuera 8 de marzo). Ahora se deja marcado como
-      // ambiguo para que la UI lo muestre en rojo y no pase desapercibido.
-      if (Number(mo) > 12 && Number(d) <= 12) {
-        [d, mo] = [mo, d]
-      } else if (Number(d) !== Number(mo) && Number(d) <= 12 && Number(mo) <= 12) {
-        fechaAmbigua = true
-      }
-      fechaCorte = `${yyyy}-${mo.padStart(2,'0')}-${d.padStart(2,'0')}`
-      columnaLabel = `${d.padStart(2,'0')}/${mo.padStart(2,'0')}/${yyyy}`
-    }
-    const m2 = hRaw.match(/^(\d{4})[/-](\d{2})[/-](\d{2})/)
-    if (m2) {
-      fechaCorte = `${m2[1]}-${m2[2]}-${m2[3]}`
-      columnaLabel = hRaw
-    }
-  }
-
-  const sedes = []
-  const filasInvalidas = [] // cod presente pero total no numérico — antes se descartaban sin avisar
-  const vistos = new Map() // cod → índice en `sedes`, para detectar filas repetidas dentro del mismo archivo
-  const duplicados = [] // cods que aparecieron más de una vez (ej: Trenque Lauquén salió dos veces por esto en un envío)
-  for (let i = headerRowIdx0 + 1; i < rows.length; i++) {
-    const row = rows[i]
-    if (!row || row.every(c => c === undefined || c === '' || c === null)) continue
-    const cod = String(row[iCod] ?? '').trim().replace(/\.0$/, '') // sacar ".0" si vino como número
-    if (!cod || cod === 'undefined') continue
-    const sede = iSede >= 0 ? String(row[iSede] || '').trim() : `Sede ${cod}`
-    const totalRaw = String(row[iTotal] ?? '').replace(',', '.')
-    const total = Number(totalRaw)
-    if (isNaN(total)) {
-      filasInvalidas.push({ cod, sede, valor: String(row[iTotal] ?? '(vacío)') })
-      continue
-    }
-    if (vistos.has(cod)) {
-      // Mismo código dos veces en el archivo: se queda con la última fila
-      // (la más probable de ser la corrección) y se avisa — antes las dos
-      // se mandaban tal cual, duplicando esa sede en el corte.
-      sedes[vistos.get(cod)] = { cod, sede, total }
-      if (!duplicados.includes(cod)) duplicados.push(cod)
-    } else {
-      vistos.set(cod, sedes.length)
-      sedes.push({ cod, sede, total })
-    }
-  }
-
-  if (!sedes.length) throw new Error('No se encontraron datos válidos en el archivo')
-
-  return {
-    sedes,
-    meta: {
-      columnaTotal: columnaLabel,
-      detectadoPorFecha,
-      fechaCorte, // fecha extraída del header, null si no se pudo
-      fechaAmbigua, // true si día/mes son ambos <=12: no se sabe con certeza
-      duplicados, // cods repetidos dentro del archivo (se quedó con la última fila de cada uno)
-      filasInvalidas, // filas con cod válido pero total no numérico (se descartaron)
-      totalFilas: sedes.length,
-    },
-  }
-}
+// El lector del Excel vive en lib/parserCorte.js (función pura, con pruebas
+// en scripts/probar-parser.mjs). Acepta el Excel recortado de siempre o el
+// NACIONAL completo: se queda solo con las sedes registradas en la app.
 
 // Invierte día y mes de una fecha ISO (yyyy-mm-dd) — usado para ofrecer la
 // interpretación alternativa cuando la fecha del corte es ambigua.
@@ -216,14 +49,19 @@ function AvisoCarga({ tono, titulo, children, chips }) {
       {children}
       {chips?.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-          {chips.map((c, i) => (
+          {(chips.length > MAX_CHIPS ? chips.slice(0, MAX_CHIPS - 1) : chips).map((c, i) => (
             <span key={i} style={{ fontSize: 12, background: '#fff', border: `1px solid ${t.borde}55`, color: t.texto, padding: '3px 9px', borderRadius: 20, fontWeight: 600 }}>{c}</span>
           ))}
+          {chips.length > MAX_CHIPS && (
+            <span style={{ fontSize: 12, color: t.texto, padding: '3px 4px', fontWeight: 700 }}>y {chips.length - MAX_CHIPS + 1} más</span>
+          )}
         </div>
       )}
     </div>
   )
 }
+
+const MAX_CHIPS = 14
 
 const btnPrimario = { height: 44, padding: '0 20px', borderRadius: 10, border: 'none', cursor: 'pointer', background: C.navy, color: '#fff', fontSize: 14.5, fontWeight: 800, fontFamily: F.body }
 const btnSecundario = { height: 44, padding: '0 16px', borderRadius: 10, border: `1px solid ${C.rule}`, cursor: 'pointer', background: '#fff', color: C.ink, fontSize: 14, fontWeight: 600, fontFamily: F.body }
@@ -243,6 +81,8 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
   const [confirmando, setConfirmando] = useState(false)
   const [modoReemplazar, setModoReemplazar] = useState(false) // el servidor avisó que ya existe
   const [fechaElegida, setFechaElegida] = useState(null) // cuando era ambigua o no venía en el Excel
+  const [objetivosAplicados, setObjetivosAplicados] = useState(false)
+  const [aplicandoObj, setAplicandoObj] = useState(false)
   const inputRef = useRef(null)
 
   const camp = campanas?.find(c => c.id === campanaActiva)
@@ -264,11 +104,11 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
     setFechaElegida(null)
     try {
       const [buffer, XLSX] = await Promise.all([file.arrayBuffer(), cargarXLSX()])
-      const { sedes, meta } = parseExcelData(buffer, XLSX)
-      // Filas del Excel que no coinciden con ninguna sede registrada — se
-      // descartarían en silencio al guardar si no se avisa acá primero.
-      const sinMatch = sedes.filter(s => !sedesConocidas.some(sc => String(sc.cod_sede) === String(s.cod)))
-      setPreview({ sedes, meta: { ...meta, sinMatch }, fileName: file.name })
+      // Las sedes de la red son las registradas en la app: con eso el lector
+      // separa lo propio del resto del país (si el Excel es el nacional).
+      const { sedes, meta } = parseCorte(buffer, XLSX, { codigosRed: sedesConocidas.map(s => String(s.cod_sede)) })
+      setPreview({ sedes, meta, fileName: file.name })
+      setObjetivosAplicados(false)
       if (!meta.fechaCorte) setFechaElegida(hoyLocal())
     } catch (e) {
       setError(e.message)
@@ -280,14 +120,16 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
   // último corte cargado
   const chequeo = useMemo(() => {
     if (!preview) return null
-    const anterior = {}
-    data.forEach(d => { anterior[String(d.cod_sede)] = d.total })
-    const conocidas = new Set(sedesConocidas.map(s => String(s.cod_sede)))
+    const anterior = {}, objApp = {}
+    data.forEach(d => { anterior[String(d.cod_sede)] = d.total; objApp[String(d.cod_sede)] = d.objetivo })
+    // Nombre: el registrado en la app (el del Excel nacional viene con código
+    // y provincia pegados, "87-JUNIN - BS AS")
+    const nombreApp = new Map(sedesConocidas.map(s => [String(s.cod_sede), s.sede]))
     const filas = preview.sedes.map(s => {
       const cod = String(s.cod)
       const prev = anterior[cod]
-      const conocida = conocidas.has(cod)
-      return { ...s, cod, prev, conocida, dif: prev !== undefined ? s.total - prev : null }
+      const conocida = nombreApp.has(cod)
+      return { ...s, cod, sede: nombreApp.get(cod) || s.sede, prev, conocida, dif: prev !== undefined ? s.total - prev : null }
     })
     const enArchivo = new Set(filas.map(f => f.cod))
     // Sedes del tablero que no vienen en el Excel: en este corte no tendrían dato
@@ -299,7 +141,14 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
     const totalPrevMismas = validas.reduce((a, f) => a + (f.prev ?? 0), 0)
     const orden = (f) => (!f.conocida ? 0 : f.dif !== null && f.dif < 0 ? 1 : 2)
     filas.sort((a, b) => orden(a) - orden(b) || nombreCorto(a.sede).localeCompare(nombreCorto(b.sede)))
-    return { filas, faltantes, bajaron, validas, totalNuevo, difTotal: tieneData ? totalNuevo - totalPrevMismas : null }
+    // El Excel nacional trae el objetivo de cada sede: si no coincide con el
+    // cargado en la app, se avisa (y se puede actualizar desde acá mismo).
+    const objDistintos = tieneData ? validas
+      .filter(f => f.objetivoExcel != null && f.objetivoExcel > 0 && objApp[f.cod] !== undefined && Number(objApp[f.cod]) !== f.objetivoExcel)
+      .map(f => ({ ...f, objApp: Number(objApp[f.cod]) })) : []
+    const objZona = validas.reduce((a, f) => a + (Number(objApp[f.cod]) || 0), 0)
+    const pctZona = objZona ? Math.round(totalNuevo / objZona * 100) : null
+    return { filas, faltantes, bajaron, validas, totalNuevo, difTotal: tieneData ? totalNuevo - totalPrevMismas : null, objDistintos, pctZona }
   }, [preview, data, sedesConocidas, tieneData])
 
   const fechaFinalEstado = preview ? (fechaElegida || (!preview.meta.fechaAmbigua ? preview.meta.fechaCorte : null)) : null
@@ -330,6 +179,20 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
     setConfirmando(false)
   }
 
+  const aplicarObjetivos = async () => {
+    setAplicandoObj(true)
+    setError(null)
+    try {
+      for (const f of chequeo.objDistintos) {
+        await setObjetivo(campanaActiva, f.cod, f.objetivoExcel)
+      }
+      setObjetivosAplicados(true)
+    } catch (e) {
+      setError('No se pudieron actualizar los objetivos: ' + e.message)
+    }
+    setAplicandoObj(false)
+  }
+
   const onDrop = (e) => {
     e.preventDefault()
     setDragging(false)
@@ -344,7 +207,7 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
   if (preview && chequeo) {
     const m = preview.meta
     const ambiguaSinElegir = m.fechaCorte && m.fechaAmbigua && !fechaElegida
-    const puedeGuardar = !!fechaFinal && chequeo.validas.length > 0 && !confirmando
+    const puedeGuardar = !!fechaFinal && chequeo.validas.length > 0 && !confirmando && !aplicandoObj
     const anteriorAlUltimo = fechaFinal && fechaActual && fechaFinal < fechaActual
 
     return (
@@ -386,6 +249,19 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
             </div>
           </div>
 
+          {/* Excel nacional: qué se tomó y qué quedó afuera, en una línea */}
+          {m.esNacional && (
+            <AvisoCarga tono="info" titulo={`Excel nacional: se tomaron las ${chequeo.validas.length} sedes de tu zona`}>
+              {m.filasLeidas} filas leídas{m.hojas > 1 ? ` en la hoja “${m.hoja}”` : ''}. Las {m.otrasIgnoradas} sedes de otras zonas no se guardan
+              {m.filasTotalIgnoradas > 0 ? ` y se saltearon ${m.filasTotalIgnoradas} filas de subtotales` : ''}.
+              {m.pais?.pct != null && chequeo.pctZona != null && (
+                <div style={{ marginTop: 6 }}>
+                  Referencia: tu zona está en <strong>{chequeo.pctZona}%</strong> del objetivo; el resto del país, en <strong>{m.pais.pct}%</strong>.
+                </div>
+              )}
+            </AvisoCarga>
+          )}
+
           {/* Avisos, de lo que bloquea a lo informativo */}
           {ambiguaSinElegir && (
             <AvisoCarga tono="bloquea" titulo="¿Qué fecha es el corte?">
@@ -418,9 +294,35 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
             </AvisoCarga>
           )}
           {m.sinMatch?.length > 0 && (
-            <AvisoCarga tono="revisar" titulo={`${m.sinMatch.length === 1 ? '1 fila no corresponde' : `${m.sinMatch.length} filas no corresponden`} a ninguna sede registrada`}
-              chips={m.sinMatch.map(s => `${s.cod} · ${s.sede || 'sin nombre'}`)}>
-              No se guardan. Si es una sede nueva, sumala primero en Sedes → Sedes y objetivos.
+            <AvisoCarga tono="revisar"
+              titulo={m.esNacional
+                ? `${m.sinMatch.length === 1 ? '¿Sede nueva en tu zona? 1 sede de Buenos Aires' : `¿Sedes nuevas en tu zona? ${m.sinMatch.length} sedes de Buenos Aires`} no ${m.sinMatch.length === 1 ? 'está registrada' : 'están registradas'}`
+                : `${m.sinMatch.length === 1 ? '1 fila no corresponde' : `${m.sinMatch.length} filas no corresponden`} a ninguna sede registrada`}
+              chips={m.sinMatch.map(s => `${s.cod} · ${nombreCorto(s.sede) || 'sin nombre'}${s.total ? ` (${s.total})` : ''}`)}>
+              No se guardan. Si {m.sinMatch.length === 1 ? 'es una sede' : 'son sedes'} de tu red, sumala{m.sinMatch.length === 1 ? '' : 's'} primero en Sedes → Sedes y objetivos y volvé a subir el Excel.
+            </AvisoCarga>
+          )}
+          {m.sumadas?.length > 0 && (
+            <AvisoCarga tono="info" titulo={`El Excel viene desglosado: se sumaron las filas de ${m.sumadas.length} sedes`}>
+              Cada sede aparece varias veces (por carrera o modalidad) y se toma la suma. Revisá en la tabla que los totales tengan sentido.
+            </AvisoCarga>
+          )}
+          {chequeo.objDistintos.length > 0 && (
+            <AvisoCarga tono={objetivosAplicados ? 'info' : 'revisar'}
+              titulo={objetivosAplicados
+                ? `Listo: se actualizaron ${chequeo.objDistintos.length} objetivos`
+                : `${chequeo.objDistintos.length === 1 ? '1 sede tiene' : `${chequeo.objDistintos.length} sedes tienen`} un objetivo distinto al de la app`}
+              chips={chequeo.objDistintos.map(f => `${nombreCorto(f.sede)} ${f.objApp} → ${f.objetivoExcel}`)}>
+              {objetivosAplicados
+                ? 'El corte se va a guardar con los objetivos nuevos.'
+                : <>
+                    El Excel trae otro objetivo. Si el del Excel es el vigente, actualizalo antes de guardar el corte:
+                    <div style={{ marginTop: 10 }}>
+                      <button onClick={aplicarObjetivos} disabled={aplicandoObj || confirmando} style={{ ...btnSecundario, height: 36, fontWeight: 800, color: C.navy }}>
+                        {aplicandoObj ? 'Actualizando…' : `Usar los objetivos del Excel (${chequeo.objDistintos.length})`}
+                      </button>
+                    </div>
+                  </>}
             </AvisoCarga>
           )}
           {chequeo.bajaron.length > 0 && (
@@ -560,7 +462,7 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
           {loading ? 'Leyendo el Excel…' : dragging ? 'Soltalo acá' : 'Arrastrá el Excel acá o tocá para elegirlo'}
         </div>
         <div style={{ fontSize: 12.5, color: C.inkSoft }}>
-          El mismo Excel de cada semana (.xlsx o .xls). La fecha y la columna de totales se detectan solas.
+          Sirve el Excel nacional tal como llega, con todas las sedes del país: la app se queda sola con las de tu zona. La fecha y la columna de totales se detectan solas.
         </div>
       </div>
 

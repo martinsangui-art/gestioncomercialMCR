@@ -336,11 +336,15 @@ export default function Dashboard({ data, stats, historial, campanas, campanaAct
     if (!historial.length) return []
     const byFecha = {}
     historial.forEach(r => {
-      if (!byFecha[r.fecha]) byFecha[r.fecha] = { total: 0, obj: 0 }
+      if (!byFecha[r.fecha]) byFecha[r.fecha] = { total: 0, obj: 0, n: 0 }
       byFecha[r.fecha].total += Number(r.total) || 0
       byFecha[r.fecha].obj   += Number(r.objetivo) || 0
+      byFecha[r.fecha].n++
     })
-    return Object.entries(byFecha).sort(([a], [b]) => a.localeCompare(b)).map(([fecha, v]) => ({
+    // Un corte parcial (ej. el 27/11/2025 quedó con 8 sedes de 36) dibuja un
+    // pico falso en la curva de la zona: se deja afuera de la evolución.
+    const maxN = Math.max(...Object.values(byFecha).map(v => v.n))
+    return Object.entries(byFecha).filter(([, v]) => v.n >= maxN * 0.8).sort(([a], [b]) => a.localeCompare(b)).map(([fecha, v]) => ({
       fecha: `${fecha.slice(8, 10)}/${fecha.slice(5, 7)}`,
       pct: v.obj > 0 ? Math.round(v.total / v.obj * 100) : 0,
     }))
