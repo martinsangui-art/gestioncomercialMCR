@@ -1,3 +1,5 @@
+// Uso: node scripts/estres-excel-real.mjs <Excel nacional real> <backup de la base (.xlsx)> <oraculo.json [{cod,total}] del mismo corte>
+// El Excel real y la base NO se suben al repo (es público): se pasan por parámetro.
 // Estrés: cientos de variantes del Excel nacional real. Regla: o da exactamente
 // lo esperado (y la doble lectura confirma), o frena con un error/bloqueo. Nunca
 // un número equivocado en silencio.
