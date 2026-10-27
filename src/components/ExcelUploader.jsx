@@ -352,6 +352,11 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
                       <td style={{ padding: '8px 14px' }}>
                         <span style={{ fontWeight: 600, color: C.ink }}>{nombreCorto(f.sede) || f.cod}</span>
                         <span style={{ fontFamily: F.mono, fontSize: 11, color: C.inkSoft, marginLeft: 8 }}>{f.cod}</span>
+                        {f.filas?.length > 0 && (
+                          <span title="Fila del Excel de donde sale el número" style={{ fontFamily: F.mono, fontSize: 11, color: C.inkSoft, marginLeft: 8 }}>
+                            · fila {f.filas.join('+')}
+                          </span>
+                        )}
                         {!f.conocida && <span style={{ fontSize: 11.5, color: '#8E0C22', fontWeight: 700, marginLeft: 8 }}>no se guarda</span>}
                       </td>
                       {tieneData && <td style={{ padding: '8px 14px', textAlign: 'right', fontFamily: F.mono, color: C.inkSoft }}>{f.prev ?? '—'}</td>}

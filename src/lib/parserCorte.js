@@ -89,13 +89,19 @@ function leerHoja(ws, XLSX, nombreHoja, setRed) {
   if (hIdx === -1) return null
 
   const headerRaw = rows[hIdx]
-  const header = headerRaw.map(lower)
+  // El Excel nacional real trae DOS filas de títulos: arriba los grupos
+  // ("Total acumulado", "Año Anterior Misma Fecha"…) y abajo Cod Sede / Sede /
+  // Obj / fecha. Para reconocer columnas se mira cada columna con su título
+  // de arriba; la fecha del corte se sigue leyendo de la fila de abajo.
+  const arriba = hIdx > 0 ? (rows[hIdx - 1] || []) : []
+  const ancho = Math.max(headerRaw.length, arriba.length)
+  const header = Array.from({ length: ancho }, (_, i) => lower(headerRaw[i]) || lower(arriba[i]))
   let { iCod, iSede } = indicesHeader(headerRaw)
   if (soloSede) iCod = -1
 
   // Columna de totales: header explícito → header fecha (la de más a la
   // derecha) → última no vacía. Igual que antes.
-  let iTotal = header.findIndex(h => /total|ingresad|ingresant|acumulad|inscript/.test(h) && !/%|porc|objetivo|meta/.test(h))
+  let iTotal = header.findIndex(h => /total|ingresad|ingresant|acumulad|inscript/.test(h) && !/%|porc|objetivo|\bobj|meta|anterior/.test(h))
   let detectadoPorFecha = false
   if (iTotal === -1) {
     for (let i = header.length - 1; i >= 0; i--) {
@@ -107,7 +113,8 @@ function leerHoja(ws, XLSX, nombreHoja, setRed) {
   }
   if (iTotal === -1 || iTotal === iCod || iTotal === iSede) return null
 
-  const iObj = header.findIndex(h => /objetivo|meta/.test(h) && !/%|porc|cumpl/.test(h))
+  const iObj = header.findIndex(h => /\bobj|meta/.test(h) && !/%|porc|cumpl/.test(h))
+  const iAnt = header.findIndex(h => /a[ñn]o anterior|misma fecha/.test(h) && !/%|porc/.test(h))
   const desagregado = header.some((h, i) => i !== iSede && REGEX_COL_DESAGREGADA.test(h))
 
   // ── Fecha del corte desde el header de la columna de totales ──────────
@@ -149,20 +156,31 @@ function leerHoja(ws, XLSX, nombreHoja, setRed) {
   const filas = []
   const filasInvalidas = []
   let filasTotal = 0
+  // Sedes con varias modalidades: en el nacional real la primera fila trae el
+  // código y las siguientes vienen con el código vacío ("... JUJUY Modo 1",
+  // "... JUJUY Modo 7", "... JUJUY Modo 2"). Esas filas son de la misma sede
+  // y se suman a ella.
+  const baseNombre = (n) => String(n || '').replace(/\s+mod(o)?\.?\s*\d+\s*$/i, '').trim().toUpperCase()
+  let previa = null // { cod, base } de la última fila con código
   for (let i = hIdx + 1; i < rows.length; i++) {
     const row = rows[i]
     if (!row || row.every(c => c === undefined || c === null || String(c).trim() === '')) continue
     const nombre = iSede >= 0 ? String(row[iSede] ?? '').trim() : ''
     const codTxt = iCod >= 0 ? String(row[iCod] ?? '').trim() : ''
-    if (REGEX_FILA_TOTAL.test(nombre) || REGEX_FILA_TOTAL.test(codTxt)) { filasTotal++; continue }
+    if (REGEX_FILA_TOTAL.test(nombre) || REGEX_FILA_TOTAL.test(codTxt)) { filasTotal++; previa = null; continue }
     let cod = iCod >= 0 ? normCod(codTxt) : ''
+    let continuacion = false
     if (!cod || !/^\d+$/.test(cod)) cod = codDesdeNombre(nombre) || cod
+    if (!cod && previa && nombre && baseNombre(nombre) === previa.base) { cod = previa.cod; continuacion = true }
     if (!cod || cod === 'undefined') continue
+    if (!continuacion) previa = { cod, base: baseNombre(nombre) }
     const valor = row[iTotal]
     const total = aNumero(valor)
     if (isNaN(total)) { filasInvalidas.push({ cod, sede: nombre, valor: String(valor ?? '(vacío)') }); continue }
     const objetivoExcel = iObj >= 0 && String(row[iObj] ?? '').trim() !== '' && !isNaN(aNumero(row[iObj])) ? aNumero(row[iObj]) : null
-    filas.push({ cod, sede: nombre || `Sede ${cod}`, total, objetivoExcel, enRed: setRed ? setRed.has(cod) : true })
+    const anioAnterior = iAnt >= 0 && String(row[iAnt] ?? '').trim() !== '' && !isNaN(aNumero(row[iAnt])) ? aNumero(row[iAnt]) : null
+    // fila = número de fila en el Excel (como lo ve Cele en la planilla), para controlar a ojo
+    filas.push({ cod, sede: nombre || `Sede ${cod}`, total, objetivoExcel, anioAnterior, continuacion, fila: range.s.r + i + 1, enRed: setRed ? setRed.has(cod) : true })
   }
   if (!filas.length) return null
 
@@ -203,20 +221,28 @@ export function parseCorte(arrayBuffer, XLSX, { codigosRed = [] } = {}) {
   })
   const unicos = porCod.size
   const sumar = h.desagregado || (repetidos.size >= 3 && repetidos.size / unicos > 0.25)
+  const sumaOpcional = (grupo, k) => { const v = grupo.map(g => g[k]).filter(x => x != null); return v.length ? v.reduce((a, b) => a + b, 0) : null }
 
   const sedes = [...porCod.values()].map(grupo => {
-    if (grupo.length === 1 || !sumar) {
+    // Una sede repetida se suma si el archivo viene desglosado o si las filas
+    // extra son de sus otras modalidades (código vacío). Si no, se toma la
+    // última fila: es casi seguro una corrección.
+    const porModalidad = grupo.length > 1 && grupo.slice(1).every(g => g.continuacion)
+    if (grupo.length === 1 || !(sumar || porModalidad)) {
       const u = grupo[grupo.length - 1]
-      return { cod: u.cod, sede: u.sede, total: u.total, objetivoExcel: u.objetivoExcel }
+      return { cod: u.cod, sede: u.sede, total: u.total, objetivoExcel: u.objetivoExcel, anioAnterior: u.anioAnterior, filas: [u.fila] }
     }
-    const objs = grupo.map(g => g.objetivoExcel).filter(v => v != null)
     return {
       cod: grupo[0].cod, sede: grupo[0].sede,
       total: grupo.reduce((a, g) => a + g.total, 0),
-      objetivoExcel: objs.length ? objs.reduce((a, b) => a + b, 0) : null,
+      objetivoExcel: sumaOpcional(grupo, 'objetivoExcel'),
+      anioAnterior: sumaOpcional(grupo, 'anioAnterior'),
       filasSumadas: grupo.length,
+      filas: grupo.map(g => g.fila),
+      porModalidad,
     }
   })
+  const sumadasPorModalidad = sedes.filter(x => x.porModalidad).map(x => x.cod)
 
   // ── Lo que no es de la red ─────────────────────────────────────────────
   const desconocidas = h.filas.filter(f => !f.enRed)
@@ -246,8 +272,8 @@ export function parseCorte(arrayBuffer, XLSX, { codigosRed = [] } = {}) {
       sinMatch,            // filas que no son de la red y conviene mirar
       otrasIgnoradas: esNacional ? codsDesc.length - posiblesNuevas.length : 0,
       pais,
-      sumadas: sumar ? [...repetidos] : [],
-      duplicados: sumar ? [] : [...repetidos],
+      sumadas: sumar ? [...repetidos] : sumadasPorModalidad,
+      duplicados: sumar ? [] : [...repetidos].filter(c => !sumadasPorModalidad.includes(c)),
       filasInvalidas: h.filasInvalidas.filter(f => !setRed || setRed.has(f.cod)),
       totalFilas: sedes.length,
     },
