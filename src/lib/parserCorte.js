@@ -104,14 +104,34 @@ function leerHoja(ws, XLSX, nombreHoja, setRed) {
   let iTotal = header.findIndex(h => /total|ingresad|ingresant|acumulad|inscript/.test(h) && !/%|porc|objetivo|\bobj|meta|anterior/.test(h))
   let detectadoPorFecha = false
   if (iTotal === -1) {
-    for (let i = header.length - 1; i >= 0; i--) {
-      if (esFechaTexto(headerRaw[i])) { iTotal = i; detectadoPorFecha = true; break }
+    // Columnas cuyo título es una fecha. Si hay más de una (por ejemplo la
+    // semana anterior y la actual), el corte es la fecha MÁS RECIENTE, esté
+    // donde esté; dos columnas con la misma fecha = no se puede saber cuál.
+    const rng0 = XLSX.utils.decode_range(ws['!ref'])
+    const fechaDeTitulo = (i) => {
+      const c = ws[XLSX.utils.encode_cell({ r: rng0.s.r + hIdx, c: rng0.s.c + i })]
+      if (c && c.v instanceof Date) return `${c.v.getFullYear()}-${String(c.v.getMonth() + 1).padStart(2, '0')}-${String(c.v.getDate()).padStart(2, '0')}`
+      const t = String(headerRaw[i] ?? '').trim()
+      let m = t.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/)
+      if (m) { let [, d, mo, y] = m; if (Number(mo) > 12) [d, mo] = [mo, d]; return `${y.length === 2 ? '20' + y : y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}` }
+      m = t.match(/^(\d{4})[/-](\d{2})[/-](\d{2})/)
+      return m ? `${m[1]}-${m[2]}-${m[3]}` : null
+    }
+    const conFecha = headerRaw.map((h, i) => ({ i, f: esFechaTexto(h) || h instanceof Date ? fechaDeTitulo(i) : null })).filter(x => x.f)
+    if (conFecha.length) {
+      const max = conFecha.reduce((a, b) => (b.f > a.f ? b : a))
+      if (conFecha.filter(x => x.f === max.f).length > 1) {
+        throw new Error(`El Excel tiene dos columnas con la fecha ${max.f.split('-').reverse().join('/')} y no se puede saber cuál es la del corte.`)
+      }
+      iTotal = max.i
+      detectadoPorFecha = true
     }
   }
-  if (iTotal === -1) {
-    for (let i = header.length - 1; i >= 0; i--) if (header[i]) { iTotal = i; break }
-  }
+  // Sin un título que diga "total" o una fecha, NO se adivina la columna (antes
+  // se tomaba la última con algo escrito): leer la columna equivocada es el
+  // peor error posible, peor que no poder cargar.
   if (iTotal === -1 || iTotal === iCod || iTotal === iSede) return null
+  const fechasEnTitulos = headerRaw.filter(esFechaTexto).length + headerRaw.filter(v => v instanceof Date).length
 
   const iObj = header.findIndex(h => /\bobj|meta/.test(h) && !/%|porc|cumpl/.test(h))
   const iAnt = header.findIndex(h => /a[ñn]o anterior|misma fecha/.test(h) && !/%|porc/.test(h))
@@ -176,7 +196,9 @@ function leerHoja(ws, XLSX, nombreHoja, setRed) {
     if (!continuacion) previa = { cod, base: baseNombre(nombre) }
     const valor = row[iTotal]
     const total = aNumero(valor)
-    if (isNaN(total)) { filasInvalidas.push({ cod, sede: nombre, valor: String(valor ?? '(vacío)') }); continue }
+    // Inscriptos: entero y no negativo. Cualquier otra cosa ("s/d", 3,5, -2)
+    // es un error del Excel y la sede no se puede guardar así.
+    if (isNaN(total) || total < 0 || !Number.isInteger(total)) { filasInvalidas.push({ cod, sede: nombre, valor: String(valor ?? '(vacío)'), fila: range.s.r + i + 1 }); continue }
     const objetivoExcel = iObj >= 0 && String(row[iObj] ?? '').trim() !== '' && !isNaN(aNumero(row[iObj])) ? aNumero(row[iObj]) : null
     const anioAnterior = iAnt >= 0 && String(row[iAnt] ?? '').trim() !== '' && !isNaN(aNumero(row[iAnt])) ? aNumero(row[iAnt]) : null
     // fila = número de fila en el Excel (como lo ve Cele en la planilla), para controlar a ojo
@@ -186,7 +208,8 @@ function leerHoja(ws, XLSX, nombreHoja, setRed) {
 
   return {
     nombreHoja, filas, filasInvalidas, filasTotal, desagregado,
-    meta: { columnaTotal, detectadoPorFecha, fechaCorte, fechaAmbigua, tieneObjetivo: iObj !== -1, codDesdeNombre: soloSede },
+    meta: { columnaTotal, letraColumna: XLSX.utils.encode_col(range.s.c + iTotal), filaTitulos: range.s.r + hIdx + 1, fechasEnTitulos, detectadoPorFecha, fechaCorte, fechaAmbigua, tieneObjetivo: iObj !== -1, codDesdeNombre: soloSede },
+    iTotal, iCod, iSede, hIdx,
     puntaje: setRed ? filas.filter(f => f.enRed).length : filas.length,
   }
 }
@@ -197,16 +220,26 @@ export function parseCorte(arrayBuffer, XLSX, { codigosRed = [] } = {}) {
 
   // Todas las hojas: se elige la que más sedes de la red trae (el nacional a
   // veces viene con una hoja por región, una de resumen, otra de gráficos…).
+  const erroresHojas = []
   const candidatas = wb.SheetNames
-    .map(n => { try { return leerHoja(wb.Sheets[n], XLSX, n, setRed) } catch { return null } })
+    .map(n => { try { return leerHoja(wb.Sheets[n], XLSX, n, setRed) } catch (e) { erroresHojas.push(e.message); return null } })
     .filter(Boolean)
     .sort((a, b) => b.puntaje - a.puntaje)
+  // Una hoja que no se pudo leer por un motivo concreto (ej. dos columnas con
+  // la misma fecha) se informa con ese motivo, no con un error genérico.
+  if (!candidatas.length && erroresHojas.length) throw new Error(erroresHojas[0])
   if (!candidatas.length) {
     throw new Error('No se encontraron las columnas esperadas (código de sede y columna de inscriptos). Verificá que sea el Excel del corte.')
   }
   const h = candidatas[0]
+  if (setRed && h.puntaje === 0 && erroresHojas.length) throw new Error(erroresHojas[0])
   if (setRed && h.puntaje === 0) {
     throw new Error('El Excel no trae ninguna de las sedes registradas en la app. ¿Es el archivo del corte correcto?')
+  }
+  // Dos hojas con las sedes de la zona = no se sabe cuál es el corte. No se elige.
+  const segunda = candidatas[1]
+  if (setRed && segunda && segunda.puntaje >= h.puntaje * 0.5) {
+    throw new Error(`El Excel tiene dos hojas con las sedes de la zona ("${h.nombreHoja}" y "${segunda.nombreHoja}") y no se puede saber cuál es la del corte. Dejá solo la hoja del corte y volvé a subirlo.`)
   }
 
   // ── Repetidos: ¿corrección o desglose? ─────────────────────────────────
@@ -219,8 +252,10 @@ export function parseCorte(arrayBuffer, XLSX, { codigosRed = [] } = {}) {
     if (porCod.has(f.cod)) repetidos.add(f.cod)
     porCod.set(f.cod, [...(porCod.get(f.cod) || []), f])
   })
-  const unicos = porCod.size
-  const sumar = h.desagregado || (repetidos.size >= 3 && repetidos.size / unicos > 0.25)
+  // Se suma solo cuando el propio Excel lo dice: una columna de carrera o
+  // modalidad, o filas de modalidad sin código debajo de su sede. Cualquier
+  // otro repetido es una contradicción del Excel y no se adivina cuál vale.
+  const sumar = h.desagregado
   const sumaOpcional = (grupo, k) => { const v = grupo.map(g => g[k]).filter(x => x != null); return v.length ? v.reduce((a, b) => a + b, 0) : null }
 
   const sedes = [...porCod.values()].map(grupo => {
@@ -228,8 +263,11 @@ export function parseCorte(arrayBuffer, XLSX, { codigosRed = [] } = {}) {
     // extra son de sus otras modalidades (código vacío). Si no, se toma la
     // última fila: es casi seguro una corrección.
     const porModalidad = grupo.length > 1 && grupo.slice(1).every(g => g.continuacion)
-    if (grupo.length === 1 || !(sumar || porModalidad)) {
-      const u = grupo[grupo.length - 1]
+    if (grupo.length > 1 && !(sumar || porModalidad)) {
+      throw new Error(`La sede ${grupo[0].cod} (${grupo[0].sede}) aparece ${grupo.length} veces en el Excel (filas ${grupo.map(g => g.fila).join(', ')}) con ${grupo.map(g => g.total).join(' y ')} inscriptos. Corregí el Excel para que tenga una sola fila y volvé a subirlo.`)
+    }
+    if (grupo.length === 1) {
+      const u = grupo[0]
       return { cod: u.cod, sede: u.sede, total: u.total, objetivoExcel: u.objetivoExcel, anioAnterior: u.anioAnterior, filas: [u.fila] }
     }
     return {
@@ -262,6 +300,8 @@ export function parseCorte(arrayBuffer, XLSX, { codigosRed = [] } = {}) {
 
   return {
     sedes,
+    // Dónde se leyó, para que la verificación independiente relea las mismas celdas
+    lectura: { hoja: h.nombreHoja, iTotal: h.iTotal, iCod: h.iCod, iSede: h.iSede, hIdx: h.hIdx },
     meta: {
       ...h.meta,
       hoja: h.nombreHoja,
@@ -273,7 +313,7 @@ export function parseCorte(arrayBuffer, XLSX, { codigosRed = [] } = {}) {
       otrasIgnoradas: esNacional ? codsDesc.length - posiblesNuevas.length : 0,
       pais,
       sumadas: sumar ? [...repetidos] : sumadasPorModalidad,
-      duplicados: sumar ? [] : [...repetidos].filter(c => !sumadasPorModalidad.includes(c)),
+      duplicados: [],
       filasInvalidas: h.filasInvalidas.filter(f => !setRed || setRed.has(f.cod)),
       totalFilas: sedes.length,
     },

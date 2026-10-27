@@ -465,17 +465,40 @@ export function useSheets() {
     }
 
     const camp = state.campanas?.find(c => c.id === state.campanaActiva)
-    return await post({
+    const res = await post({
       action: 'agregar_semana',
       campana_id: state.campanaActiva,
       campana_nombre: camp?.nombre || '',
       fecha,
       sedes: sedesConCod,
       reemplazar,
-    }).then(res => {
-      cargarCampana(state.campanaActiva)
-      return res
     })
+
+    // Relectura: se vuelve a pedir a la planilla lo que quedó guardado para esa
+    // fecha y se compara sede por sede con lo que se mandó. Si algo no
+    // coincide, se avisa en rojo (y el corte se puede deshacer) en vez de dar
+    // la carga por buena.
+    let verificacion
+    try {
+      const hist = await jsonp('historial', { campana: state.campanaActiva })
+      const guardado = new Map()
+      hist.filter(r => String(r.fecha).slice(0, 10) === fecha).forEach(r => {
+        const k = String(r.cod_sede)
+        guardado.set(k, (guardado.get(k) || 0) + (Number(r.total) || 0))
+      })
+      const diferencias = []
+      sedesConCod.forEach(s => {
+        const k = String(s.cod)
+        if (!guardado.has(k)) diferencias.push(`${s.sede}: no quedó guardada`)
+        else if (guardado.get(k) !== Number(s.total)) diferencias.push(`${s.sede}: se mandó ${s.total} y quedó ${guardado.get(k)}`)
+      })
+      if (guardado.size !== sedesConCod.length) diferencias.push(`Quedaron ${guardado.size} sedes guardadas para el ${fecha} y se mandaron ${sedesConCod.length}`)
+      verificacion = { ok: diferencias.length === 0, diferencias }
+    } catch (e) {
+      verificacion = { ok: false, diferencias: ['No se pudo releer la planilla para verificar: ' + e.message] }
+    }
+    cargarCampana(state.campanaActiva)
+    return { ...res, verificacion }
   }, [state.campanaActiva, state.campanas, state.sedes, cargarCampana])
 
   return {

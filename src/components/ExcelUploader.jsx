@@ -3,6 +3,7 @@ import { C, F } from '../lib/theme'
 import { fmtCorto, hoyIso as hoyLocal, nombreCorto } from '../lib/formato'
 import { cargarXLSX } from '../lib/xlsxLoader'
 import { parseCorte } from '../lib/parserCorte'
+import { verificarCorte } from '../lib/verificarCorte'
 
 // El lector del Excel vive en lib/parserCorte.js (función pura, con pruebas
 // en scripts/probar-parser.mjs). Acepta el Excel recortado de siempre o el
@@ -80,6 +81,8 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
   const [confirmando, setConfirmando] = useState(false)
   const [modoReemplazar, setModoReemplazar] = useState(false) // el servidor avisó que ya existe
   const [fechaElegida, setFechaElegida] = useState(null) // cuando era ambigua o no venía en el Excel
+  const [confirmoAvisos, setConfirmoAvisos] = useState(false) // "revisé y quiero guardar igual"
+  const [falloRelectura, setFalloRelectura] = useState(null) // la planilla guardó algo distinto a lo mandado
   const inputRef = useRef(null)
 
   const camp = campanas?.find(c => c.id === campanaActiva)
@@ -99,12 +102,21 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
     setError(null)
     setModoReemplazar(false)
     setFechaElegida(null)
+    setConfirmoAvisos(false)
+    setFalloRelectura(null)
     try {
       const [buffer, XLSX] = await Promise.all([file.arrayBuffer(), cargarXLSX()])
       // Las sedes de la red son las registradas en la app: con eso el lector
       // separa lo propio del resto del país (si el Excel es el nacional).
-      const { sedes, meta } = parseCorte(buffer, XLSX, { codigosRed: sedesConocidas.map(s => String(s.cod_sede)) })
-      setPreview({ sedes, meta, fileName: file.name })
+      const codigosRed = sedesConocidas.map(s => String(s.cod_sede))
+      const resultado = parseCorte(buffer, XLSX, { codigosRed })
+      const { sedes, meta } = resultado
+      // Doble lectura: las mismas celdas releídas por otro camino. Si no da
+      // exactamente igual, el corte no se puede guardar.
+      let verificacion
+      try { verificacion = verificarCorte(buffer, XLSX, resultado, codigosRed) }
+      catch (ev) { verificacion = { ok: false, problemas: ['La verificación falló: ' + ev.message] } }
+      setPreview({ sedes, meta, fileName: file.name, verificacion })
       if (!meta.fechaCorte) setFechaElegida(hoyLocal())
     } catch (e) {
       setError(e.message)
@@ -145,15 +157,43 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
   const yaExiste = !!fechaFinal && fechasCargadas.has(fechaFinal)
   const reemplaza = yaExiste || modoReemplazar
 
+  // ── Reglas de guardado ───────────────────────────────────────────────────
+  // Bloqueos: no hay forma de guardar (hay que corregir el Excel o la fecha).
+  // Confirmaciones: situaciones que pueden ser legítimas pero casi siempre son
+  // un error; se guarda solo si Cele lo confirma explícitamente.
+  const reglas = (fecha) => {
+    if (!preview || !chequeo) return { bloqueos: [], confirmar: [] }
+    const m = preview.meta
+    const bloqueos = []
+    if (!preview.verificacion?.ok) bloqueos.push({ titulo: 'La doble lectura del Excel no coincide', detalle: preview.verificacion?.problemas || [] })
+    if (m.filasInvalidas?.length) bloqueos.push({ titulo: `${m.filasInvalidas.length === 1 ? '1 sede tiene' : `${m.filasInvalidas.length} sedes tienen`} un valor que no es un número entero`, detalle: m.filasInvalidas.map(f => `${f.cod} · ${nombreCorto(f.sede)} · fila ${f.fila}: “${f.valor}”`) })
+    if (fecha && fecha > hoyLocal()) bloqueos.push({ titulo: `La fecha del corte (${fechaEnPalabras(fecha)}) es posterior a hoy`, detalle: ['Revisá la fecha: un corte no puede ser del futuro.'] })
+    if (!chequeo.validas.length) bloqueos.push({ titulo: 'No hay sedes para guardar', detalle: [] })
+    const confirmar = []
+    if (chequeo.faltantes.length) confirmar.push(`faltan ${chequeo.faltantes.length} ${chequeo.faltantes.length === 1 ? 'sede' : 'sedes'}`)
+    const anterior = fecha && fechaActual && fecha < fechaActual
+    if (chequeo.bajaron.length && !anterior) confirmar.push(`${chequeo.bajaron.length} ${chequeo.bajaron.length === 1 ? 'sede bajó' : 'sedes bajaron'}`)
+    if (anterior && !fechasCargadas.has(fecha)) confirmar.push('es un corte anterior al último')
+    return { bloqueos, confirmar }
+  }
+
   const confirmarCarga = async (fechaOverride) => {
     const fechaFinal = fechaOverride || fechaFinalEstado
     if (!preview || !fechaFinal) return
+    const { bloqueos, confirmar } = reglas(fechaFinal)
+    if (bloqueos.length || (confirmar.length && !confirmoAvisos)) return
     setConfirmando(true)
     setError(null)
     try {
       const reemplazar = reemplaza || fechasCargadas.has(fechaFinal)
-      await onUpload(preview.sedes, preview.fileName, reemplazar, fechaFinal)
-      onGuardado?.(`Corte del ${fmtCorto(fechaFinal)} ${reemplazar ? 'reemplazado' : 'guardado'}: ${chequeo.validas.length} sedes, ${chequeo.totalNuevo} inscriptos.`)
+      const res = await onUpload(preview.sedes, preview.fileName, reemplazar, fechaFinal)
+      if (res?.verificacion && !res.verificacion.ok) {
+        // Se guardó, pero lo que quedó en la planilla no es lo que se mandó
+        setFalloRelectura({ fecha: fechaFinal, diferencias: res.verificacion.diferencias })
+        setConfirmando(false)
+        return
+      }
+      onGuardado?.(`Corte del ${fmtCorto(fechaFinal)} ${reemplazar ? 'reemplazado' : 'guardado'} y verificado contra la planilla: ${chequeo.validas.length} sedes, ${chequeo.totalNuevo} inscriptos.`)
       setPreview(null)
       setModoReemplazar(false)
       setMinimized(true)
@@ -174,7 +214,7 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
     handleFile(e.dataTransfer.files[0])
   }
 
-  const cancelarPreview = () => { setPreview(null); setModoReemplazar(false); setError(null); if (inputRef.current) inputRef.current.value = '' }
+  const cancelarPreview = () => { setPreview(null); setModoReemplazar(false); setError(null); setFalloRelectura(null); setConfirmoAvisos(false); if (inputRef.current) inputRef.current.value = '' }
 
   const marco = { background: '#fff', border: `1px solid ${C.rule}`, borderRadius: 14, overflow: 'hidden', marginBottom: 18, fontFamily: F.body }
 
@@ -182,7 +222,8 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
   if (preview && chequeo) {
     const m = preview.meta
     const ambiguaSinElegir = m.fechaCorte && m.fechaAmbigua && !fechaElegida
-    const puedeGuardar = !!fechaFinal && chequeo.validas.length > 0 && !confirmando
+    const { bloqueos, confirmar } = reglas(fechaFinal)
+    const puedeGuardar = !!fechaFinal && !bloqueos.length && (!confirmar.length || confirmoAvisos) && !confirmando && !falloRelectura
     const anteriorAlUltimo = fechaFinal && fechaActual && fechaFinal < fechaActual
 
     return (
@@ -226,14 +267,32 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
             </div>
           </div>
 
+          {/* Lo que se leyó, para que se pueda controlar contra el Excel */}
+          <div style={{ fontSize: 12.5, color: C.inkSoft, lineHeight: 1.5 }}>
+            Leído de la hoja “{m.hoja}”, columna <strong style={{ fontFamily: F.mono, color: C.ink }}>{m.letraColumna}</strong> ({m.columnaTotal}), títulos en la fila {m.filaTitulos}.
+            {preview.verificacion?.ok && <> <span style={{ color: C.ok, fontWeight: 700 }}>Doble lectura OK</span>: {preview.verificacion.sedes} sedes y {preview.verificacion.total} inscriptos coinciden por los dos caminos.</>}
+          </div>
+
+          {falloRelectura && (
+            <AvisoCarga tono="bloquea" titulo={`Atención: el corte del ${fmtCorto(falloRelectura.fecha)} se guardó, pero la planilla no quedó igual a lo que se mandó`}
+              chips={falloRelectura.diferencias}>
+              No lo mandes a las sedes. Deshacé la carga (“Deshacer la última carga” en la línea de la semana) y volvé a subir el Excel; si se repite, avisale a Martín.
+            </AvisoCarga>
+          )}
+          {bloqueos.map(b => (
+            <AvisoCarga key={b.titulo} tono="bloquea" titulo={`No se puede guardar: ${b.titulo.charAt(0).toLowerCase()}${b.titulo.slice(1)}`} chips={b.detalle}>
+              Corregí el Excel y volvé a subirlo.
+            </AvisoCarga>
+          ))}
+
           {/* Avisos, de lo que bloquea a lo informativo */}
           {ambiguaSinElegir && (
             <AvisoCarga tono="bloquea" titulo="¿Qué fecha es el corte?">
               El Excel dice “{m.columnaTotal}”, que se puede leer de dos formas. Tocá la correcta y el corte se guarda con esa fecha:
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
                 {[m.fechaCorte, invertirDiaMes(m.fechaCorte)].map(op => (
-                  <button key={op} disabled={confirmando} onClick={() => { setFechaElegida(op); confirmarCarga(op) }} style={{ ...btnSecundario, height: 38, borderColor: C.crimson, color: '#8E0C22', fontWeight: 800 }}>
-                    Guardar como {fechaEnPalabras(op)}
+                  <button key={op} disabled={confirmando} onClick={() => { setFechaElegida(op); const r = reglas(op); if (!r.bloqueos.length && (!r.confirmar.length || confirmoAvisos)) confirmarCarga(op) }} style={{ ...btnSecundario, height: 38, borderColor: C.crimson, color: '#8E0C22', fontWeight: 800 }}>
+                    {reglas(op).bloqueos.length || (reglas(op).confirmar.length && !confirmoAvisos) ? `Es el ${fechaEnPalabras(op)}` : `Guardar como ${fechaEnPalabras(op)}`}
                   </button>
                 ))}
               </div>
@@ -333,13 +392,23 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
 
           {error && <AvisoCarga tono="bloquea" titulo="No se pudo guardar">{error}</AvisoCarga>}
 
+          {confirmar.length > 0 && !bloqueos.length && !falloRelectura && (
+            <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: 14, color: C.ink, background: '#FBF3E2', border: `1px solid ${C.warn}55`, borderRadius: 10, padding: '12px 14px', cursor: 'pointer' }}>
+              <input type="checkbox" checked={confirmoAvisos} onChange={e => setConfirmoAvisos(e.target.checked)} style={{ width: 20, height: 20, marginTop: 1, flexShrink: 0 }} />
+              <span>Revisé los avisos de arriba ({confirmar.join(', ')}) y el Excel está bien: quiero guardar igual.</span>
+            </label>
+          )}
+
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
             <button onClick={() => confirmarCarga()} disabled={!puedeGuardar} className="btn-press" style={{
               ...btnPrimario, background: reemplaza ? C.warn : C.navy,
               opacity: puedeGuardar ? 1 : 0.45, cursor: puedeGuardar ? 'pointer' : 'not-allowed',
             }}>
-              {confirmando ? 'Guardando…'
+              {confirmando ? 'Guardando y verificando…'
+                : falloRelectura ? 'Guardado con diferencias'
+                : bloqueos.length ? 'No se puede guardar'
                 : !fechaFinal ? 'Elegí la fecha para guardar'
+                : confirmar.length && !confirmoAvisos ? 'Confirmá los avisos para guardar'
                 : reemplaza ? `Reemplazar el corte del ${fmtCorto(fechaFinal)}`
                 : `Guardar el corte del ${fmtCorto(fechaFinal)}`}
             </button>

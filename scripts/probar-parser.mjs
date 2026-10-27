@@ -5,6 +5,7 @@
 // la app tome exactamente las sedes de la red con los totales correctos.
 import XLSX from 'xlsx'
 import { parseCorte } from '../src/lib/parserCorte.js'
+import { verificarCorte } from '../src/lib/verificarCorte.js'
 
 const RED = { 22: 'PILAR', 33: 'DELEGACIÓN SAN MIGUEL', 42: 'DELEGACIÓN BAHIA BLANCA', 87: 'JUNIN', 151: 'TRENQUE LAUQUEN' }
 const codigosRed = Object.keys(RED)
@@ -70,11 +71,12 @@ const totalDe = (r, cod) => r.sedes.find(s => s.cod === String(cod))?.total
   check('por carrera: informa que sumó', r.meta.sumadas.length === 5 && r.meta.duplicados.length === 0)
 }
 
-// 4. Una corrección suelta (una sede repetida, sin columna de carrera): queda la última
+// 4. Una sede repetida sin columna de carrera ni modalidad: NO se adivina, se frena
 {
   const aoa = [['Cod Sede', 'Sede', fecha], ...Object.entries(RED).map(([c, n]) => [c, n, 5]), [87, 'JUNIN', 9]]
-  const r = parseCorte(libro([['Hoja1', aoa]]), XLSX, { codigosRed })
-  check('repetido suelto: se queda con la última fila', totalDe(r, 87) === 9 && r.meta.duplicados[0] === '87')
+  let msg = ''
+  try { parseCorte(libro([['Hoja1', aoa]]), XLSX, { codigosRed }) } catch (e) { msg = e.message }
+  check('repetido suelto: frena y dice filas y valores', /87.*2 veces.*filas 5, 7.*5 y 9/.test(msg), msg)
 }
 
 // 5. Fecha ambigua como texto
@@ -141,5 +143,52 @@ const totalDe = (r, cod) => r.sedes.find(s => s.cod === String(cod))?.total
   check('real: una sede de varias modalidades no cuenta como repetido', conJujuy.meta.duplicados.length === 0)
 }
 
-console.log(fallas ?`\n${fallas} prueba(s) fallaron` : '\nTodo OK')
+// 10. Sin título de fecha ni "total": no se adivina la columna
+{
+  const aoa = [['Cod Sede', 'Sede', 'Objetivo', 'Algo'], ...Object.entries(RED).map(([c, n]) => [c, n, 20, 3])]
+  let msg = ''
+  try { parseCorte(libro([['Hoja1', aoa]]), XLSX, { codigosRed }) } catch (e) { msg = e.message }
+  check('sin columna de corte reconocible → error, no adivina', /columnas esperadas/.test(msg), msg)
+}
+
+// 11. Decimales y negativos son inválidos
+{
+  const aoa = [['Cod Sede', 'Sede', fecha], [22, 'PILAR', 3.5], [33, 'SM', -2], [42, 'BB', 4], [87, 'JUN', 5], [151, 'TL', 6]]
+  const r = parseCorte(libro([['Hoja1', aoa]]), XLSX, { codigosRed })
+  check('3,5 y -2 son filas inválidas (bloquean)', r.meta.filasInvalidas.map(f => f.cod).join() === '22,33', JSON.stringify(r.meta.filasInvalidas))
+}
+
+// 12. Dos hojas con las sedes de la zona → no se elige
+{
+  const a = [['Cod Sede', 'Sede', fecha], ...Object.entries(RED).map(([c, n]) => [c, n, 5])]
+  const b2 = [['Cod Sede', 'Sede', fecha], ...Object.entries(RED).map(([c, n]) => [c, n, 7])]
+  let msg = ''
+  try { parseCorte(libro([['Semana 1', a], ['Semana 2', b2]]), XLSX, { codigosRed }) } catch (e) { msg = e.message }
+  check('dos hojas con la zona → error claro', /dos hojas/.test(msg), msg)
+}
+
+// 13. Doble lectura: confirma una lectura correcta y detecta una adulterada
+{
+  const aoa = [
+    [null, null, null, 'Total acumulado', 'Año Anterior Misma Fecha'],
+    ['Cod Sede', 'Sede', 'Obj 1er Ingreso', fecha],
+    [10, 'JUJUY Modo 1', 487, 46, 49], [null, 'JUJUY Modo 7', 398, 37, 42],
+    ...Object.entries(RED).map(([c, n], i) => [Number(c), n, 20, 3 + i, 1]),
+    ...OTRAS.map(([c, n]) => [c, n, 30, 4, 3]), [null, 'TOTALES', 1, 1, 1],
+  ]
+  const buf = libro([['H', aoa]])
+  const cods = [...codigosRed, '10']
+  const r = parseCorte(buf, XLSX, { codigosRed: cods })
+  const v = verificarCorte(buf, XLSX, r, cods)
+  check('doble lectura OK en lectura correcta', v.ok && v.sedes === 6 && v.total === 83 + 3 + 4 + 5 + 6 + 7, JSON.stringify(v))
+  const adulterado = { ...r, sedes: r.sedes.map(s => s.cod === '42' ? { ...s, total: s.total + 1 } : s) }
+  const v2 = verificarCorte(buf, XLSX, adulterado, cods)
+  check('doble lectura detecta un número distinto', !v2.ok && v2.problemas.some(p => /42/.test(p)), JSON.stringify(v2.problemas))
+  const sinUna = { ...r, sedes: r.sedes.filter(s => s.cod !== '151') }
+  check('doble lectura detecta una sede perdida', !verificarCorte(buf, XLSX, sinUna, cods).ok)
+  const otraColumna = { ...r, lectura: { ...r.lectura, iTotal: r.lectura.iTotal + 1 } }
+  check('doble lectura detecta la columna equivocada', !verificarCorte(buf, XLSX, otraColumna, cods).ok)
+}
+
+console.log(fallas ? `\n${fallas} prueba(s) fallaron` : '\nTodo OK')
 process.exit(fallas ? 1 : 0)
