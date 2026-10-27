@@ -3,7 +3,6 @@ import { C, F } from '../lib/theme'
 import { fmtCorto, hoyIso as hoyLocal, nombreCorto } from '../lib/formato'
 import { cargarXLSX } from '../lib/xlsxLoader'
 import { parseCorte } from '../lib/parserCorte'
-import { setObjetivo } from '../hooks/useSheets'
 
 // El lector del Excel vive en lib/parserCorte.js (función pura, con pruebas
 // en scripts/probar-parser.mjs). Acepta el Excel recortado de siempre o el
@@ -81,8 +80,6 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
   const [confirmando, setConfirmando] = useState(false)
   const [modoReemplazar, setModoReemplazar] = useState(false) // el servidor avisó que ya existe
   const [fechaElegida, setFechaElegida] = useState(null) // cuando era ambigua o no venía en el Excel
-  const [objetivosAplicados, setObjetivosAplicados] = useState(false)
-  const [aplicandoObj, setAplicandoObj] = useState(false)
   const inputRef = useRef(null)
 
   const camp = campanas?.find(c => c.id === campanaActiva)
@@ -108,7 +105,6 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
       // separa lo propio del resto del país (si el Excel es el nacional).
       const { sedes, meta } = parseCorte(buffer, XLSX, { codigosRed: sedesConocidas.map(s => String(s.cod_sede)) })
       setPreview({ sedes, meta, fileName: file.name })
-      setObjetivosAplicados(false)
       if (!meta.fechaCorte) setFechaElegida(hoyLocal())
     } catch (e) {
       setError(e.message)
@@ -120,8 +116,8 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
   // último corte cargado
   const chequeo = useMemo(() => {
     if (!preview) return null
-    const anterior = {}, objApp = {}
-    data.forEach(d => { anterior[String(d.cod_sede)] = d.total; objApp[String(d.cod_sede)] = d.objetivo })
+    const anterior = {}
+    data.forEach(d => { anterior[String(d.cod_sede)] = d.total })
     // Nombre: el registrado en la app (el del Excel nacional viene con código
     // y provincia pegados, "87-JUNIN - BS AS")
     const nombreApp = new Map(sedesConocidas.map(s => [String(s.cod_sede), s.sede]))
@@ -141,12 +137,7 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
     const totalPrevMismas = validas.reduce((a, f) => a + (f.prev ?? 0), 0)
     const orden = (f) => (!f.conocida ? 0 : f.dif !== null && f.dif < 0 ? 1 : 2)
     filas.sort((a, b) => orden(a) - orden(b) || nombreCorto(a.sede).localeCompare(nombreCorto(b.sede)))
-    // El Excel nacional trae el objetivo de cada sede: si no coincide con el
-    // cargado en la app, se avisa (y se puede actualizar desde acá mismo).
-    const objDistintos = tieneData ? validas
-      .filter(f => f.objetivoExcel != null && f.objetivoExcel > 0 && objApp[f.cod] !== undefined && Number(objApp[f.cod]) !== f.objetivoExcel)
-      .map(f => ({ ...f, objApp: Number(objApp[f.cod]) })) : []
-    return { filas, faltantes, bajaron, validas, totalNuevo, difTotal: tieneData ? totalNuevo - totalPrevMismas : null, objDistintos }
+    return { filas, faltantes, bajaron, validas, totalNuevo, difTotal: tieneData ? totalNuevo - totalPrevMismas : null }
   }, [preview, data, sedesConocidas, tieneData])
 
   const fechaFinalEstado = preview ? (fechaElegida || (!preview.meta.fechaAmbigua ? preview.meta.fechaCorte : null)) : null
@@ -177,20 +168,6 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
     setConfirmando(false)
   }
 
-  const aplicarObjetivos = async () => {
-    setAplicandoObj(true)
-    setError(null)
-    try {
-      for (const f of chequeo.objDistintos) {
-        await setObjetivo(campanaActiva, f.cod, f.objetivoExcel)
-      }
-      setObjetivosAplicados(true)
-    } catch (e) {
-      setError('No se pudieron actualizar los objetivos: ' + e.message)
-    }
-    setAplicandoObj(false)
-  }
-
   const onDrop = (e) => {
     e.preventDefault()
     setDragging(false)
@@ -205,7 +182,7 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
   if (preview && chequeo) {
     const m = preview.meta
     const ambiguaSinElegir = m.fechaCorte && m.fechaAmbigua && !fechaElegida
-    const puedeGuardar = !!fechaFinal && chequeo.validas.length > 0 && !confirmando && !aplicandoObj
+    const puedeGuardar = !!fechaFinal && chequeo.validas.length > 0 && !confirmando
     const anteriorAlUltimo = fechaFinal && fechaActual && fechaFinal < fechaActual
 
     return (
@@ -296,24 +273,6 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
               Cada sede aparece varias veces (por carrera o modalidad) y se toma la suma. Revisá en la tabla que los totales tengan sentido.
             </AvisoCarga>
           )}
-          {chequeo.objDistintos.length > 0 && (
-            <AvisoCarga tono={objetivosAplicados ? 'info' : 'revisar'}
-              titulo={objetivosAplicados
-                ? `Listo: se actualizaron ${chequeo.objDistintos.length} objetivos`
-                : `${chequeo.objDistintos.length === 1 ? '1 sede tiene' : `${chequeo.objDistintos.length} sedes tienen`} un objetivo distinto al de la app`}
-              chips={chequeo.objDistintos.map(f => `${nombreCorto(f.sede)} ${f.objApp} → ${f.objetivoExcel}`)}>
-              {objetivosAplicados
-                ? 'El corte se va a guardar con los objetivos nuevos.'
-                : <>
-                    El Excel trae otro objetivo. Si el del Excel es el vigente, actualizalo antes de guardar el corte:
-                    <div style={{ marginTop: 10 }}>
-                      <button onClick={aplicarObjetivos} disabled={aplicandoObj || confirmando} style={{ ...btnSecundario, height: 36, fontWeight: 800, color: C.navy }}>
-                        {aplicandoObj ? 'Actualizando…' : `Usar los objetivos del Excel (${chequeo.objDistintos.length})`}
-                      </button>
-                    </div>
-                  </>}
-            </AvisoCarga>
-          )}
           {chequeo.bajaron.length > 0 && (
             <AvisoCarga tono="revisar" titulo={`${chequeo.bajaron.length === 1 ? '1 sede tiene' : `${chequeo.bajaron.length} sedes tienen`} menos inscriptos que en el corte del ${fmtCorto(fechaActual)}`}
               chips={chequeo.bajaron.map(f => `${nombreCorto(f.sede)} ${f.prev} → ${f.total}`)}>
@@ -337,7 +296,7 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
 
           {/* Todas las filas: primero las que conviene mirar */}
           <div style={{ border: `1px solid ${C.rule}`, borderRadius: 10, overflow: 'hidden' }}>
-            <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+            <div style={{ maxHeight: 300, overflowY: 'auto', overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13.5 }}>
                 <thead>
                   <tr>
@@ -351,12 +310,11 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
                     <tr key={f.cod} style={{ borderTop: `1px solid ${C.ruleSoft}`, background: !f.conocida ? '#FDF1F3' : f.dif !== null && f.dif < 0 ? '#FBF3E2' : 'transparent' }}>
                       <td style={{ padding: '8px 14px' }}>
                         <span style={{ fontWeight: 600, color: C.ink }}>{nombreCorto(f.sede) || f.cod}</span>
-                        <span style={{ fontFamily: F.mono, fontSize: 11, color: C.inkSoft, marginLeft: 8 }}>{f.cod}</span>
-                        {f.filas?.length > 0 && (
-                          <span title="Fila del Excel de donde sale el número" style={{ fontFamily: F.mono, fontSize: 11, color: C.inkSoft, marginLeft: 8 }}>
-                            · fila {f.filas.join('+')}
-                          </span>
-                        )}
+                        {/* Código y fila del Excel abajo del nombre: con la fila, Cele
+                            controla cada número contra el Excel sin filtrar nada */}
+                        <span title="Código de sede y fila del Excel de donde sale el número" style={{ display: 'block', fontFamily: F.mono, fontSize: 11, color: C.inkSoft, marginTop: 1 }}>
+                          {f.cod}{f.filas?.length > 0 ? ` · fila ${f.filas.join('+')}` : ''}
+                        </span>
                         {!f.conocida && <span style={{ fontSize: 11.5, color: '#8E0C22', fontWeight: 700, marginLeft: 8 }}>no se guarda</span>}
                       </td>
                       {tieneData && <td style={{ padding: '8px 14px', textAlign: 'right', fontFamily: F.mono, color: C.inkSoft }}>{f.prev ?? '—'}</td>}
