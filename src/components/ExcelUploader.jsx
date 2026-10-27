@@ -146,9 +146,7 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
     const objDistintos = tieneData ? validas
       .filter(f => f.objetivoExcel != null && f.objetivoExcel > 0 && objApp[f.cod] !== undefined && Number(objApp[f.cod]) !== f.objetivoExcel)
       .map(f => ({ ...f, objApp: Number(objApp[f.cod]) })) : []
-    const objZona = validas.reduce((a, f) => a + (Number(objApp[f.cod]) || 0), 0)
-    const pctZona = objZona ? Math.round(totalNuevo / objZona * 100) : null
-    return { filas, faltantes, bajaron, validas, totalNuevo, difTotal: tieneData ? totalNuevo - totalPrevMismas : null, objDistintos, pctZona }
+    return { filas, faltantes, bajaron, validas, totalNuevo, difTotal: tieneData ? totalNuevo - totalPrevMismas : null, objDistintos }
   }, [preview, data, sedesConocidas, tieneData])
 
   const fechaFinalEstado = preview ? (fechaElegida || (!preview.meta.fechaAmbigua ? preview.meta.fechaCorte : null)) : null
@@ -216,7 +214,9 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
           <IconoPlanilla />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 16, fontWeight: 800, color: C.ink, fontStretch: '105%' }}>Revisá el corte antes de guardarlo</div>
-            <div style={{ fontSize: 12.5, color: C.inkSoft, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{preview.fileName}</div>
+            <div style={{ fontSize: 12.5, color: C.inkSoft, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {preview.fileName}{preview.meta.esNacional ? ` · Excel nacional: se tomaron las ${chequeo.validas.length} sedes de tu zona` : ''}
+            </div>
           </div>
           <button onClick={cancelarPreview} disabled={confirmando} style={{ ...btnSecundario, height: 38 }}>Cancelar</button>
         </div>
@@ -249,19 +249,6 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
             </div>
           </div>
 
-          {/* Excel nacional: qué se tomó y qué quedó afuera, en una línea */}
-          {m.esNacional && (
-            <AvisoCarga tono="info" titulo={`Excel nacional: se tomaron las ${chequeo.validas.length} sedes de tu zona`}>
-              {m.filasLeidas} filas leídas{m.hojas > 1 ? ` en la hoja “${m.hoja}”` : ''}. Las {m.otrasIgnoradas} sedes de otras zonas no se guardan
-              {m.filasTotalIgnoradas > 0 ? ` y se saltearon ${m.filasTotalIgnoradas} filas de subtotales` : ''}.
-              {m.pais?.pct != null && chequeo.pctZona != null && (
-                <div style={{ marginTop: 6 }}>
-                  Referencia: tu zona está en <strong>{chequeo.pctZona}%</strong> del objetivo; el resto del país, en <strong>{m.pais.pct}%</strong>.
-                </div>
-              )}
-            </AvisoCarga>
-          )}
-
           {/* Avisos, de lo que bloquea a lo informativo */}
           {ambiguaSinElegir && (
             <AvisoCarga tono="bloquea" titulo="¿Qué fecha es el corte?">
@@ -293,11 +280,13 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
               {chequeo.faltantes.length === 1 ? 'No va a tener dato' : 'No van a tener dato'} en este corte y {chequeo.faltantes.length === 1 ? 'desaparece' : 'desaparecen'} del tablero hasta el próximo. ¿Es el Excel completo?
             </AvisoCarga>
           )}
-          {m.sinMatch?.length > 0 && (
+          {/* Con el Excel nacional, lo que no es de la zona no se muestra: a
+              Cele solo le importa lo que se tomó. Con el Excel recortado, en
+              cambio, una fila sin match es casi seguro una sede propia con el
+              código mal, y ahí sí se avisa. */}
+          {!m.esNacional && m.sinMatch?.length > 0 && (
             <AvisoCarga tono="revisar"
-              titulo={m.esNacional
-                ? `${m.sinMatch.length === 1 ? '¿Sede nueva en tu zona? 1 sede de Buenos Aires' : `¿Sedes nuevas en tu zona? ${m.sinMatch.length} sedes de Buenos Aires`} no ${m.sinMatch.length === 1 ? 'está registrada' : 'están registradas'}`
-                : `${m.sinMatch.length === 1 ? '1 fila no corresponde' : `${m.sinMatch.length} filas no corresponden`} a ninguna sede registrada`}
+              titulo={`${m.sinMatch.length === 1 ? '1 fila no corresponde' : `${m.sinMatch.length} filas no corresponden`} a ninguna sede registrada`}
               chips={m.sinMatch.map(s => `${s.cod} · ${nombreCorto(s.sede) || 'sin nombre'}${s.total ? ` (${s.total})` : ''}`)}>
               No se guardan. Si {m.sinMatch.length === 1 ? 'es una sede' : 'son sedes'} de tu red, sumala{m.sinMatch.length === 1 ? '' : 's'} primero en Sedes → Sedes y objetivos y volvé a subir el Excel.
             </AvisoCarga>
