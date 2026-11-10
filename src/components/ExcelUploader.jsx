@@ -123,8 +123,8 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
       try { verificacion = verificarCorte(buffer, XLSX, resultado, codigosRed) }
       catch (ev) { verificacion = { ok: false, problemas: ['La verificación falló: ' + ev.message] } }
       const objetivos = await pedidoObjetivos
+      // Sin fecha en el Excel no se prellena con hoy: Cele la tiene que elegir
       setPreview({ sedes, meta, fileName: file.name, verificacion, objetivos })
-      if (!meta.fechaCorte) setFechaElegida(hoyLocal())
     } catch (e) {
       setError(e.message)
     }
