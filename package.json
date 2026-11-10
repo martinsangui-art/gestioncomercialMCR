@@ -6,7 +6,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node scripts/probar-parser.mjs"
+    "test": "node scripts/probar-parser.mjs && node scripts/probar-envio.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",

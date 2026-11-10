@@ -4,75 +4,18 @@ import { C, F, panel, cifra } from '../lib/theme'
 import ModalShell from '../components/ModalShell'
 import Casillero from '../components/Casillero'
 import { fmtFecha, hoyIso, nombreCorto, estadoSede, direccionesDe } from '../lib/formato'
+// HTML del mail, destinos, armado de la tanda, cotejo y agrupado del registro:
+// funciones puras en lib/envio.js (probadas en scripts/probar-envio.mjs)
+import {
+  esc, DEFAULT_TEMPLATE, buildEmailHTML, planDeTanda, registradasEnLog, agruparRegistro,
+  destinosDe as destinosSegun, yaRecibieron as yaRecibieronSegun,
+} from '../lib/envio'
 
 const BORRADOR_KEY = 'ucasal_borrador_semana'
 
 const getEstado = estadoSede
 function estadoColor(est) {
   return { ok: C.ok, prog: C.warn, cero: C.danger }[est]
-}
-
-// Escapa texto que viene de Sheets (editable por varias personas) antes de
-// insertarlo en el HTML que se renderiza con dangerouslySetInnerHTML.
-const esc = (s) => String(s ?? '')
-  .replace(/&/g, '&amp;')
-  .replace(/</g, '&lt;')
-  .replace(/>/g, '&gt;')
-  .replace(/"/g, '&quot;')
-
-// Plantilla por defecto — se usa si todavía no se cargó/guardó una propia
-// desde el editor. Coincide con el texto que mandaba la app antes de que la
-// plantilla fuera editable, para no cambiar nada sin que alguien lo pida.
-const DEFAULT_TEMPLATE = `<p>{{saludo}}:</p>
-<p style="margin-top:6px">Enviamos el resultado del <strong>cómo vamos</strong> al {{fecha}}</p>
-{{tabla}}
-<p style="margin-top:8px">Quedamos a disposición para cualquier consulta o duda que puedas tener.</p>
-<p style="margin-top:10px">Feliz fin de semana.<br>Saludos!</p>`
-
-function renderTemplate(template, vars) {
-  return String(template ?? '').replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] ?? '')
-}
-
-function buildTablaHTML(d, campNombre) {
-  const color = { ok: '#0F8A5F', prog: '#A8752A', cero: '#C8102E' }[getEstado(d)]
-  const varTxt = d.var !== null
-    ? (d.var > 0 ? ` (+${d.var} vs semana anterior)`
-      : d.var < 0 ? ` (${d.var} vs semana anterior)`
-      : ' (sin variación)')
-    : ''
-  return `<table style="width:100%;border-collapse:collapse;margin:10px 0;font-size:12px">
-  <tr style="background:#0E1733;color:#fff">
-    <th style="padding:7px 10px;text-align:center;font-size:11px">COD SEDE</th>
-    <th style="padding:7px 10px;text-align:center;font-size:11px">SEDE</th>
-    <th style="padding:7px 10px;text-align:center;font-size:11px">OBJETIVO ${campNombre.toUpperCase()}</th>
-    <th style="padding:7px 10px;text-align:center;font-size:11px">TOTAL AL ${fmtFecha(d.fecha)}</th>
-    <th style="padding:7px 10px;text-align:center;font-size:11px">% CUMPLIMIENTO</th>
-  </tr>
-  <tr>
-    <td style="padding:7px 10px;text-align:center;border:1px solid #e5e7eb">${d.cod_sede}</td>
-    <td style="padding:7px 10px;text-align:center;border:1px solid #e5e7eb">${esc(d.sede)}</td>
-    <td style="padding:7px 10px;text-align:center;border:1px solid #e5e7eb">${d.objetivo}</td>
-    <td style="padding:7px 10px;text-align:center;border:1px solid #e5e7eb">${d.total}${varTxt}</td>
-    <td style="padding:7px 10px;text-align:center;border:1px solid #e5e7eb;color:${color};font-weight:700">${d.pct}%</td>
-  </tr>
-</table>`
-}
-
-// Firma de Cele al pie de cada mail a las sedes. Va como imagen alojada en
-// la propia web (public/ → GitHub Pages) porque Gmail no muestra imágenes
-// embebidas en base64. Si se cambia la imagen, subirla con otro nombre
-// (-v2, -v3…): Gmail la guarda en caché por URL.
-// v1 (firma vieja, Delegación Bahía Blanca) queda publicada para que los mails
-// ya enviados la sigan mostrando.
-const FIRMA_URL = 'https://martinsangui-art.github.io/gestioncomercialMCR/firma-cele-v2.jpg'
-const FIRMA_HTML = `<p style="margin-top:18px"><img src="${FIRMA_URL}" width="600" alt="Ing. María Celeste Rossi · Coordinación Nacional de Sedes – Coordinadora Zonal Bs. As. · Dirección Operativa SEAD | Vicerrectorado Académico · UCASAL · mcrossi@ucasal.edu.ar" style="display:block;width:600px;max-width:100%;height:auto;border:0"></p>`
-
-function buildEmailHTML(d, campNombre, template) {
-  return renderTemplate(template || DEFAULT_TEMPLATE, {
-    saludo: esc(d.saludo),
-    fecha: fmtFecha(d.fecha),
-    tabla: buildTablaHTML(d, campNombre),
-  }) + '\n' + FIRMA_HTML
 }
 
 // Convierte **texto** a <strong>texto</strong> — la única marca que alguien
@@ -387,16 +330,8 @@ export default function Envio({ data, copied, dirEnviadas = {}, onCopied, onUnco
   // en "To"). Al mandar una sede pendiente sale solo a las direcciones que
   // todavía no recibieron este corte: si a Morón se le agrega un mail, tocar
   // Morón le manda solo al nuevo. Si ya las recibieron todas, es un reenvío.
-  const yaRecibieron = (d) => {
-    const ya = dirEnviadas[String(d.cod_sede)] || []
-    return direccionesDe(d.email).filter(a => ya.includes(a.toLowerCase()))
-  }
-  const destinosDe = (d) => {
-    const todas = direccionesDe(d.email)
-    const ya = yaRecibieron(d).map(a => a.toLowerCase())
-    const faltan = todas.filter(a => !ya.includes(a.toLowerCase()))
-    return faltan.length ? faltan : todas
-  }
+  const yaRecibieron = (d) => yaRecibieronSegun(d, dirEnviadas)
+  const destinosDe = (d) => destinosSegun(d, dirEnviadas)
   const mailsDe = (lista) => lista.reduce((n, d) => n + destinosDe(d).length, 0)
 
   // Manda el mail de una sede a cada dirección de `dirs`, una por una, y
@@ -465,21 +400,20 @@ export default function Envio({ data, copied, dirEnviadas = {}, onCopied, onUnco
     // el corte del viernes se mandaba otro día (bug del 19/10, corte 16/10).
     const desdeEnvio = hoyIso()
     // Una sede no se manda dos veces en la misma tanda aunque venga repetida
-    // en la lista (el 03/08 Trenque Lauquen salió duplicado).
-    const yaMandadas = new Set()
+    // en la lista, y las que no tienen email se saltean (ver planDeTanda).
+    const plan = planDeTanda(lista)
     const okCods = []
     const okDirs = {}  // {cod: [direcciones que salieron en esta tanda]}
 
-    for (let i = 0; i < lista.length; i++) {
-      const d = lista[i]
+    for (let i = 0; i < plan.length; i++) {
+      const { d, tipo } = plan[i]
       const cod = String(d.cod_sede)
-      if (yaMandadas.has(cod)) {
+      if (tipo === 'repetida') {
         addLog(`• ${d.sede} ya estaba en esta tanda, se saltea`, 'info')
         setProgreso(Math.round((i + 1) / lista.length * 100))
         continue
       }
-      yaMandadas.add(cod)
-      if (!String(d.email || '').trim()) {
+      if (tipo === 'sin_email') {
         addLog(`✗ ${d.sede} no tiene email cargado: se saltea (cargalo en Sedes → Sedes y objetivos)`, 'error')
         resumenItems.push({ sede: d.sede, email: '', estado: 'error' })
         setProgreso(Math.round((i + 1) / lista.length * 100))
@@ -514,7 +448,7 @@ export default function Envio({ data, copied, dirEnviadas = {}, onCopied, onUnco
       if (item) item.estado = 'error'
     })
 
-    addLog(`Listo. ${yaMandadas.size} emails procesados.`, 'ok')
+    addLog(`Listo. ${plan.filter(p => p.tipo !== 'repetida').length} emails procesados.`, 'ok')
     setEnviando(false); setSeleccion({})
     // Un solo resumen consolidado a Cele con toda la tanda
     enviarResumenCele(campNom, fechaRef, resumenItems).catch(() => {})
@@ -535,12 +469,7 @@ export default function Envio({ data, copied, dirEnviadas = {}, onCopied, onUnco
     }
     // Registrado = una fila 'enviado' de esa sede y esa dirección desde el
     // día en que arrancó la tanda.
-    const registradas = new Set()
-    registro
-      .filter(r => String(r.fecha).slice(0,10) >= String(desde).slice(0,10) &&
-                   r.estado === 'enviado' &&
-                   (!campNom || String(r.campana || '').indexOf(campNom) >= 0))
-      .forEach(r => direccionesDe(r.email).forEach(a => registradas.add(String(r.cod_sede) + '|' + a.toLowerCase())))
+    const registradas = registradasEnLog(registro, { desde, campNom })
     const faltantes = []
     okCods.forEach(cod => {
       const sinRegistro = (okDirs[cod] || []).filter(a => !registradas.has(cod + '|' + a.toLowerCase()))
@@ -596,17 +525,8 @@ export default function Envio({ data, copied, dirEnviadas = {}, onCopied, onUnco
     }
   }
 
-  // Agrupar el log por fecha + hora exacta (cada tanda de envío comparte el mismo minuto/segundo de inicio)
-  const logAgrupado = (() => {
-    const grupos = {}
-    logEnvios.forEach(r => {
-      const key = `${r.fecha} ${r.hora?.slice(0,5)}` // agrupa por fecha + hora:minuto
-      if (!grupos[key]) grupos[key] = { fecha: r.fecha, hora: r.hora, campana: r.campana, items: [], confirmado: false }
-      grupos[key].items.push(r)
-      if (String(r.confirmado ?? '').toUpperCase() === 'TRUE') grupos[key].confirmado = true
-    })
-    return Object.values(grupos).sort((a, b) => (b.fecha + b.hora).localeCompare(a.fecha + a.hora))
-  })()
+  // Agrupar el log en tandas (ver agruparRegistro en lib/envio.js)
+  const logAgrupado = agruparRegistro(logEnvios)
 
   const handleConfirmarLote = async (g) => {
     const key = `${g.fecha} ${g.hora}`
