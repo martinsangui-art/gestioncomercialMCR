@@ -626,6 +626,7 @@ export function useSheets() {
   }, [mandarA, mandarResumenCele])
 
   // Guardar semana nueva en Sheets (o reemplazar si ya existe el corte — misma lógica que subirExcel)
+  // Después de guardar se relee la planilla, igual que con el Excel.
   const guardarSemana = useCallback(async (fecha, sedesData, reemplazar = false) => {
     const camp = state.campanas.find(c => c.id === state.campanaActiva)
     const result = await post({
@@ -636,8 +637,9 @@ export function useSheets() {
       sedes: sedesData,
       reemplazar,
     })
+    const verificacion = await verificarGuardado(state.campanaActiva, fecha, sedesData)
     cargarCampana(state.campanaActiva)
-    return result
+    return { ...result, verificacion }
   }, [state.campanaActiva, state.campanas, cargarCampana])
 
   // Stats derivadas
@@ -705,29 +707,7 @@ export function useSheets() {
       reemplazar,
     })
 
-    // Relectura: se vuelve a pedir a la planilla lo que quedó guardado para esa
-    // fecha y se compara sede por sede con lo que se mandó. Si algo no
-    // coincide, se avisa en rojo (y el corte se puede deshacer) en vez de dar
-    // la carga por buena.
-    let verificacion
-    try {
-      const hist = await jsonp('historial', { campana: state.campanaActiva })
-      const guardado = new Map()
-      hist.filter(r => String(r.fecha).slice(0, 10) === fecha).forEach(r => {
-        const k = String(r.cod_sede)
-        guardado.set(k, (guardado.get(k) || 0) + (Number(r.total) || 0))
-      })
-      const diferencias = []
-      sedesConCod.forEach(s => {
-        const k = String(s.cod)
-        if (!guardado.has(k)) diferencias.push(`${s.sede}: no quedó guardada`)
-        else if (guardado.get(k) !== Number(s.total)) diferencias.push(`${s.sede}: se mandó ${s.total} y quedó ${guardado.get(k)}`)
-      })
-      if (guardado.size !== sedesConCod.length) diferencias.push(`Quedaron ${guardado.size} sedes guardadas para el ${fecha} y se mandaron ${sedesConCod.length}`)
-      verificacion = { ok: diferencias.length === 0, diferencias }
-    } catch (e) {
-      verificacion = { ok: false, diferencias: ['No se pudo releer la planilla para verificar: ' + e.message] }
-    }
+    const verificacion = await verificarGuardado(state.campanaActiva, fecha, sedesConCod)
     cargarCampana(state.campanaActiva)
     return { ...res, verificacion }
   }, [state.campanaActiva, state.campanas, state.sedes, cargarCampana])
@@ -748,6 +728,31 @@ export function useSheets() {
     subirExcel,
     refrescarSedes,
     refrescarCampanas,
+  }
+}
+
+// Relectura después de guardar un corte (Excel o carga a mano): se vuelve a
+// pedir a la planilla lo que quedó guardado para esa fecha y se compara sede
+// por sede con lo que se mandó. Si algo no coincide, se avisa en rojo (y el
+// corte se puede deshacer) en vez de dar la carga por buena.
+async function verificarGuardado(campanaId, fecha, sedesMandadas) {
+  try {
+    const hist = await jsonp('historial', { campana: campanaId })
+    const guardado = new Map()
+    hist.filter(r => String(r.fecha).slice(0, 10) === fecha).forEach(r => {
+      const k = String(r.cod_sede)
+      guardado.set(k, (guardado.get(k) || 0) + (Number(r.total) || 0))
+    })
+    const diferencias = []
+    sedesMandadas.forEach(s => {
+      const k = String(s.cod)
+      if (!guardado.has(k)) diferencias.push(`${s.sede}: no quedó guardada`)
+      else if (guardado.get(k) !== Number(s.total)) diferencias.push(`${s.sede}: se mandó ${s.total} y quedó ${guardado.get(k)}`)
+    })
+    if (guardado.size !== sedesMandadas.length) diferencias.push(`Quedaron ${guardado.size} sedes guardadas para el ${fecha} y se mandaron ${sedesMandadas.length}`)
+    return { ok: diferencias.length === 0, diferencias }
+  } catch (e) {
+    return { ok: false, diferencias: ['No se pudo releer la planilla para verificar: ' + e.message] }
   }
 }
 

@@ -3,7 +3,7 @@ import { obtenerLogEnvios, onAuthExpired, obtenerConfig, guardarConfig, confirma
 import { C, F, panel, cifra } from '../lib/theme'
 import ModalShell from '../components/ModalShell'
 import Casillero from '../components/Casillero'
-import { fmtFecha, hoyIso, nombreCorto, estadoSede } from '../lib/formato'
+import { fmtFecha, fmtCorto, hoyIso, nombreCorto, estadoSede } from '../lib/formato'
 // HTML del mail, destinos, armado de la tanda, cotejo y agrupado del registro:
 // funciones puras en lib/envio.js (probadas en scripts/probar-envio.mjs)
 import {
@@ -274,6 +274,8 @@ export default function Envio({ data, copied, dirEnviadas = {}, envio, lanzarTan
   const [guardando, setGuardando] = useState(false)
   const [errorGuardar, setErrorGuardar] = useState(null)
   const [modoReemplazarSemana, setModoReemplazarSemana] = useState(false)
+  const [confirmoBajas, setConfirmoBajas] = useState(false) // "revisé las que bajan"
+  const [falloRelectura, setFalloRelectura] = useState(null) // la planilla guardó algo distinto
   const [logEnvios, setLogEnvios] = useState([])
   const [cargandoLog, setCargandoLog] = useState(false)
   const [errorLog, setErrorLog] = useState(null)
@@ -360,14 +362,44 @@ export default function Envio({ data, copied, dirEnviadas = {}, envio, lanzarTan
   const enviarTodos = () => lanzarTanda(aEnviar, { template, campNom: camp?.nombre || '' }).then(() => setSeleccion({}))
   const reenviarTodos = () => lanzarTanda(enviadas, { esReenvio: true, template, campNom: camp?.nombre || '' })
 
+  // ── Carga a mano: los mismos cuidados que con el Excel ─────────────────
+  // Antes un valor vacío o con decimales se guardaba como 0 sin aviso.
+  const fechaUltimo = data[0]?.fecha ? String(data[0].fecha).slice(0, 10) : null
+  const cargaManual = (() => {
+    const filas = data.map(d => {
+      const crudo = String(valores[d.cod_sede] ?? d.total).trim()
+      const valido = /^\d+$/.test(crudo)
+      const total = valido ? Number(crudo) : null
+      return { d, valido, total, dif: valido ? total - (Number(d.total) || 0) : null }
+    })
+    const invalidas = filas.filter(f => !f.valido)
+    const cambian = filas.filter(f => f.valido && f.dif !== 0)
+    // Como en el Excel: que bajen es normal si se carga un corte anterior al último
+    const anterior = !!(nuevaFecha && fechaUltimo && nuevaFecha < fechaUltimo)
+    const bajan = anterior ? [] : cambian.filter(f => f.dif < 0)
+    const bloqueos = []
+    if (invalidas.length) bloqueos.push(`${invalidas.length === 1 ? 'Este valor no es' : 'Estos valores no son'} un número entero (0 o más): ${invalidas.map(f => nombreCorto(f.d.sede)).join(', ')}`)
+    if (nuevaFecha && nuevaFecha > hoyIso()) bloqueos.push(`La fecha del corte (${fmtFecha(nuevaFecha)}) es posterior a hoy: un corte no puede ser del futuro.`)
+    if (!invalidas.length && !cambian.length) bloqueos.push(`No cambió ningún número respecto del corte del ${fmtCorto(fechaUltimo)}`)
+    return { filas, cambian, bajan, bloqueos }
+  })()
+  const puedeGuardarManual = !!nuevaFecha && !guardando && !falloRelectura &&
+    !cargaManual.bloqueos.length && (!cargaManual.bajan.length || confirmoBajas)
+
   const handleGuardar = async (reemplazar = false) => {
-    if (!nuevaFecha) return
+    if (!puedeGuardarManual) return
     setGuardando(true)
     setErrorGuardar(null)
     try {
-      const sedes = data.map(d => ({ cod: d.cod_sede, sede: d.sede, total: Number(valores[d.cod_sede] ?? d.total) || 0 }))
-      await guardarSemana(nuevaFecha, sedes, reemplazar)
-      setMostrarNueva(false); setValores({}); setModoReemplazarSemana(false)
+      const sedes = cargaManual.filas.map(f => ({ cod: f.d.cod_sede, sede: f.d.sede, total: f.total }))
+      const res = await guardarSemana(nuevaFecha, sedes, reemplazar)
+      if (res?.verificacion && !res.verificacion.ok) {
+        // Se guardó, pero lo que quedó en la planilla no es lo que se mandó
+        setFalloRelectura({ fecha: nuevaFecha, diferencias: res.verificacion.diferencias })
+        setModoReemplazarSemana(false)
+      } else {
+        setMostrarNueva(false); setValores({}); setModoReemplazarSemana(false); setConfirmoBajas(false)
+      }
     } catch (e) {
       // Si el error es "ya existe", ofrecer reemplazar (misma lógica que ExcelUploader)
       if (e.message && e.message.includes('Ya existe')) {
@@ -629,19 +661,23 @@ export default function Envio({ data, copied, dirEnviadas = {}, envio, lanzarTan
               <div style={{ fontFamily: F.display, fontSize: 16, fontWeight: 800, fontStretch: '105%', color: C.ink }}>Cargar un corte a mano</div>
               <div style={{ fontSize: 13, color: C.inkSoft, marginTop: 2 }}>Si no tenés el Excel: escribís el total de cada sede y se guarda como un corte más.</div>
             </div>
-            <button onClick={() => { setMostrarNueva(v => !v); setErrorGuardar(null); setModoReemplazarSemana(false) }} className="btn-press"
-              style={mostrarNueva ? btnSec : { ...btnSec, color: C.navy, fontWeight: 700 }}>
-              {mostrarNueva ? 'Cerrar' : 'Cargar a mano'}
-            </button>
+            {data.length > 0 ? (
+              <button onClick={() => { setMostrarNueva(v => !v); setErrorGuardar(null); setModoReemplazarSemana(false); setFalloRelectura(null); setConfirmoBajas(false) }} className="btn-press"
+                style={mostrarNueva ? btnSec : { ...btnSec, color: C.navy, fontWeight: 700 }}>
+                {mostrarNueva ? 'Cerrar' : 'Cargar a mano'}
+              </button>
+            ) : (
+              <span style={{ fontSize: 13, color: C.inkSoft }}>Para el primer corte de la campaña usá el Excel</span>
+            )}
           </div>
 
-          {mostrarNueva && (
+          {mostrarNueva && data.length > 0 && (
             <div className="animate-fadeIn" style={{ padding: '18px 22px' }}>
               <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
                 <label htmlFor="fecha-manual" style={{ fontSize: 13.5, fontWeight: 700, color: C.ink }}>Fecha del corte</label>
-                <input id="fecha-manual" type="date" value={nuevaFecha} onChange={e => setNuevaFecha(e.target.value)}
+                <input id="fecha-manual" type="date" value={nuevaFecha} max={hoyIso()} onChange={e => { setNuevaFecha(e.target.value); setConfirmoBajas(false) }}
                   style={{ height: 38, padding: '0 10px', border: `1px solid ${C.rule}`, borderRadius: 8, fontSize: 14, fontFamily: F.body }} />
-                <button onClick={() => { const p = {}; data.forEach(d => { p[d.cod_sede] = d.total }); setValores(p) }} style={{ ...btnSec, height: 38, fontSize: 13 }}>
+                <button onClick={() => { const p = {}; data.forEach(d => { p[d.cod_sede] = d.total }); setValores(p); setConfirmoBajas(false) }} style={{ ...btnSec, height: 38, fontSize: 13 }}>
                   Partir de los números del último corte
                 </button>
               </div>
@@ -651,19 +687,36 @@ export default function Envio({ data, copied, dirEnviadas = {}, envio, lanzarTan
                     <span style={{ fontSize: 13, fontWeight: 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: C.ink }}>
                       {nombreCorto(d.sede)}
                     </span>
-                    <input type="number" min="0" inputMode="numeric" aria-label={`Total de ${d.sede}`}
+                    <input type="number" min="0" step="1" inputMode="numeric" aria-label={`Total de ${d.sede}`}
                       value={valores[d.cod_sede] ?? d.total}
-                      onChange={e => setValores(prev => ({ ...prev, [d.cod_sede]: e.target.value }))}
+                      onChange={e => { setValores(prev => ({ ...prev, [d.cod_sede]: e.target.value })); setConfirmoBajas(false) }}
                       style={{ width: 70, height: 32, padding: '0 8px', border: `1px solid ${C.rule}`, borderRadius: 6, fontSize: 14, fontWeight: 700, textAlign: 'right', fontFamily: F.mono }} />
                   </label>
                 ))}
               </div>
+              {!falloRelectura && cargaManual.bloqueos.length > 0 && (
+                <div role="alert" style={{ marginBottom: 12, borderLeft: `4px solid ${C.crimson}`, background: '#FDF1F3', borderRadius: '0 8px 8px 0', padding: '10px 14px', fontSize: 13, color: '#8E0C22', lineHeight: 1.5 }}>
+                  {cargaManual.bloqueos.map(b => <div key={b}>No se puede guardar: {b.charAt(0).toLowerCase() + b.slice(1)}</div>)}
+                </div>
+              )}
+              {!falloRelectura && !cargaManual.bloqueos.length && (
+                <div style={{ marginBottom: 12, fontSize: 13.5, color: C.ink, lineHeight: 1.5 }}>
+                  Cambian <strong>{cargaManual.cambian.length}</strong> {cargaManual.cambian.length === 1 ? 'sede' : 'sedes'}
+                  {cargaManual.bajan.length > 0 && <>; {cargaManual.bajan.length === 1 ? 'baja 1' : `bajan ${cargaManual.bajan.length}`}: <strong style={{ color: '#6B4A00' }}>{cargaManual.bajan.map(f => `${nombreCorto(f.d.sede)} ${f.d.total} → ${f.total}`).join(', ')}</strong></>}.
+                </div>
+              )}
+              {!falloRelectura && !cargaManual.bloqueos.length && cargaManual.bajan.length > 0 && (
+                <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: 14, color: C.ink, background: '#FBF3E2', border: `1px solid ${C.warn}55`, borderRadius: 10, padding: '12px 14px', cursor: 'pointer', marginBottom: 12 }}>
+                  <input type="checkbox" checked={confirmoBajas} onChange={e => setConfirmoBajas(e.target.checked)} style={{ width: 20, height: 20, marginTop: 1, flexShrink: 0 }} />
+                  <span>Los inscriptos se acumulan, así que una baja suele ser un error de tipeo. Revisé {cargaManual.bajan.length === 1 ? 'la que baja' : 'las que bajan'} y está bien: quiero guardar igual.</span>
+                </label>
+              )}
               {modoReemplazarSemana ? (
                 <div style={{ borderLeft: `4px solid ${C.warn}`, background: '#FBF3E2', borderRadius: '0 10px 10px 0', padding: '12px 16px', fontSize: 13.5, color: '#6B4A00' }}>
                   <div style={{ fontWeight: 800, marginBottom: 4 }}>Ya hay un corte del {fmtFecha(nuevaFecha).slice(0, 5)} cargado</div>
                   <div style={{ marginBottom: 12 }}>Si seguís, estos números lo reemplazan. Si te equivocás, se vuelve atrás con “Deshacer la última carga” en Cómo vamos.</div>
                   <div style={{ display: 'flex', gap: 8 }}>
-                    <button onClick={() => handleGuardar(true)} disabled={guardando} className="btn-press" style={{ ...btnPri, background: C.warn, opacity: guardando ? 0.6 : 1 }}>
+                    <button onClick={() => handleGuardar(true)} disabled={!puedeGuardarManual} className="btn-press" style={{ ...btnPri, background: C.warn, opacity: puedeGuardarManual ? 1 : 0.6 }}>
                       {guardando ? 'Reemplazando…' : 'Reemplazar el corte'}
                     </button>
                     <button onClick={() => setModoReemplazarSemana(false)} disabled={guardando} style={btnSec}>Cancelar</button>
@@ -671,15 +724,22 @@ export default function Envio({ data, copied, dirEnviadas = {}, envio, lanzarTan
                 </div>
               ) : (
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <button onClick={() => handleGuardar(false)} disabled={guardando || !nuevaFecha} className="btn-press" style={{ ...btnPri, opacity: guardando ? 0.6 : 1 }}>
+                  <button onClick={() => handleGuardar(false)} disabled={!puedeGuardarManual} className="btn-press" style={{ ...btnPri, opacity: puedeGuardarManual ? 1 : 0.6 }}>
                     {guardando ? 'Guardando…' : `Guardar el corte del ${fmtFecha(nuevaFecha).slice(0, 5)}`}
                   </button>
-                  <button onClick={() => { setMostrarNueva(false); setErrorGuardar(null) }} style={btnSec}>Cancelar</button>
+                  <button onClick={() => { setMostrarNueva(false); setErrorGuardar(null); setFalloRelectura(null); setConfirmoBajas(false) }} style={btnSec}>Cancelar</button>
                 </div>
               )}
               {errorGuardar && (
                 <div role="alert" style={{ marginTop: 12, borderLeft: `4px solid ${C.crimson}`, background: '#FDF1F3', borderRadius: '0 8px 8px 0', padding: '10px 14px', fontSize: 13, color: '#8E0C22' }}>
                   {errorGuardar}
+                </div>
+              )}
+              {falloRelectura && (
+                <div role="alert" style={{ marginTop: 12, borderLeft: `4px solid ${C.crimson}`, background: '#FDF1F3', borderRadius: '0 8px 8px 0', padding: '10px 14px', fontSize: 13, color: '#8E0C22', lineHeight: 1.5 }}>
+                  <div style={{ fontWeight: 800, marginBottom: 4 }}>Atención: el corte del {fmtCorto(falloRelectura.fecha)} se guardó, pero la planilla no quedó igual a lo que se mandó</div>
+                  <div>No lo mandes a las sedes. Deshacé la carga (“Deshacer la última carga” en Cómo vamos) y volvé a cargarlo; si se repite, avisale a Martín.</div>
+                  <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>{falloRelectura.diferencias.map(x => <li key={x}>{x}</li>)}</ul>
                 </div>
               )}
             </div>
