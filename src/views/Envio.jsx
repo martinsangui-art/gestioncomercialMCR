@@ -1,13 +1,13 @@
 import { useState, useRef, useEffect } from 'react'
-import { enviarEmailViaScript, obtenerLogEnvios, enviarResumenCele, onAuthExpired, obtenerConfig, guardarConfig, confirmarEnvioLote } from '../hooks/useSheets'
+import { obtenerLogEnvios, onAuthExpired, obtenerConfig, guardarConfig, confirmarEnvioLote } from '../hooks/useSheets'
 import { C, F, panel, cifra } from '../lib/theme'
 import ModalShell from '../components/ModalShell'
 import Casillero from '../components/Casillero'
-import { fmtFecha, hoyIso, nombreCorto, estadoSede, direccionesDe } from '../lib/formato'
+import { fmtFecha, hoyIso, nombreCorto, estadoSede } from '../lib/formato'
 // HTML del mail, destinos, armado de la tanda, cotejo y agrupado del registro:
 // funciones puras en lib/envio.js (probadas en scripts/probar-envio.mjs)
 import {
-  esc, DEFAULT_TEMPLATE, buildEmailHTML, planDeTanda, registradasEnLog, agruparRegistro,
+  esc, DEFAULT_TEMPLATE, buildEmailHTML, agruparRegistro,
   destinosDe as destinosSegun, yaRecibieron as yaRecibieronSegun,
 } from '../lib/envio'
 
@@ -198,7 +198,7 @@ const btnPri = { height: 40, padding: '0 18px', borderRadius: 8, fontSize: 14, f
 const btnSec = { height: 40, padding: '0 16px', borderRadius: 8, fontSize: 14, fontWeight: 600, fontFamily: F.body, background: '#fff', color: C.ink, border: `1px solid ${C.rule}`, cursor: 'pointer' }
 
 // Modal preview de email por sede
-function PreviewModal({ sede, destinos = [], yaRecibieron = [], campNombre, template, onClose, onSend }) {
+function PreviewModal({ sede, destinos = [], yaRecibieron = [], campNombre, template, onClose, onSend, bloqueado = false }) {
   const [enviando, setEnviando] = useState(false)
   const [errorEnvio, setErrorEnvio] = useState(null)
   const htmlBase = buildEmailHTML(sede, campNombre, template)
@@ -209,7 +209,7 @@ function PreviewModal({ sede, destinos = [], yaRecibieron = [], campNombre, temp
     setEnviando(true)
     setErrorEnvio(null)
     try {
-      await onSend(sede, null)
+      await onSend(sede)
     } catch (e) {
       setErrorEnvio(e?.message || 'No se pudo enviar')
       setEnviando(false)
@@ -229,7 +229,7 @@ function PreviewModal({ sede, destinos = [], yaRecibieron = [], campNombre, temp
       <div style={{ padding: '14px 20px', borderTop: `1px solid ${C.rule}`, display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center', flexShrink: 0, flexWrap: 'wrap' }}>
         {errorEnvio && <div role="alert" style={{ marginRight: 'auto', fontSize: 13, color: C.danger }}>No salió: {errorEnvio}</div>}
         <button onClick={onClose} disabled={enviando} className="btn-press" style={btnSec}>Cerrar</button>
-        <button onClick={handleSend} disabled={enviando || !sede.email} className="btn-press" style={{ ...btnPri, opacity: (enviando || !sede.email) ? 0.6 : 1 }}>
+        <button onClick={handleSend} disabled={enviando || bloqueado || !sede.email} className="btn-press" style={{ ...btnPri, opacity: (enviando || bloqueado || !sede.email) ? 0.6 : 1 }}>
           {enviando ? 'Enviando…' : destinos.length > 1 ? `Enviar los ${destinos.length} mails` : yaRecibieron.length ? `Enviar a ${destinos[0]}` : 'Enviar solo este mail'}
         </button>
       </div>
@@ -259,14 +259,13 @@ function ConfirmModal({ title, sub, items, footNote, onClose, onConfirm, confirm
   )
 }
 
-export default function Envio({ data, copied, dirEnviadas = {}, onCopied, onUncopied, campanas, campanaActiva, guardarSemana, siglas = {} }) {
+export default function Envio({ data, copied, dirEnviadas = {}, envio, lanzarTanda, enviarSede, addLogEnvio, campanas, campanaActiva, guardarSemana, siglas = {} }) {
   const [seleccion, setSeleccion] = useState({})
-  const [log, setLog] = useState([])
-  const [enviando, setEnviando] = useState(false)
-  const [progreso, setProgreso] = useState(0)
+  // La tanda en curso (progreso, registro y candado) vive en useSheets: si
+  // Cele cambia de sección y vuelve, la ve igual y no puede lanzar otra.
+  const { enviando, ocupado, progreso, log, sedeEnCurso } = envio
   const [modalConfirm, setModalConfirm] = useState(false)
   const [modalConfirmReenvio, setModalConfirmReenvio] = useState(false)
-  const [reenviando, setReenviando] = useState({})
   const [previewSede, setPreviewSede] = useState(null)
   const [mostrarNueva, setMostrarNueva] = useState(false)
   // Fecha local (toISOString da la fecha UTC: a la noche en Argentina ya es "mañana")
@@ -334,159 +333,32 @@ export default function Envio({ data, copied, dirEnviadas = {}, onCopied, onUnco
   const destinosDe = (d) => destinosSegun(d, dirEnviadas)
   const mailsDe = (lista) => lista.reduce((n, d) => n + destinosDe(d).length, 0)
 
-  // Manda el mail de una sede a cada dirección de `dirs`, una por una, y
-  // marca cada una apenas sale. Si una falla, el error dice a cuáles ya salió.
-  const mandarA = async (d, dirs, { html, subject, fecha, campNom }) => {
-    const salieron = []
-    for (const to of dirs) {
-      try {
-        await enviarEmailViaScript({ to, subject, html, sede: d.sede, cod: String(d.cod_sede), fecha, campana: campNom })
-      } catch (e) {
-        if (e?.message === 'AUTH_REQUIRED') throw e
-        throw new Error((e?.message || 'Error al enviar') + ' — no salió a ' + to +
-          (salieron.length ? ' (sí salió a ' + salieron.join(', ') + ')' : ''))
-      }
-      salieron.push(to)
-      onCopied(d.cod_sede, [to])
-    }
-    return salieron
-  }
-
-  const addLog = (msg, tipo = 'info') => {
-    setLog(prev => {
-      const next = [...prev, { msg, tipo, ts: new Date().toLocaleTimeString() }]
-      setTimeout(() => { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight }, 50)
-      return next
-    })
-  }
+  // El registro de la tanda baja solo a medida que se llena
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
+  }, [log.length])
 
   const toggleSel = (cod) => setSeleccion(prev => ({ ...prev, [cod]: !prev[cod] }))
   const selAll = () => { const n = {}; pendientes.forEach(d => { n[d.cod_sede] = true }); setSeleccion(n) }
   const deselAll = () => setSeleccion({})
 
-  const enviarUno = async (d, htmlCustom = null) => {
-    const htmlRich = htmlCustom || buildEmailHTML(d, camp?.nombre || '', template)
-    const fecha = d.fecha || hoyIso()
-    const campNom = camp?.nombre || ''
-    const dirs = destinosDe(d)
-    await mandarA(d, dirs, { html: htmlRich, subject: 'Como Vamos — ' + campNom + ' — ' + fmtFecha(fecha), fecha, campNom })
-    // Resumen a Cele de este envío individual
-    enviarResumenCele(campNom, fecha, [{ sede: d.sede, email: dirs.join(', '), estado: 'enviado' }]).catch(() => {})
-  }
+  // Envío suelto (vista previa): pasa por el mismo candado que la tanda
+  const enviarUno = (d) => enviarSede(d, { template, campNom: camp?.nombre || '' })
 
   // Reenvío individual de una sede ya marcada como enviada — no toca la
-  // selección ni el log grande, solo un indicador puntual en ese chip.
+  // selección, solo un indicador puntual en ese chip y una línea en el registro.
   const reenviarUno = async (d) => {
-    setReenviando(prev => ({ ...prev, [d.cod_sede]: true }))
     try {
-      await enviarUno(d)
-      addLog(`✓ ${d.sede} (reenviado)`, 'ok')
+      await enviarSede(d, { template, campNom: camp?.nombre || '' })
+      addLogEnvio(`✓ ${d.sede} (reenviado)`, 'ok')
     } catch {
-      addLog(`✗ Error al reenviar ${d.sede}`, 'error')
+      addLogEnvio(`✗ Error al reenviar ${d.sede}`, 'error')
     }
-    setReenviando(prev => ({ ...prev, [d.cod_sede]: false }))
   }
 
-  // Envío en lote reutilizado tanto para "Enviar pendientes" como para
-  // "Reenviar todas" — misma lógica, distinta lista de entrada.
-  const enviarLote = async (lista, { esReenvio = false } = {}) => {
-    setEnviando(true); setLog([]); setProgreso(0)
-    addLog(`${esReenvio ? 'Reenviando' : 'Iniciando envío de'} ${lista.length} emails…`, 'info')
-    const resumenItems = []
-    const campNom = camp?.nombre || ''
-    const fechaRef = lista[0]?.fecha || hoyIso()
-    // Fecha de ENVÍO (local), no de corte: log_envios guarda el día en que se
-    // mandó. Comparar contra fechaRef (corte) marcaba todo como error cuando
-    // el corte del viernes se mandaba otro día (bug del 19/10, corte 16/10).
-    const desdeEnvio = hoyIso()
-    // Una sede no se manda dos veces en la misma tanda aunque venga repetida
-    // en la lista, y las que no tienen email se saltean (ver planDeTanda).
-    const plan = planDeTanda(lista)
-    const okCods = []
-    const okDirs = {}  // {cod: [direcciones que salieron en esta tanda]}
-
-    for (let i = 0; i < plan.length; i++) {
-      const { d, tipo } = plan[i]
-      const cod = String(d.cod_sede)
-      if (tipo === 'repetida') {
-        addLog(`• ${d.sede} ya estaba en esta tanda, se saltea`, 'info')
-        setProgreso(Math.round((i + 1) / lista.length * 100))
-        continue
-      }
-      if (tipo === 'sin_email') {
-        addLog(`✗ ${d.sede} no tiene email cargado: se saltea (cargalo en Sedes → Sedes y objetivos)`, 'error')
-        resumenItems.push({ sede: d.sede, email: '', estado: 'error' })
-        setProgreso(Math.round((i + 1) / lista.length * 100))
-        continue
-      }
-      const dirs = esReenvio ? direccionesDe(d.email) : destinosDe(d)
-      const parcial = dirs.length < direccionesDe(d.email).length
-      try {
-        const htmlRich = buildEmailHTML(d, campNom, template)
-        okDirs[cod] = await mandarA(d, dirs, {
-          html: htmlRich, subject: 'Como Vamos — ' + campNom + ' — ' + fmtFecha(d.fecha || fechaRef),
-          fecha: d.fecha || fechaRef, campNom,
-        })
-        okCods.push(cod)
-        addLog(`✓ ${d.sede}${parcial ? ' (solo a ' + dirs.join(', ') + ')' : ''}${esReenvio ? ' (reenviado)' : ''}`, 'ok')
-        resumenItems.push({ sede: d.sede, email: dirs.join(', '), estado: 'enviado' })
-      } catch (e) {
-        addLog(`✗ Error en ${d.sede}${e?.message ? ' — ' + e.message : ''}`, 'error')
-        resumenItems.push({ sede: d.sede, email: dirs.join(', '), estado: 'error' })
-      }
-      setProgreso(Math.round((i + 1) / lista.length * 100))
-    }
-
-    // Verificación contra el log real: el tilde verde vale solo si Apps Script
-    // dejó la fila en log_envios. Si no quedó registrada, se saca el tilde acá
-    // mismo en vez de que la sede aparezca como enviada hasta el próximo F5.
-    const noRegistradas = await verificarContraLog(okCods, okDirs, desdeEnvio, campNom, lista)
-    lista.forEach(d => {
-      const cod = String(d.cod_sede)
-      if (!noRegistradas.includes(cod)) return
-      const item = resumenItems.find(it => it.sede === d.sede)
-      if (item) item.estado = 'error'
-    })
-
-    addLog(`Listo. ${plan.filter(p => p.tipo !== 'repetida').length} emails procesados.`, 'ok')
-    setEnviando(false); setSeleccion({})
-    // Un solo resumen consolidado a Cele con toda la tanda
-    enviarResumenCele(campNom, fechaRef, resumenItems).catch(() => {})
-  }
-
-  // Compara lo que el front cree que mandó contra lo que Apps Script realmente
-  // registró en log_envios. Devuelve los códigos que no aparecen registrados.
-  // `desde` es la fecha local en que arrancó la tanda: vale cualquier fila
-  // registrada desde ese día (cubre una tanda que cruza la medianoche).
-  const verificarContraLog = async (okCods, okDirs, desde, campNom, lista) => {
-    if (!okCods.length) return []
-    let registro
-    try {
-      registro = await obtenerLogEnvios(300)
-    } catch {
-      addLog('No se pudo verificar contra el log de envíos — revisá el historial a mano.', 'error')
-      return []
-    }
-    // Registrado = una fila 'enviado' de esa sede y esa dirección desde el
-    // día en que arrancó la tanda.
-    const registradas = registradasEnLog(registro, { desde, campNom })
-    const faltantes = []
-    okCods.forEach(cod => {
-      const sinRegistro = (okDirs[cod] || []).filter(a => !registradas.has(cod + '|' + a.toLowerCase()))
-      if (!sinRegistro.length) return
-      faltantes.push(cod)
-      const d = lista.find(x => String(x.cod_sede) === cod)
-      addLog(`✗ ${d?.sede || cod}: no quedó registrado el envío a ${sinRegistro.join(', ')}, hay que reenviarlo`, 'error')
-      if (onUncopied) onUncopied(d ? d.cod_sede : cod, sinRegistro)
-    })
-    if (faltantes.length) {
-      addLog(`${faltantes.length} sede(s) quedaron sin registrar y volvieron a pendientes.`, 'error')
-    }
-    return faltantes
-  }
-
-  const enviarTodos = () => enviarLote(aEnviar)
-  const reenviarTodos = () => enviarLote(enviadas, { esReenvio: true })
+  // La tanda corre en useSheets (sobrevive al cambio de sección)
+  const enviarTodos = () => lanzarTanda(aEnviar, { template, campNom: camp?.nombre || '' }).then(() => setSeleccion({}))
+  const reenviarTodos = () => lanzarTanda(enviadas, { esReenvio: true, template, campNom: camp?.nombre || '' })
 
   const handleGuardar = async (reemplazar = false) => {
     if (!nuevaFecha) return
@@ -551,6 +423,7 @@ export default function Envio({ data, copied, dirEnviadas = {}, onCopied, onUnco
           template={template}
           onClose={() => setPreviewSede(null)}
           onSend={enviarUno}
+          bloqueado={ocupado}
         />
       )}
 
@@ -610,7 +483,7 @@ export default function Envio({ data, copied, dirEnviadas = {}, onCopied, onUnco
                 </button>
               )}
               {pendientes.length > 0 && !enviando && (
-                <button onClick={() => setModalConfirm(true)} className="btn-press" style={{ height: 44, padding: '0 20px', borderRadius: 10, fontSize: 15, fontWeight: 800, fontFamily: F.body, background: C.celeste, color: C.ink, border: 'none', cursor: 'pointer' }}>
+                <button onClick={() => setModalConfirm(true)} disabled={ocupado} className="btn-press" style={{ height: 44, padding: '0 20px', borderRadius: 10, fontSize: 15, fontWeight: 800, fontFamily: F.body, background: C.celeste, color: C.ink, border: 'none', cursor: ocupado ? 'not-allowed' : 'pointer', opacity: ocupado ? 0.5 : 1 }}>
                   {mailsDe(aEnviar) === 1 ? 'Enviar 1 mail' : `Enviar ${mailsDe(aEnviar)} mails`}
                 </button>
               )}
@@ -712,7 +585,7 @@ export default function Envio({ data, copied, dirEnviadas = {}, onCopied, onUnco
                 <TooltipHelp text="Para cuando un envío falló en el medio (por ejemplo, si el servicio de mails estaba caído) y hay que mandarlos de nuevo. El ↻ de cada sede reenvía solo ese." />
                 <div style={{ flex: 1 }} />
                 {!enviando && (
-                  <button onClick={() => setModalConfirmReenvio(true)} style={{ ...btnSec, height: 34, fontSize: 13 }}>
+                  <button onClick={() => setModalConfirmReenvio(true)} disabled={ocupado} style={{ ...btnSec, height: 34, fontSize: 13, cursor: ocupado ? 'not-allowed' : 'pointer', opacity: ocupado ? 0.5 : 1 }}>
                     Reenviar todos ({enviadas.length})
                   </button>
                 )}
@@ -727,16 +600,17 @@ export default function Envio({ data, copied, dirEnviadas = {}, onCopied, onUnco
                     ✓ {d.sede}
                     <button
                       onClick={() => reenviarUno(d)}
-                      disabled={!!reenviando[d.cod_sede]}
+                      disabled={ocupado}
                       title="Reenviar este mail" aria-label={`Reenviar el mail a ${d.sede}`}
                       style={{
                         border: 'none', background: 'rgba(15,138,95,0.16)', color: '#0B6B49',
                         borderRadius: '50%', width: 20, height: 20, fontSize: 11, lineHeight: 1,
-                        cursor: reenviando[d.cod_sede] ? 'wait' : 'pointer', display: 'flex',
+                        cursor: sedeEnCurso === String(d.cod_sede) ? 'wait' : ocupado ? 'not-allowed' : 'pointer', display: 'flex',
                         alignItems: 'center', justifyContent: 'center', flexShrink: 0, padding: 0,
+                        opacity: ocupado && sedeEnCurso !== String(d.cod_sede) ? 0.45 : 1,
                       }}
                     >
-                      {reenviando[d.cod_sede] ? '…' : '↻'}
+                      {sedeEnCurso === String(d.cod_sede) ? '…' : '↻'}
                     </button>
                   </span>
                 ))}
