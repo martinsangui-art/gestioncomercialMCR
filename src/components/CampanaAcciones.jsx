@@ -387,7 +387,7 @@ function DeshacerModal({ op, onClose, onDone }) {
         <div style={{ color: C.inkSoft, fontSize: 12.5 }}>
           {esCierre
             ? 'La campaña cerrada vuelve a quedar activa y se elimina la campaña nueva con sus objetivos (solo si todavía no se le cargaron cortes).'
-            : 'Se borran los datos de ese corte y, si reemplazó a uno anterior, se restauran los valores que había antes.'}
+            : 'Se borran los datos de ese corte y, si reemplazó a uno anterior, se restauran los valores que había antes. Si ese corte ya se mandó a las sedes, deshacerlo no des-envía los mails.'}
         </div>
         {error && <div style={{ color: C.crimson, fontSize: 12.5, marginTop: 12 }}>{error}</div>}
       </div>

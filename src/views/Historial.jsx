@@ -71,7 +71,7 @@ export default function Historial({ historial, data, campanas, campanaActiva, on
     const rows = []
     for (let i = 0; i < maxSemanas; i++) {
       rows.push({
-        semana: `Semana ${i + 1}`,
+        semana: `Corte ${i + 1}`,
         [campA]: evA[i]?.pct,
         [campB]: evB[i]?.pct,
       })
@@ -339,11 +339,11 @@ export default function Historial({ historial, data, campanas, campanaActiva, on
           </div>
         )}
 
-        {/* TAB 3: comparar dos campañas alineadas por semana desde el inicio */}
+        {/* TAB 3: comparar dos campañas alineadas por corte desde el inicio */}
         {tab === 3 && (
           <div className="animate-fadeIn" style={{ padding: '16px 20px' }}>
             <div style={{ fontSize: 12, color: C.inkSoft, marginBottom: 12 }}>
-              Compará dos campañas, en general o de una sede, semana a semana desde el inicio de cada una (no por fecha): sirve para ver si este año vamos mejor o peor que el anterior.
+              Compará dos campañas, en general o de una sede, corte a corte desde el inicio de cada una (no por fecha): sirve para ver si este año vamos mejor o peor que el anterior.
             </div>
             <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
               <select value={campA} onChange={e => setCampA(e.target.value)}
