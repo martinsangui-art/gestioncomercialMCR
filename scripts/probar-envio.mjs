@@ -3,6 +3,7 @@
 // Sin red ni planilla: destinos de cada sede, armado de una tanda, cotejo
 // contra log_envios y HTML del mail.
 import { destinosDe, yaRecibieron, planDeTanda, registradasEnLog, buildEmailHTML } from '../src/lib/envio.js'
+import { hoyIso } from '../src/lib/formato.js'
 
 let fallas = 0
 const check = (nombre, cond, detalle = '') => {
@@ -65,6 +66,16 @@ const sede = (cod, email, extra = {}) => ({
   check('HTML: el marcador desconocido queda vacío', !html.includes('{{') && html.includes(':</p><table'), html.slice(0, 120))
   check('HTML: la tabla queda entera', (html.match(/<table/g) || []).length === 1 && (html.match(/<\/table>/g) || []).length === 1 && html.includes('</table><p>Fin</p>'))
   check('HTML: lleva la firma al pie', html.trim().endsWith('</p>') && html.includes('firma-cele-v2.jpg'))
+}
+
+// 5. "Hoy" es el día de Buenos Aires (UTC-3, sin horario de verano), sea
+//    cual sea el huso de la máquina (correr también con TZ=UTC o TZ=Asia/Tokyo)
+{
+  const antes = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10)
+  const hoy = hoyIso()
+  const despues = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10)
+  check('hoyIso: fecha de Buenos Aires', hoy === antes || hoy === despues, `${hoy} vs ${antes}`)
+  check('hoyIso: formato yyyy-mm-dd', /^\d{4}-\d{2}-\d{2}$/.test(hoy), hoy)
 }
 
 console.log(fallas ? `\n${fallas} prueba(s) fallaron` : '\nTodo OK')
