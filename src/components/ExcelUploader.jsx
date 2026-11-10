@@ -2,7 +2,8 @@ import { useState, useRef, useMemo } from 'react'
 import { C, F } from '../lib/theme'
 import { fmtCorto, hoyIso as hoyLocal, nombreCorto } from '../lib/formato'
 import { cargarXLSX } from '../lib/xlsxLoader'
-import { parseCorte } from '../lib/parserCorte'
+import { parseCorte, normCod } from '../lib/parserCorte'
+import { obtenerObjetivos } from '../hooks/useSheets'
 import { verificarCorte } from '../lib/verificarCorte'
 
 // El lector del Excel vive en lib/parserCorte.js (función pura, con pruebas
@@ -104,6 +105,11 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
     setFechaElegida(null)
     setConfirmoAvisos(false)
     setFalloRelectura(null)
+    // Los objetivos de la campaña, para avisar qué sedes entran sin objetivo
+    // (null = no se pudieron leer)
+    const pedidoObjetivos = obtenerObjetivos(campanaActiva)
+      .then(objs => new Map(objs.map(o => [normCod(o.cod_sede), Number(o.objetivo) || 0])))
+      .catch(() => null)
     try {
       const [buffer, XLSX] = await Promise.all([file.arrayBuffer(), cargarXLSX()])
       // Las sedes de la red son las registradas en la app: con eso el lector
@@ -116,7 +122,8 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
       let verificacion
       try { verificacion = verificarCorte(buffer, XLSX, resultado, codigosRed) }
       catch (ev) { verificacion = { ok: false, problemas: ['La verificación falló: ' + ev.message] } }
-      setPreview({ sedes, meta, fileName: file.name, verificacion })
+      const objetivos = await pedidoObjetivos
+      setPreview({ sedes, meta, fileName: file.name, verificacion, objetivos })
       if (!meta.fechaCorte) setFechaElegida(hoyLocal())
     } catch (e) {
       setError(e.message)
@@ -139,6 +146,8 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
       const conocida = nombreApp.has(cod)
       return { ...s, cod, sede: nombreApp.get(cod) || s.sede, prev, conocida, dif: prev !== undefined ? s.total - prev : null }
     })
+    // Sedes que se van a guardar sin objetivo en la campaña: entran con 0 y 0%
+    const sinObjetivo = preview.objetivos ? filas.filter(f => f.conocida && !(preview.objetivos.get(normCod(f.cod)) > 0)) : []
     const enArchivo = new Set(filas.map(f => f.cod))
     // Sedes del tablero que no vienen en el Excel: en este corte no tendrían dato
     const referencia = tieneData ? data.map(d => ({ cod: String(d.cod_sede), sede: d.sede })) : sedesConocidas.map(s => ({ cod: String(s.cod_sede), sede: s.sede }))
@@ -149,7 +158,7 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
     const totalPrevMismas = validas.reduce((a, f) => a + (f.prev ?? 0), 0)
     const orden = (f) => (!f.conocida ? 0 : f.dif !== null && f.dif < 0 ? 1 : 2)
     filas.sort((a, b) => orden(a) - orden(b) || nombreCorto(a.sede).localeCompare(nombreCorto(b.sede)))
-    return { filas, faltantes, bajaron, validas, totalNuevo, difTotal: tieneData ? totalNuevo - totalPrevMismas : null }
+    return { filas, faltantes, bajaron, validas, sinObjetivo, totalNuevo, difTotal: tieneData ? totalNuevo - totalPrevMismas : null }
   }, [preview, data, sedesConocidas, tieneData])
 
   const fechaFinalEstado = preview ? (fechaElegida || (!preview.meta.fechaAmbigua ? preview.meta.fechaCorte : null)) : null
@@ -174,6 +183,8 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
     const anterior = fecha && fechaActual && fecha < fechaActual
     if (chequeo.bajaron.length && !anterior) confirmar.push(`${chequeo.bajaron.length} ${chequeo.bajaron.length === 1 ? 'sede bajó' : 'sedes bajaron'}`)
     if (anterior && !fechasCargadas.has(fecha)) confirmar.push('es un corte anterior al último')
+    if (chequeo.sinObjetivo.length) confirmar.push(`${chequeo.sinObjetivo.length} sin objetivo`)
+    if (!preview.objetivos) confirmar.push('no se pudieron leer los objetivos')
     return { bloqueos, confirmar }
   }
 
@@ -330,6 +341,17 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
           {m.sumadas?.length > 0 && (
             <AvisoCarga tono="info" titulo={`El Excel viene desglosado: se sumaron las filas de ${m.sumadas.length} sedes`}>
               Cada sede aparece varias veces (por carrera o modalidad) y se toma la suma. Revisá en la tabla que los totales tengan sentido.
+            </AvisoCarga>
+          )}
+          {chequeo.sinObjetivo.length > 0 && (
+            <AvisoCarga tono="revisar" titulo={`${chequeo.sinObjetivo.length === 1 ? '1 sede no tiene' : `${chequeo.sinObjetivo.length} sedes no tienen`} objetivo en ${camp?.nombre}: ${chequeo.sinObjetivo.length === 1 ? 'entra' : 'entran'} con objetivo 0 y 0%`}
+              chips={chequeo.sinObjetivo.map(f => nombreCorto(f.sede))}>
+              {chequeo.sinObjetivo.length === 1 ? 'No recibe' : 'No reciben'} el mail hasta que le cargues el objetivo en Sedes → Sedes y objetivos.
+            </AvisoCarga>
+          )}
+          {!preview.objetivos && (
+            <AvisoCarga tono="revisar" titulo={`No se pudieron leer los objetivos de ${camp?.nombre}`}>
+              No se puede avisar si alguna sede entra sin objetivo: revisalo en Sedes → Sedes y objetivos.
             </AvisoCarga>
           )}
           {chequeo.bajaron.length > 0 && (

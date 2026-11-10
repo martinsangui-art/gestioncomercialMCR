@@ -269,7 +269,7 @@ function FilaSedeEditable({ s, objetivo, campanaActiva, onGuardado, compacto = f
           </td>
           <td style={{ ...td, fontSize: 12.5, color: C.inkSoft }}>{s.saludo}</td>
           <td style={{ ...td, textAlign: 'right', fontFamily: F.mono, fontWeight: 700, color: objetivo ? C.ink : C.crimson }}>
-            {objetivo || (activa ? <span title="Sin objetivo no aparece en el tablero">falta</span> : '—')}
+            {objetivo || (activa ? <span title="Sin objetivo, la sede entra al corte con 0% y no recibe el mail">falta</span> : '—')}
           </td>
         </>
       )}
@@ -330,7 +330,7 @@ function GestionSedesModal({ onClose, onChanged, campanaActiva }) {
       setErrorNueva(emailCheck.error); return
     }
     if (campanaActiva && !(Number(nueva.objetivo) > 0)) {
-      setErrorNueva(`Poné el objetivo de ${campanaActiva.nombre}: sin objetivo la sede no aparece en el tablero`); return
+      setErrorNueva(`Poné el objetivo de ${campanaActiva.nombre}: sin objetivo, la sede entra al corte con 0% y no recibe el mail`); return
     }
     setAgregando(true); setErrorNueva(null)
     try {
@@ -357,7 +357,7 @@ function GestionSedesModal({ onClose, onChanged, campanaActiva }) {
           <>
             {sinObjetivo > 0 && (
               <div style={{ margin: '14px 8px 4px', padding: '10px 14px', borderRadius: 8, background: '#FBF0D9', color: '#6B4A00', fontSize: 13, fontFamily: F.body }}>
-                <strong>{sinObjetivo} {sinObjetivo === 1 ? 'sede activa no tiene' : 'sedes activas no tienen'} objetivo</strong> en {campanaActiva.nombre}: no aparecen en el tablero hasta que se lo cargues con “Editar”.
+                <strong>{sinObjetivo} {sinObjetivo === 1 ? 'sede activa no tiene' : 'sedes activas no tienen'} objetivo</strong> en {campanaActiva.nombre}: {sinObjetivo === 1 ? 'entra al corte con 0% y no recibe el mail' : 'entran al corte con 0% y no reciben el mail'} hasta que se lo cargues con “Editar”.
               </div>
             )}
             {compacto ? (

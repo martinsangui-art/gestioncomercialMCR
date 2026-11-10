@@ -239,7 +239,7 @@ function CierreModal({ campanas, campanaActiva, data, stats, sedes, historial, o
                 <select value={base} onChange={e => setBase(e.target.value)} style={{ ...inputStyle, width: 'auto', padding: '3px 6px', fontSize: 12 }}>
                   {campanas.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
                 </select>
-                {' '}— editá los que cambian. Dejá vacío o en 0 para no incluir la sede.
+                {' '}— editá los que cambian. Vacío o en 0 = sin objetivo: la sede entra al corte con 0% y no recibe el mail.
               </div>
             </div>
             <div style={{ fontFamily: F.mono, fontSize: 12, color: C.ink, whiteSpace: 'nowrap' }}>

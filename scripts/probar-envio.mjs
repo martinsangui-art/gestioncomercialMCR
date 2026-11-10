@@ -26,14 +26,15 @@ const sede = (cod, email, extra = {}) => ({
   check('destinos: sin envíos previos, todas', destinosDe(d, {}).length === 2)
 }
 
-// 2. Tanda: una sede repetida sale una sola vez; sin email se saltea
+// 2. Tanda: una sede repetida sale una sola vez; sin email o con objetivo 0 se saltea
 {
-  const plan = planDeTanda([sede(1, 'x@u.ar'), sede(2, ''), sede(1, 'x@u.ar'), sede(3, '  ')])
+  const plan = planDeTanda([sede(1, 'x@u.ar'), sede(2, ''), sede(1, 'x@u.ar'), sede(3, '  '), sede(4, 'y@u.ar', { objetivo: 0, pct: 0 }), sede(5, 'z@u.ar', { objetivo: 3 })])
   const tipos = plan.map(p => `${p.d.cod_sede}:${p.tipo}`).join(',')
   check('tanda: la repetida sale una sola vez', plan.filter(p => p.tipo === 'enviar' && p.d.cod_sede === '1').length === 1, tipos)
   check('tanda: la repetida queda marcada como tal', plan[2].tipo === 'repetida', tipos)
   check('tanda: sin email se saltea', plan[1].tipo === 'sin_email' && plan[3].tipo === 'sin_email', tipos)
-  check('tanda: una entrada por sede de la lista, en orden', plan.length === 4 && plan.map(p => p.d.cod_sede).join() === '1,2,1,3', tipos)
+  check('tanda: con objetivo 0 se saltea', plan[4].tipo === 'sin_objetivo' && plan[5].tipo === 'enviar', tipos)
+  check('tanda: una entrada por sede de la lista, en orden', plan.length === 6 && plan.map(p => p.d.cod_sede).join() === '1,2,1,3,4,5', tipos)
 }
 
 // 3. Cotejo contra log_envios

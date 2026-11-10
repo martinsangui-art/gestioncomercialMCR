@@ -7,7 +7,7 @@ import { fmtFecha, fmtCorto, hoyIso, nombreCorto, estadoSede } from '../lib/form
 // HTML del mail, destinos, armado de la tanda, cotejo y agrupado del registro:
 // funciones puras en lib/envio.js (probadas en scripts/probar-envio.mjs)
 import {
-  esc, DEFAULT_TEMPLATE, buildEmailHTML, agruparRegistro,
+  esc, DEFAULT_TEMPLATE, buildEmailHTML, agruparRegistro, sinObjetivo,
   destinosDe as destinosSegun, yaRecibieron as yaRecibieronSegun,
 } from '../lib/envio'
 
@@ -229,7 +229,7 @@ function PreviewModal({ sede, destinos = [], yaRecibieron = [], campNombre, temp
       <div style={{ padding: '14px 20px', borderTop: `1px solid ${C.rule}`, display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center', flexShrink: 0, flexWrap: 'wrap' }}>
         {errorEnvio && <div role="alert" style={{ marginRight: 'auto', fontSize: 13, color: C.danger }}>No salió: {errorEnvio}</div>}
         <button onClick={onClose} disabled={enviando} className="btn-press" style={btnSec}>Cerrar</button>
-        <button onClick={handleSend} disabled={enviando || bloqueado || !sede.email} className="btn-press" style={{ ...btnPri, opacity: (enviando || bloqueado || !sede.email) ? 0.6 : 1 }}>
+        <button onClick={handleSend} disabled={enviando || bloqueado || !sede.email || sinObjetivo(sede)} className="btn-press" style={{ ...btnPri, opacity: (enviando || bloqueado || !sede.email || sinObjetivo(sede)) ? 0.6 : 1 }}>
           {enviando ? 'Enviando…' : destinos.length > 1 ? `Enviar los ${destinos.length} mails` : yaRecibieron.length ? `Enviar a ${destinos[0]}` : 'Enviar solo este mail'}
         </button>
       </div>
@@ -245,7 +245,7 @@ function ConfirmModal({ title, sub, items, footNote, onClose, onConfirm, confirm
           {items.map((d, i) => (
             <div key={d.cod_sede} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '8px 14px', borderTop: i ? `1px solid ${C.ruleSoft}` : 'none', fontSize: 13.5 }}>
               <span style={{ fontWeight: 600, color: C.ink }}>{d.sede}</span>
-              <span style={{ color: d.email ? C.inkSoft : C.crimson, fontSize: 12.5, textAlign: 'right' }}>{d.email || 'sin email: no se envía'}</span>
+              <span style={{ color: d.email && !d.nota ? C.inkSoft : C.crimson, fontSize: 12.5, textAlign: 'right' }}>{d.nota || d.email || 'sin email: no se envía'}</span>
             </div>
           ))}
         </div>
@@ -333,7 +333,7 @@ export default function Envio({ data, copied, dirEnviadas = {}, envio, lanzarTan
   // Morón le manda solo al nuevo. Si ya las recibieron todas, es un reenvío.
   const yaRecibieron = (d) => yaRecibieronSegun(d, dirEnviadas)
   const destinosDe = (d) => destinosSegun(d, dirEnviadas)
-  const mailsDe = (lista) => lista.reduce((n, d) => n + destinosDe(d).length, 0)
+  const mailsDe = (lista) => lista.filter(d => !sinObjetivo(d)).reduce((n, d) => n + destinosDe(d).length, 0)
 
   // El registro de la tanda baja solo a medida que se llena
   useEffect(() => {
@@ -483,10 +483,11 @@ export default function Envio({ data, copied, dirEnviadas = {}, envio, lanzarTan
           {[...data].sort((a, b) => nombreCorto(a.sede).localeCompare(nombreCorto(b.sede))).map(d => {
             const ok = !!copied[d.cod_sede]
             const sinEmail = !String(d.email || '').trim()
+            const sinObj = sinObjetivo(d)
             return (
               <Casillero key={d.cod_sede} compacto
-                sigla={siglas[String(d.cod_sede)]} estado="ok" encendido={ok} alerta={!ok && sinEmail}
-                etiqueta={`${nombreCorto(d.sede)}: ${ok ? 'mail enviado' : sinEmail ? 'sin email cargado' : 'sin enviar'}`}
+                sigla={siglas[String(d.cod_sede)]} estado="ok" encendido={ok} alerta={!ok && (sinEmail || sinObj)}
+                etiqueta={`${nombreCorto(d.sede)}: ${ok ? 'mail enviado' : sinObj ? 'sin objetivo: no se envía' : sinEmail ? 'sin email cargado' : 'sin enviar'}`}
               />
             )
           })}
@@ -580,6 +581,9 @@ export default function Envio({ data, copied, dirEnviadas = {}, envio, lanzarTan
                       </div>
                       <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
                         <span style={{ fontWeight: 700, fontSize: 13.5, color: C.ink, fontFamily: F.body }}>{d.sede}</span>
+                        {sinObjetivo(d) && (
+                          <span style={{ fontSize: 12, color: C.crimson, fontWeight: 700, fontFamily: F.body }}>Sin objetivo: no se envía</span>
+                        )}
                         {yaRecibieron(d).length > 0 && (
                           <span style={{ fontSize: 12, color: C.inkSoft, fontFamily: F.body, overflowWrap: 'anywhere' }}>
                             Falta <strong style={{ color: C.navy }}>{destinosDe(d).join(', ')}</strong> · ya salió a {yaRecibieron(d).join(', ')}
@@ -822,7 +826,7 @@ export default function Envio({ data, copied, dirEnviadas = {}, envio, lanzarTan
         <ConfirmModal
           title={mailsDe(aEnviar) === 1 ? '¿Enviar 1 mail?' : `¿Enviar ${mailsDe(aEnviar)} mails?`}
           sub="Salen desde mcrossi@ucasal.edu.ar, uno por dirección"
-          items={aEnviar.map(d => ({ ...d, email: destinosDe(d).join(', ') }))}
+          items={aEnviar.map(d => ({ ...d, email: destinosDe(d).join(', '), nota: sinObjetivo(d) ? 'sin objetivo: no se envía' : null }))}
           footNote={'Cada sede recibe su propio mail con sus números. Para ver cómo le llega a una en particular, cancelá y tocá “Ver” en esa sede.'}
           onClose={() => setModalConfirm(false)}
           onConfirm={() => { setModalConfirm(false); enviarTodos() }}

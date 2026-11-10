@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { direccionesDe, hoyIso, fmtFecha, EMAIL_RE } from '../lib/formato'
-import { buildEmailHTML, destinosDe, yaRecibieron, planDeTanda, registradasEnLog } from '../lib/envio'
+import { buildEmailHTML, destinosDe, yaRecibieron, planDeTanda, registradasEnLog, sinObjetivo } from '../lib/envio'
 
 // Modo demo (solo en `npm run dev`, abriendo con ?demo): datos inventados y
 // sin tocar la planilla — para revisar el diseño sin contraseña.
@@ -542,6 +542,10 @@ export function useSheets() {
           addLogEnvio(`• ${d.sede} ya estaba en esta tanda, se saltea`, 'info')
           avance(); continue
         }
+        if (tipo === 'sin_objetivo') {
+          addLogEnvio(`• ${d.sede}: sin objetivo, no se envía (cargalo en Sedes → Sedes y objetivos)`, 'info')
+          avance(); continue
+        }
         if (tipo === 'sin_email') {
           addLogEnvio(`✗ ${d.sede} no tiene email cargado: se saltea (cargalo en Sedes → Sedes y objetivos)`, 'error')
           resumenItems.push({ sede: d.sede, email: '', estado: 'error' })
@@ -610,6 +614,7 @@ export function useSheets() {
   // tanda. Sale a las direcciones que faltan (o a todas si ya las tenía).
   const enviarSede = useCallback(async (d, { template, campNom = '' } = {}) => {
     if (ocupadoRef.current) throw new Error('Hay un envío en curso: esperá a que termine')
+    if (sinObjetivo(d)) throw new Error('La sede no tiene objetivo en la campaña: no se envía')
     ocupadoRef.current = true
     setEnvio(s => ({ ...s, ocupado: true, sedeEnCurso: String(d.cod_sede) }))
     try {

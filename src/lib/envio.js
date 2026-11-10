@@ -87,17 +87,23 @@ export function destinosDe(d, dirEnviadas = {}) {
   return faltan.length ? faltan : todas
 }
 
+// Una sede sin objetivo en la campaña entra al corte con 0% y no recibe el
+// mail (un "0 de 0" no le sirve a nadie y confunde).
+export const sinObjetivo = (d) => Number(d?.objetivo) === 0
+
 // Plan de una tanda: una entrada por cada sede de la lista, en el mismo orden.
-//   'enviar'    → se manda
-//   'repetida'  → ya estaba antes en esta tanda: sale una sola vez (el 03/08
-//                 Trenque Lauquen salió duplicado)
-//   'sin_email' → no tiene email cargado: se saltea
+//   'enviar'       → se manda
+//   'repetida'     → ya estaba antes en esta tanda: sale una sola vez (el 03/08
+//                    Trenque Lauquen salió duplicado)
+//   'sin_objetivo' → objetivo 0 en la campaña: no se manda
+//   'sin_email'    → no tiene email cargado: se saltea
 export function planDeTanda(lista) {
   const vistas = new Set()
   return (lista || []).map(d => {
     const cod = String(d.cod_sede)
     if (vistas.has(cod)) return { d, tipo: 'repetida' }
     vistas.add(cod)
+    if (sinObjetivo(d)) return { d, tipo: 'sin_objetivo' }
     if (!String(d.email || '').trim()) return { d, tipo: 'sin_email' }
     return { d, tipo: 'enviar' }
   })
