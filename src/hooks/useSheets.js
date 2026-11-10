@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { direccionesDe, hoyIso, fmtFecha, EMAIL_RE } from '../lib/formato'
 import { buildEmailHTML, destinosDe, yaRecibieron, planDeTanda, registradasEnLog, sinObjetivo } from '../lib/envio'
+import { normCod } from '../lib/parserCorte'
 
 // Modo demo (solo en `npm run dev`, abriendo con ?demo): datos inventados y
 // sin tocar la planilla — para revisar el diseño sin contraseña.
@@ -692,7 +693,8 @@ export function useSheets() {
     const sedesSheet = state.sedes || []
     const sedesConCod = sedesData
       .map(s => {
-        const match = sedesSheet.find(sh => String(sh.cod_sede) === String(s.cod))
+        // Códigos normalizados de los dos lados ("087" y 87 son la misma sede)
+        const match = sedesSheet.find(sh => normCod(sh.cod_sede) === normCod(s.cod))
         if (!match) return null
         return { cod: match.cod_sede, sede: match.sede, total: s.total }
       })
@@ -745,12 +747,12 @@ async function verificarGuardado(campanaId, fecha, sedesMandadas) {
     const hist = await jsonp('historial', { campana: campanaId })
     const guardado = new Map()
     hist.filter(r => String(r.fecha).slice(0, 10) === fecha).forEach(r => {
-      const k = String(r.cod_sede)
+      const k = normCod(r.cod_sede) // Sheets puede guardar "060" como 60
       guardado.set(k, (guardado.get(k) || 0) + (Number(r.total) || 0))
     })
     const diferencias = []
     sedesMandadas.forEach(s => {
-      const k = String(s.cod)
+      const k = normCod(s.cod)
       if (!guardado.has(k)) diferencias.push(`${s.sede}: no quedó guardada`)
       else if (guardado.get(k) !== Number(s.total)) diferencias.push(`${s.sede}: se mandó ${s.total} y quedó ${guardado.get(k)}`)
     })

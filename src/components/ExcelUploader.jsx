@@ -135,13 +135,14 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
   // último corte cargado
   const chequeo = useMemo(() => {
     if (!preview) return null
+    // Códigos normalizados de los dos lados ("087" y 87 son la misma sede)
     const anterior = {}
-    data.forEach(d => { anterior[String(d.cod_sede)] = d.total })
+    data.forEach(d => { anterior[normCod(d.cod_sede)] = d.total })
     // Nombre: el registrado en la app (el del Excel nacional viene con código
     // y provincia pegados, "87-JUNIN - BS AS")
-    const nombreApp = new Map(sedesConocidas.map(s => [String(s.cod_sede), s.sede]))
+    const nombreApp = new Map(sedesConocidas.map(s => [normCod(s.cod_sede), s.sede]))
     const filas = preview.sedes.map(s => {
-      const cod = String(s.cod)
+      const cod = normCod(s.cod)
       const prev = anterior[cod]
       const conocida = nombreApp.has(cod)
       return { ...s, cod, sede: nombreApp.get(cod) || s.sede, prev, conocida, dif: prev !== undefined ? s.total - prev : null }
@@ -150,7 +151,7 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
     const sinObjetivo = preview.objetivos ? filas.filter(f => f.conocida && !(preview.objetivos.get(normCod(f.cod)) > 0)) : []
     const enArchivo = new Set(filas.map(f => f.cod))
     // Sedes del tablero que no vienen en el Excel: en este corte no tendrían dato
-    const referencia = tieneData ? data.map(d => ({ cod: String(d.cod_sede), sede: d.sede })) : sedesConocidas.map(s => ({ cod: String(s.cod_sede), sede: s.sede }))
+    const referencia = tieneData ? data.map(d => ({ cod: normCod(d.cod_sede), sede: d.sede })) : sedesConocidas.map(s => ({ cod: normCod(s.cod_sede), sede: s.sede }))
     const faltantes = referencia.filter(r => !enArchivo.has(r.cod))
     const bajaron = filas.filter(f => f.conocida && f.dif !== null && f.dif < 0)
     const validas = filas.filter(f => f.conocida)
