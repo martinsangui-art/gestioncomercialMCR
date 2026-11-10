@@ -312,7 +312,7 @@ function SessionExpiredModal({ onDismiss }) {
       }}>
         <div style={{ fontFamily: F.display, fontSize: 21, fontWeight: 800, fontStretch: '108%', color: C.ink }}>La sesión venció</div>
         <div style={{ fontSize: 14.5, color: C.inkSoft, margin: '10px 0 22px', lineHeight: 1.55 }}>
-          Por seguridad dura unas horas. Volvé a entrar con la contraseña para seguir. Si estabas cargando un corte a mano, los números quedaron guardados y aparecen al volver.
+          Por seguridad dura unas horas. Volvé a entrar con la contraseña para seguir. Si estabas cargando un corte a mano, los números quedaron guardados y aparecen al volver. Si estabas revisando un Excel, vas a tener que volver a subirlo.
         </div>
         <button onClick={requestClose} className="btn-press" autoFocus style={{
           width: '100%', height: 46, borderRadius: 10, fontSize: 15, fontWeight: 800, fontFamily: F.body,

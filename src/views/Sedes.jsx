@@ -334,7 +334,7 @@ function GestionSedesModal({ onClose, onChanged, campanaActiva }) {
     }
     setAgregando(true); setErrorNueva(null)
     try {
-      await agregarSede({ ...nueva, email: emailCheck.value ?? '', campana_id: campanaActiva?.id, objetivo: Number(nueva.objetivo) || 0 })
+      await agregarSede({ ...nueva, cod_sede: nueva.cod_sede.trim(), sede: nueva.sede.trim(), email: emailCheck.value ?? '', campana_id: campanaActiva?.id, objetivo: Number(nueva.objetivo) || 0 })
       setNueva({ cod_sede: '', sede: '', email: '', saludo: 'Estimados', objetivo: '' })
       handleGuardado()
     } catch (e) { setErrorNueva(e.message) }

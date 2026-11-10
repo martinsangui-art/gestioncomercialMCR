@@ -134,22 +134,32 @@ function jsonp(action, params = {}) {
   })
 }
 
-function post(body) {
-  if (DEMO) return Promise.reject(new Error('Modo demo: no se guardan cambios'))
-  return fetch(API, { method: 'POST', body: JSON.stringify({ ...body, token: getToken() }) })
-    .catch(() => { throw new Error('Sin conexión con la planilla: revisá internet y probá de nuevo') })
-    .then(r => r.text())
-    .then(t => {
-      let r
-      try { r = JSON.parse(t) } catch {
-        throw new Error('La planilla respondió algo inesperado (puede estar con demora): probá de nuevo en un minuto')
-      }
-      if (!r.ok) {
-        if (r.error === 'AUTH_REQUIRED') { setToken(''); notifyAuthExpired() }
-        throw new Error(r.error)
-      }
-      return r.data
-    })
+// Escrituras por POST. Si la planilla no contesta en 90 segundos se corta el
+// pedido (antes quedaba colgado sin aviso); puede haberse guardado igual.
+const TIMEOUT_POST_MS = 90000
+async function post(body) {
+  if (DEMO) throw new Error('Modo demo: no se guardan cambios')
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_POST_MS)
+  let t
+  try {
+    const resp = await fetch(API, { method: 'POST', body: JSON.stringify({ ...body, token: getToken() }), signal: ctrl.signal })
+    t = await resp.text()
+  } catch {
+    if (ctrl.signal.aborted) throw new Error('La planilla no respondió en 90 segundos. Puede haberse guardado igual: recargá y revisá antes de reintentar')
+    throw new Error('Sin conexión con la planilla: revisá internet y probá de nuevo')
+  } finally {
+    clearTimeout(timer)
+  }
+  let r
+  try { r = JSON.parse(t) } catch {
+    throw new Error('La planilla respondió algo inesperado (puede estar con demora): probá de nuevo en un minuto')
+  }
+  if (!r.ok) {
+    if (r.error === 'AUTH_REQUIRED') { setToken(''); notifyAuthExpired() }
+    throw new Error(r.error)
+  }
+  return r.data
 }
 
 // ── Hook de autenticación ───────────────────────────────────────────────────
