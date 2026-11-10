@@ -35,13 +35,18 @@ function semanaActual() {
   })
 }
 
-// Envíos simulados de esta sesión (para que la verificación contra el log
-// y la línea de la semana se comporten como en la realidad)
-const enviosDemo = []
+// Envíos simulados de esta pestaña (para que la verificación contra el log
+// y la línea de la semana se comporten como en la realidad). Quedan en
+// sessionStorage: como el log real, sobreviven a una recarga de la página.
+const CLAVE_ENVIOS_DEMO = 'demo_envios'
+const enviosDemo = (() => {
+  try { return JSON.parse(sessionStorage.getItem(CLAVE_ENVIOS_DEMO)) || [] } catch { return [] }
+})()
 export function registrarEnvioDemo(p) {
   const d = new Date(), z = n => String(n).padStart(2, '0')
   // Como Apps Script: 'fecha' es el día del ENVÍO, no el del corte
   enviosDemo.unshift({ fecha: `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`, hora: `${z(d.getHours())}:${z(d.getMinutes())}:00`, campana: p.campana, sede: p.sede, cod_sede: p.cod, email: p.to, estado: 'enviado' })
+  try { sessionStorage.setItem(CLAVE_ENVIOS_DEMO, JSON.stringify(enviosDemo)) } catch { /* sin storage: queda en memoria */ }
 }
 
 const NOTAS = [
