@@ -367,17 +367,6 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
               {anteriorAlUltimo ? 'Es normal si estás cargando un corte anterior al último.' : 'Los inscriptos se acumulan, así que suele ser un error del Excel. Revisalo antes de guardar.'}
             </AvisoCarga>
           )}
-          {m.duplicados?.length > 0 && (
-            <AvisoCarga tono="info" titulo={`${m.duplicados.length === 1 ? 'Un código aparece' : `${m.duplicados.length} códigos aparecen`} más de una vez`} chips={m.duplicados}>
-              Se guarda la última fila de cada uno.
-            </AvisoCarga>
-          )}
-          {m.filasInvalidas?.length > 0 && (
-            <AvisoCarga tono="revisar" titulo={`${m.filasInvalidas.length === 1 ? '1 fila tiene' : `${m.filasInvalidas.length} filas tienen`} un total que no es un número`}
-              chips={m.filasInvalidas.map(s => `${s.cod} · “${s.valor}”`)}>
-              No se guardan.
-            </AvisoCarga>
-          )}
           {!m.detectadoPorFecha && m.fechaCorte === null && (
             <AvisoCarga tono="info" titulo={`Se toman los totales de la columna “${m.columnaTotal}”`}>Verificá que sea la columna correcta.</AvisoCarga>
           )}

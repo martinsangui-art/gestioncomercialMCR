@@ -68,7 +68,7 @@ const totalDe = (r, cod) => r.sedes.find(s => s.cod === String(cod))?.total
   OTRAS.forEach(([c, n]) => filas.push([c, n, 'Abogacía', 5]))
   const r = parseCorte(libro([['Datos', filas]]), XLSX, { codigosRed })
   check('por carrera: suma las filas de cada sede', totalDe(r, 42) === 6, totalDe(r, 42))
-  check('por carrera: informa que sumó', r.meta.sumadas.length === 5 && r.meta.duplicados.length === 0)
+  check('por carrera: informa que sumó', r.meta.sumadas.length === 5)
 }
 
 // 4. Una sede repetida sin columna de carrera ni modalidad: NO se adivina, se frena
@@ -140,7 +140,7 @@ const totalDe = (r, cod) => r.sedes.find(s => s.cod === String(cod))?.total
   check('real: es nacional y no lista otras zonas', r.meta.esNacional)
   const conJujuy = parseCorte(libro([['H', aoa]]), XLSX, { codigosRed: [...codigosRed, '10'] })
   check('real: suma las modalidades sin código (Jujuy 46+37+9)', totalDe(conJujuy, 10) === 92 && conJujuy.sedes.find(s => s.cod === '10').filas.length === 3)
-  check('real: una sede de varias modalidades no cuenta como repetido', conJujuy.meta.duplicados.length === 0)
+  check('real: una sede de varias modalidades no cuenta como repetido', conJujuy.meta.sumadas.includes('10'), JSON.stringify(conJujuy.meta.sumadas))
 }
 
 // 10. Sin título de fecha ni "total": no se adivina la columna

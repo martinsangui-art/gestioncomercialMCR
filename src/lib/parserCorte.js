@@ -333,7 +333,6 @@ export function parseCorte(arrayBuffer, XLSX, { codigosRed = [] } = {}) {
       otrasIgnoradas: esNacional ? codsDesc.length - posiblesNuevas.length : 0,
       pais,
       sumadas: sumar ? [...repetidos] : sumadasPorModalidad,
-      duplicados: [],
       filasInvalidas: h.filasInvalidas.filter(f => !setRed || setRed.has(f.cod)),
       totalFilas: sedes.length,
     },
