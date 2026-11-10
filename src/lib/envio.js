@@ -117,15 +117,39 @@ export function registradasEnLog(log, { desde, campNom } = {}) {
   return registradas
 }
 
-// "Registro de envíos": agrupa el log por fecha + hora exacta (cada tanda de
-// envío comparte el mismo minuto de inicio). Lo más nuevo primero.
+// "Registro de envíos": una tanda = filas consecutivas (por fecha y hora) con
+// menos de 2 minutos entre una y la siguiente. Antes se agrupaba por minuto
+// exacto y una tanda que duraba 3 minutos aparecía partida en tres.
+// El resumen a Cele ([RESUMEN]) no cuenta como mail de una sede: va aparte.
+// `minutos` son los fecha + hh:mm de la tanda, para confirmarla entera
+// (confirmar_envio_lote marca un minuto por vez). Lo más nuevo primero.
+const MAX_PAUSA_TANDA_MS = 2 * 60 * 1000
+const instante = (r) => {
+  const [hh = '', mm = '00', ss = '00'] = String(r.hora ?? '').trim().split(':')
+  const p = (x) => String(x).padStart(2, '0')
+  return /^\d{1,2}$/.test(hh) ? Date.parse(`${String(r.fecha).slice(0, 10)}T${p(hh)}:${p(mm)}:${p(ss)}`) : NaN
+}
+const esConfirmado = (r) => String(r.confirmado ?? '').toUpperCase() === 'TRUE'
 export function agruparRegistro(log) {
-  const grupos = {}
-  ;(log || []).forEach(r => {
-    const key = `${r.fecha} ${r.hora?.slice(0, 5)}` // agrupa por fecha + hora:minuto
-    if (!grupos[key]) grupos[key] = { fecha: r.fecha, hora: r.hora, campana: r.campana, items: [], confirmado: false }
-    grupos[key].items.push(r)
-    if (String(r.confirmado ?? '').toUpperCase() === 'TRUE') grupos[key].confirmado = true
+  const filas = (log || []).map(r => ({ r, t: instante(r) }))
+    .sort((a, b) => (a.t - b.t) || `${a.r.fecha} ${a.r.hora}`.localeCompare(`${b.r.fecha} ${b.r.hora}`))
+  const bloques = []
+  let actual = null, tPrevio = NaN
+  filas.forEach(({ r, t }) => {
+    if (!actual || !(t - tPrevio < MAX_PAUSA_TANDA_MS)) {
+      actual = { fecha: r.fecha, hora: r.hora, campana: '', items: [], resumenes: [], minutos: [] }
+      bloques.push(actual)
+    }
+    tPrevio = t
+    if (String(r.sede ?? '') === '[RESUMEN]') actual.resumenes.push(r)
+    else { actual.items.push(r); if (!actual.campana) actual.campana = r.campana }
+    const minuto = `${r.fecha}|${String(r.hora ?? '').slice(0, 5)}`
+    if (!actual.minutos.includes(minuto)) actual.minutos.push(minuto)
   })
-  return Object.values(grupos).sort((a, b) => (b.fecha + b.hora).localeCompare(a.fecha + a.hora))
+  bloques.forEach(b => {
+    if (!b.campana) b.campana = b.resumenes[0]?.campana || ''
+    b.confirmado = (b.items.length ? b.items : b.resumenes).every(esConfirmado)
+    b.minutos = b.minutos.map(m => { const [fecha, hora] = m.split('|'); return { fecha, hora } })
+  })
+  return bloques.reverse()
 }

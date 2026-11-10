@@ -2,7 +2,7 @@
 // Correr con:  node scripts/probar-envio.mjs
 // Sin red ni planilla: destinos de cada sede, armado de una tanda, cotejo
 // contra log_envios y HTML del mail.
-import { destinosDe, yaRecibieron, planDeTanda, registradasEnLog, buildEmailHTML } from '../src/lib/envio.js'
+import { destinosDe, yaRecibieron, planDeTanda, registradasEnLog, buildEmailHTML, agruparRegistro } from '../src/lib/envio.js'
 import { hoyIso } from '../src/lib/formato.js'
 
 let fallas = 0
@@ -68,7 +68,28 @@ const sede = (cod, email, extra = {}) => ({
   check('HTML: lleva la firma al pie', html.trim().endsWith('</p>') && html.includes('firma-cele-v2.jpg'))
 }
 
-// 5. "Hoy" es el día de Buenos Aires (UTC-3, sin horario de verano), sea
+// 5. Agrupado del "Registro de envíos": una tanda de 3 minutos es un solo
+//    bloque; dos tandas separadas por 10 minutos son dos. El [RESUMEN] va aparte.
+{
+  const f = (hora, extra = {}) => ({ fecha: '2026-10-24', hora, campana: '2do Ingreso 2026', sede: 'SEDE', cod_sede: 1, email: 'x@u.ar', estado: 'enviado', ...extra })
+  const log = [ // como lo devuelve log_envios: lo más nuevo primero
+    f('10:14:30', { sede: '[RESUMEN]', cod_sede: '', estado: 'error' }),
+    f('10:13:10'), f('10:13:00'),
+    f('10:03:20', { sede: '[RESUMEN]', cod_sede: '' }),
+    f('10:03:00', { estado: 'error' }), f('10:02:00'), f('10:01:00'), f('10:00:00', { confirmado: 'TRUE' }),
+  ]
+  const g = agruparRegistro(log)
+  check('registro: una tanda de 3 minutos es un solo bloque', g.length === 2 && g[1].items.length === 4, JSON.stringify(g.map(b => [b.hora, b.items.length])))
+  check('registro: dos tandas separadas por 10 minutos son dos bloques', g[0].hora === '10:13:00' && g[1].hora === '10:00:00', JSON.stringify(g.map(b => b.hora)))
+  check('registro: el [RESUMEN] no cuenta como enviado ni como error', g[1].items.filter(i => i.estado === 'enviado').length === 3 && g[1].items.filter(i => i.estado !== 'enviado').length === 1)
+  check('registro: el resumen a Cele va aparte (✓ y ✗)', g[1].resumenes.length === 1 && g[1].resumenes[0].estado === 'enviado' && g[0].resumenes[0].estado === 'error')
+  check('registro: confirmar cubre cada minuto del bloque', JSON.stringify(g[1].minutos.map(m => m.hora)) === '["10:00","10:01","10:02","10:03"]', JSON.stringify(g[1].minutos))
+  check('registro: confirmado solo si están todas confirmadas', g[1].confirmado === false)
+  const cruzaMedianoche = agruparRegistro([f('23:59:30', { fecha: '2026-10-23' }), f('00:00:40', { fecha: '2026-10-24' })])
+  check('registro: una tanda que cruza la medianoche es un bloque', cruzaMedianoche.length === 1 && cruzaMedianoche[0].minutos.length === 2)
+}
+
+// 6. "Hoy" es el día de Buenos Aires (UTC-3, sin horario de verano), sea
 //    cual sea el huso de la máquina (correr también con TZ=UTC o TZ=Asia/Tokyo)
 {
   const antes = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10)

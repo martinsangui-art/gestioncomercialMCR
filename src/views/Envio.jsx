@@ -404,7 +404,8 @@ export default function Envio({ data, copied, dirEnviadas = {}, envio, lanzarTan
     const key = `${g.fecha} ${g.hora}`
     setConfirmando(prev => ({ ...prev, [key]: true }))
     try {
-      await confirmarEnvioLote(g.fecha, g.hora)
+      // Una tanda puede abarcar varios minutos: se confirma cada uno
+      for (const m of g.minutos) await confirmarEnvioLote(m.fecha, m.hora)
       const datos = await obtenerLogEnvios(300)
       setLogEnvios(datos)
     } catch { /* silencioso — se puede reintentar */ }
@@ -711,6 +712,7 @@ export default function Envio({ data, copied, dirEnviadas = {}, envio, lanzarTan
                 {logAgrupado.map((g, i) => {
                   const ok = g.items.filter(it => it.estado === 'enviado').length
                   const err = g.items.filter(it => it.estado !== 'enviado').length
+                  const resumenOk = g.resumenes.every(it => it.estado === 'enviado')
                   const key = `${g.fecha} ${g.hora}`
                   return (
                     <div key={i} style={{ border: `1px solid ${C.rule}`, borderRadius: 10, overflow: 'hidden', flexShrink: 0 }}>
@@ -721,6 +723,9 @@ export default function Envio({ data, copied, dirEnviadas = {}, envio, lanzarTan
                         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                           <span style={{ fontSize: 13, color: C.ok, fontWeight: 700 }}>{ok} enviados</span>
                           {err > 0 && <span style={{ fontSize: 13, color: C.crimson, fontWeight: 700 }}>{err} con error</span>}
+                          {g.resumenes.length > 0 && (
+                            <span style={{ fontSize: 12.5, color: C.inkSoft }}>resumen a Cele <strong style={{ color: resumenOk ? C.ok : C.crimson }}>{resumenOk ? '✓' : '✗'}</strong></span>
+                          )}
                           {g.confirmado ? (
                             <span style={{ fontSize: 12.5, fontWeight: 700, color: C.navy, background: C.celesteSoft, padding: '4px 10px', borderRadius: 20 }}>✓ Llegada confirmada</span>
                           ) : (
