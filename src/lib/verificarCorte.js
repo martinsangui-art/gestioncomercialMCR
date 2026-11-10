@@ -50,7 +50,9 @@ export function verificarCorte(arrayBuffer, XLSX, resultado, codigosRed) {
   const titArriba = fTit > R.s.r ? celda(fTit - 1, cTot) : null
   let fechaTitulo = null
   if (tit && tit.v instanceof Date) {
-    const d = tit.v
+    // +12 horas antes de leer el día: un desvío de segundos o minutos de
+    // SheetJS (según el huso) no cambia la fecha
+    const d = new Date(tit.v.getTime() + 12 * 3600 * 1000)
     fechaTitulo = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`
   }
   const textoTit = `${tit ? String(tit.w ?? tit.v) : ''} ${titArriba ? String(titArriba.v) : ''}`.toLowerCase()

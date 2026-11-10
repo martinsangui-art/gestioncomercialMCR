@@ -40,6 +40,15 @@ export function normCod(v) {
 
 const lower = (h) => String(h ?? '').toLowerCase().trim()
 
+// Una fecha nativa del Excel → 'yyyy-mm-dd'. Se le suman 12 horas antes de
+// leer año, mes y día: según el huso, SheetJS devuelve la medianoche corrida
+// unos segundos o minutos, y así un desvío hacia cualquier lado no cambia el día.
+const MEDIO_DIA_MS = 12 * 3600 * 1000
+function isoDeFecha(d) {
+  const x = new Date(d.getTime() + MEDIO_DIA_MS)
+  return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`
+}
+
 // "12" → 12 · "1.234" / "1,234" → 1234 · "3,5" → 3.5 · "" o "-" → 0 · "s/d" → NaN
 function aNumero(v) {
   const s = String(v ?? '').trim().replace(/\s/g, '')
@@ -115,7 +124,7 @@ function leerHoja(ws, XLSX, nombreHoja, setRed) {
     const rng0 = XLSX.utils.decode_range(ws['!ref'])
     const fechaDeTitulo = (i) => {
       const c = ws[XLSX.utils.encode_cell({ r: rng0.s.r + hIdx, c: rng0.s.c + i })]
-      if (c && c.v instanceof Date) return `${c.v.getFullYear()}-${String(c.v.getMonth() + 1).padStart(2, '0')}-${String(c.v.getDate()).padStart(2, '0')}`
+      if (c && c.v instanceof Date) return isoDeFecha(c.v)
       const t = String(headerRaw[i] ?? '').trim()
       let m = t.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/)
       if (m) { let [, d, mo, y] = m; if (Number(mo) > 12) [d, mo] = [mo, d]; return `${y.length === 2 ? '20' + y : y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}` }
@@ -165,8 +174,8 @@ function leerHoja(ws, XLSX, nombreHoja, setRed) {
       d = o ? new Date(o.y, o.m - 1, o.d) : null
     }
     if (d instanceof Date && !isNaN(d)) {
-      fechaCorte = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`
-      columnaTotal = `${p2(d.getDate())}/${p2(d.getMonth() + 1)}/${d.getFullYear()}`
+      fechaCorte = isoDeFecha(d)
+      columnaTotal = fechaCorte.split('-').reverse().join('/')
     }
   } else {
     const hRaw = String(headerRaw[iTotal] || '').trim()

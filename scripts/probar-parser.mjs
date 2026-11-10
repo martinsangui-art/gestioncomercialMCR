@@ -203,5 +203,23 @@ const totalDe = (r, cod) => r.sedes.find(s => s.cod === String(cod))?.total
   check('solo total (sin fecha): toma el total, sin aviso', totalDe(sinFecha, 87) === 103 && sinFecha.meta.otraColumnaTotal === null)
 }
 
+// 15. Fechas nativas corridas unos segundos (SheetJS, según el huso): se suman
+//     12 horas antes de leer el día, así un desvío hacia cualquier lado de la
+//     medianoche no cambia el día. Correr con TZ=America/Argentina/Buenos_Aires y TZ=UTC.
+{
+  const conTitulo = (f) => [['Cod Sede', 'Sede', f], ...Object.entries(RED).map(([c, n]) => [Number(c), n, 1])]
+  const leer = (f) => { const buf = libro([['H', conTitulo(f)]]); const r = parseCorte(buf, XLSX, { codigosRed }); return { r, v: verificarCorte(buf, XLSX, r, codigosRed) } }
+  const casos = [
+    [new Date(2026, 9, 22, 23, 59, 30), '2026-10-23', '22/10 23:59:30 (medianoche del 23 corrida 30 s antes) → 23'],
+    [new Date(2026, 9, 23, 0, 0, 48), '2026-10-23', '23/10 00:00:48 (corrida 48 s después) → 23'],
+    [new Date(2026, 9, 21, 23, 59, 30), '2026-10-22', '21/10 23:59:30 → 22'],
+    [new Date(2026, 9, 22, 0, 0, 48), '2026-10-22', '22/10 00:00:48 → 22'],
+  ]
+  casos.forEach(([f, esperada, nombre]) => {
+    const { r, v } = leer(f)
+    check(`fecha nativa ${nombre}`, r.meta.fechaCorte === esperada && v.ok, `${r.meta.fechaCorte} ${JSON.stringify(v.problemas)}`)
+  })
+}
+
 console.log(fallas ? `\n${fallas} prueba(s) fallaron` : '\nTodo OK')
 process.exit(fallas ? 1 : 0)

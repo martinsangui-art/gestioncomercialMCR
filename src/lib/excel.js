@@ -36,10 +36,13 @@ export async function leerBackupExcel(file) {
   const X = await cargarXLSX()
   const wb = X.read(await file.arrayBuffer(), { type: 'array', cellDates: true })
   const aIso = (v) => {
-    // Si alguien abrió y guardó el backup en Excel, las fechas vuelven como Date
+    // Si alguien abrió y guardó el backup en Excel, las fechas vuelven como
+    // Date. +12 horas antes de leer el día: un desvío de segundos o minutos de
+    // SheetJS (según el huso) no cambia la fecha.
     if (v instanceof Date) {
+      const d = new Date(v.getTime() + 12 * 3600 * 1000)
       const p = n => String(n).padStart(2, '0')
-      return `${v.getFullYear()}-${p(v.getMonth() + 1)}-${p(v.getDate())}`
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
     }
     return v
   }
