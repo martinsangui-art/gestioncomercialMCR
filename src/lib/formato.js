@@ -26,6 +26,10 @@ export function hoyIso() {
   return `${p.year}-${p.month}-${p.day}`
 }
 
+// Una dirección de mail bien formada (una sola). La usan Sedes, al guardar, y
+// el envío, que no manda a una dirección que no la cumpla.
+export const EMAIL_RE = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/
+
 // Las direcciones del campo email de una sede ("a@x, b@y" → ['a@x', 'b@y']).
 // Una sede puede tener más de un mail: cada dirección recibe su propio mail.
 export function direccionesDe(email) {

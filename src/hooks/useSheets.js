@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { direccionesDe, hoyIso, fmtFecha } from '../lib/formato'
+import { direccionesDe, hoyIso, fmtFecha, EMAIL_RE } from '../lib/formato'
 import { buildEmailHTML, destinosDe, yaRecibieron, planDeTanda, registradasEnLog } from '../lib/envio'
 
 // Modo demo (solo en `npm run dev`, abriendo con ?demo): datos inventados y
@@ -19,7 +19,7 @@ function setToken(token) {
 }
 
 // ── Aviso de sesión expirada ────────────────────────────────────────────────
-// jsonp/post/enviarEmailViaScript viven fuera de React (no son hooks), así que
+// jsonp/post/enviarUnaDireccion viven fuera de React (no son hooks), así que
 // usamos un mini pub-sub para avisarle a la app (sin window.location.reload,
 // que tira trabajo no guardado) que el token venció y hay que re-loguearse.
 const authExpiredListeners = new Set()
@@ -31,31 +31,13 @@ export function onAuthExpired(fn) {
   return () => authExpiredListeners.delete(fn)
 }
 
-// Enviar email via Apps Script (evita CORS del browser con Make).
-// El módulo Gmail de Make no acepta varias direcciones en el campo "To": con
-// "a@x, b@y" el webhook igual contesta 200 y el mail no sale (Morón, 14/08).
-// Por eso una sede con varios mails recibe un mail por dirección — mismo
-// contenido y saludo — uno detrás del otro. Si alguno falla, el error dice
-// a cuáles ya salió, para no reenviar de más.
-export async function enviarEmailViaScript(payload) {
-  const direcciones = String(payload.to || '').split(/[,;\s]+/).map(s => s.trim()).filter(Boolean)
-  if (direcciones.length <= 1) return enviarUnaDireccion(payload)
-  const enviadas = []
-  let ultimo
-  for (const to of direcciones) {
-    try {
-      ultimo = await enviarUnaDireccion({ ...payload, to })
-      enviadas.push(to)
-    } catch (e) {
-      if (e?.message === 'AUTH_REQUIRED') throw e
-      throw new Error((e?.message || 'Error al enviar') + ' — falló ' + to +
-        (enviadas.length ? ' (ya salió a ' + enviadas.join(', ') + ')' : ''))
-    }
-  }
-  return ultimo
-}
-
+// Enviar email via Apps Script (evita CORS del browser con Make), a UNA sola
+// dirección. El módulo Gmail de Make no acepta varias direcciones en el campo
+// "To": con "a@x, b@y" el webhook igual contesta 200 y el mail no sale
+// (Morón, 14/08). Por eso una sede con varios mails recibe un mail por
+// dirección — mismo contenido y saludo — uno detrás del otro (ver mandarA).
 function enviarUnaDireccion(payload) {
+  if (direccionesDe(payload.to).length !== 1) return Promise.reject(new Error('Se manda a una sola dirección por vez: ' + payload.to))
   if (DEMO) {
     return import('../dev/demoData').then(m => new Promise(res => setTimeout(() => {
       m.registrarEnvioDemo(payload); res({ ok: true, data: { status: 200 } })
@@ -176,7 +158,7 @@ export function useAuth() {
   const [error, setError] = useState(null)
   const [sessionExpired, setSessionExpired] = useState(false)
 
-  // Cuando el token vence en cualquier llamada (jsonp/post/enviarEmailViaScript),
+  // Cuando el token vence en cualquier llamada (jsonp/post/enviarUnaDireccion),
   // volvemos al login vía estado de React — sin window.location.reload().
   useEffect(() => {
     return onAuthExpired(() => {
@@ -386,10 +368,6 @@ export function useSheets() {
     })
   }, [])
 
-  const markAllCopied = useCallback((cods) => {
-    (cods || []).forEach(c => markCopied(c))
-  }, [markCopied])
-
   // Enviada = todas sus direcciones actuales ya recibieron el corte
   const copied = useMemo(() => {
     const out = {}
@@ -424,21 +402,30 @@ export function useSheets() {
 
   // Manda el mail de una sede a cada dirección de `dirs`, una por una, y
   // marca cada una apenas sale. Si una falla, el error dice a cuáles ya salió.
+  // Una dirección mal escrita (misma regla que Sedes) no se manda: es error.
   const mandarA = useCallback(async (d, dirs, { html, subject, fecha, campNom }) => {
+    const invalidas = dirs.filter(a => !EMAIL_RE.test(a))
+    const avisoInvalidas = invalidas.length ? ' · dirección inválida: ' + invalidas.join(', ') : ''
     const salieron = []
-    for (const to of dirs) {
+    for (const to of dirs.filter(a => EMAIL_RE.test(a))) {
       try {
-        await enviarEmailViaScript({ to, subject, html, sede: d.sede, cod: String(d.cod_sede), fecha, campana: campNom })
+        await enviarUnaDireccion({ to, subject, html, sede: d.sede, cod: String(d.cod_sede), fecha, campana: campNom })
       } catch (e) {
         if (e?.message === 'AUTH_REQUIRED') throw e
         const error = new Error((e?.message || 'Error al enviar') + ' — no salió a ' + to +
-          (salieron.length ? ' (sí salió a ' + salieron.join(', ') + ')' : ''))
+          (salieron.length ? ' (sí salió a ' + salieron.join(', ') + ')' : '') + avisoInvalidas)
         error.dir = to
         error.salieron = [...salieron]
         throw error
       }
       salieron.push(to)
       markCopied(d.cod_sede, [to])
+    }
+    if (invalidas.length) {
+      const error = new Error('dirección inválida: ' + invalidas.join(', ') +
+        (salieron.length ? ' (sí salió a ' + salieron.join(', ') + ')' : ''))
+      error.salieron = [...salieron]
+      throw error
     }
     return salieron
   }, [markCopied])
@@ -745,7 +732,6 @@ export function useSheets() {
     cargarCampana,
     markCopied,
     markUncopied,
-    markAllCopied,
     envio,
     lanzarTanda,
     enviarSede,

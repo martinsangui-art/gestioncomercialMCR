@@ -3,7 +3,7 @@ import { obtenerSedesTodas, agregarSede, editarSede, setSedeActiva, obtenerObjet
 import { C, F } from '../lib/theme'
 import ModalShell from '../components/ModalShell'
 import { estadoSede, ESTADOS } from '../components/FichaSede'
-import { direccionesDe } from '../lib/formato'
+import { direccionesDe, EMAIL_RE } from '../lib/formato'
 import { useIsMobile } from '../hooks/useIsMobile'
 
 // Grupos de la tabla: misma regla de estado que el resto de la app
@@ -106,8 +106,6 @@ function isActiva(s) {
 }
 
 const inputStyle = { width: '100%', height: 34, padding: '0 10px', border: `1px solid ${C.rule}`, borderRadius: 7, fontSize: 13, fontFamily: F.body, background: '#fff', minWidth: 0 }
-
-const EMAIL_RE = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/
 
 // Normaliza el campo de email de una sede: acepta 1 o varios destinatarios
 // separados por coma, punto y coma, o espacios/saltos de línea (formatos
