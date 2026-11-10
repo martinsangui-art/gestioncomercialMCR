@@ -74,7 +74,7 @@ function enviarUnaDireccion(payload) {
         return
       }
       if (data && data.ok === false) {
-        reject(new Error(data.error || 'Error al enviar'))
+        reject(new Error(traducirError(data.error) || 'Error al enviar'))
         return
       }
       // enviarEmailMake devuelve el status HTTP del webhook de Make. Apps Script
@@ -93,6 +93,14 @@ function enviarUnaDireccion(payload) {
     el.onerror = () => { cleanup(); reject(new Error('Error de red')) }
     document.head.appendChild(el)
   })
+}
+
+// Errores técnicos de Apps Script, dichos en castellano
+function traducirError(msg) {
+  const m = String(msg || '')
+  if (/Lock timeout|Lock wait/i.test(m)) return 'La planilla está ocupada con otra operación. Probá de nuevo en un minuto'
+  if (/Cannot read properties|TypeError/.test(m)) return 'La planilla respondió algo inesperado. Avisale a Martín: ' + m
+  return m
 }
 
 // JSONP helper — única forma confiable de llamar Apps Script desde el browser
@@ -118,7 +126,7 @@ function jsonp(action, params = {}) {
         notifyAuthExpired()
         reject(new Error('AUTH_REQUIRED'))
       }
-      else reject(new Error(data?.error || 'Error en la API'))
+      else reject(new Error(traducirError(data?.error) || 'Error en la API'))
     }
 
     function cleanup() {
@@ -157,7 +165,7 @@ async function post(body) {
   }
   if (!r.ok) {
     if (r.error === 'AUTH_REQUIRED') { setToken(''); notifyAuthExpired() }
-    throw new Error(r.error)
+    throw new Error(traducirError(r.error))
   }
   return r.data
 }

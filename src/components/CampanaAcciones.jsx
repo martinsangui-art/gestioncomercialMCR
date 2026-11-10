@@ -196,9 +196,10 @@ function CierreModal({ campanas, campanaActiva, data, stats, sedes, historial, o
               <div style={labelStyle}>Antes de cerrar (opcional)</div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <Boton tone="ghost" onClick={() => generarInformeCierre({ camp: cerrando, data, historial })}>Informe final</Boton>
-                <Boton tone="ghost" onClick={() => descargarResultadosExcel(cerrando.nombre, data, historial).catch(e => alert('No se pudo armar el Excel: ' + e.message))}>Resultados en Excel</Boton>
+                <Boton tone="ghost" onClick={() => { setError(null); descargarResultadosExcel(cerrando.nombre, data, historial).catch(e => setError('No se pudo armar el Excel: ' + e.message)) }}>Resultados en Excel</Boton>
                 <BotonBackup />
               </div>
+              {error && <div role="alert" style={{ color: C.crimson, fontSize: 12.5, marginTop: 8 }}>{error}</div>}
             </div>
           )}
 
@@ -304,21 +305,25 @@ function CierreModal({ campanas, campanaActiva, data, stats, sedes, historial, o
 
 function BotonBackup({ tone = 'ghost' }) {
   const [estado, setEstado] = useState(null) // null | 'cargando' | 'error'
+  const [error, setError] = useState(null)
   const bajar = async () => {
-    setEstado('cargando')
+    setEstado('cargando'); setError(null)
     try { await descargarBackupExcel(); setEstado(null) }
-    catch (e) { setEstado('error'); alert('No se pudo generar el backup: ' + e.message) }
+    catch (e) { setEstado('error'); setError('No se pudo generar el backup: ' + e.message) }
   }
   return (
-    <Boton tone={tone} onClick={bajar} disabled={estado === 'cargando'}>
-      {estado === 'cargando' ? 'Generando…' : 'Backup completo'}
-    </Boton>
+    <>
+      <Boton tone={tone} onClick={bajar} disabled={estado === 'cargando'}>
+        {estado === 'cargando' ? 'Generando…' : 'Backup completo'}
+      </Boton>
+      {estado === 'error' && error && <span role="alert" style={{ alignSelf: 'center', color: C.crimson, fontSize: 12.5 }}>{error}</span>}
+    </>
   )
 }
 
 // Backup y restauración juntos en un menú: se usan poco, no merecen dos
 // botones permanentes al lado de "Cerrar campaña".
-function MenuRespaldo({ onRestaurar }) {
+function MenuRespaldo({ onRestaurar, onAviso }) {
   const [abierto, setAbierto] = useState(false)
   const [bajando, setBajando] = useState(false)
   const ref = useRef(null)
@@ -330,7 +335,7 @@ function MenuRespaldo({ onRestaurar }) {
   }, [abierto])
   const bajar = async () => {
     setAbierto(false); setBajando(true)
-    try { await descargarBackupExcel() } catch (e) { alert('No se pudo generar el backup: ' + e.message) }
+    try { await descargarBackupExcel() } catch (e) { onAviso?.('No se pudo generar el backup: ' + e.message) }
     setBajando(false)
   }
   const item = { display: 'block', width: '100%', textAlign: 'left', padding: '10px 12px', borderRadius: 7, border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: F.body }
@@ -511,7 +516,7 @@ export { DeshacerModal }
 // Acciones de campaña para el encabezado: respaldo (backup / restaurar) y
 // el cierre — el botón rojo, bien visible, que late cuando la campaña ya
 // terminó y todavía no se cerró.
-export function AccionesCampana({ campanas, campanaActiva, data, stats, sedes, historial, onCampanasChanged, onRecargarCampana }) {
+export function AccionesCampana({ campanas, campanaActiva, data, stats, sedes, historial, onCampanasChanged, onRecargarCampana, onAviso }) {
   const [modal, setModal] = useState(null) // 'cierre' | 'restaurar'
   const camp = campanas?.find(c => c.id === campanaActiva)
   const hayActiva = campanas?.some(c => c.estado === 'activa')
@@ -528,7 +533,7 @@ export function AccionesCampana({ campanas, campanaActiva, data, stats, sedes, h
 
   return (
     <>
-      <MenuRespaldo onRestaurar={() => setModal('restaurar')} />
+      <MenuRespaldo onRestaurar={() => setModal('restaurar')} onAviso={onAviso} />
       {activa && (
         <button onClick={() => setModal('cierre')} className={`btn-press${vencida ? ' latido' : ''}`} style={{
           height: 38, padding: '0 16px', borderRadius: 8, fontSize: 13.5, fontWeight: 800, fontFamily: F.body,
@@ -563,7 +568,7 @@ export function AccionesCampana({ campanas, campanaActiva, data, stats, sedes, h
 }
 
 // Campaña cerrada: el resultado final y todo lo que se puede sacar de ella
-export function PanelCerrada({ camp, data, stats, historial }) {
+export function PanelCerrada({ camp, data, stats, historial, onAviso }) {
   const [porSede, setPorSede] = useState(false)
   if (!camp) return null
   return (
@@ -582,7 +587,7 @@ export function PanelCerrada({ camp, data, stats, historial }) {
       {data.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-end' }}>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <Boton tone="ghost" onClick={() => descargarResultadosExcel(camp.nombre, data, historial).catch(e => alert('No se pudo armar el Excel: ' + e.message))}>Resultados en Excel</Boton>
+            <Boton tone="ghost" onClick={() => descargarResultadosExcel(camp.nombre, data, historial).catch(e => onAviso?.('No se pudo armar el Excel: ' + e.message))}>Resultados en Excel</Boton>
             <Boton onClick={() => generarInformeCierre({ camp, data, historial, porSede })}>Imprimir informe de cierre</Boton>
           </div>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: C.inkSoft, cursor: 'pointer' }}>

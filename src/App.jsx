@@ -214,6 +214,7 @@ function AppShell({ onLogout }) {
               data={data} stats={stats} sedes={sedes} historial={historial}
               onCampanasChanged={refrescarCampanas}
               onRecargarCampana={cargarCampana}
+              onAviso={(texto) => setAviso({ texto, tono: 'error', ms: 9000 })}
             />
           )}
         </PageHeader>
@@ -231,7 +232,8 @@ function AppShell({ onLogout }) {
             />
           )}
           {view === 'dashboard' && cerrada && data.length > 0 && (
-            <PanelCerrada camp={camp} data={data} stats={stats} historial={historial} />
+            <PanelCerrada camp={camp} data={data} stats={stats} historial={historial}
+              onAviso={(texto) => setAviso({ texto, tono: 'error', ms: 9000 })} />
           )}
 
           {view === 'dashboard' && activa && (
