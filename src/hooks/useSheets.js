@@ -400,6 +400,14 @@ export function useSheets() {
     return () => window.removeEventListener('beforeunload', avisar)
   }, [envio.ocupado])
 
+  // Resumen a Cele: antes su resultado se ignoraba y, si no salía, nadie se
+  // enteraba. No frena el envío: si falla, queda la línea en el registro.
+  const mandarResumenCele = useCallback((campNom, fecha, items) => {
+    enviarResumenCele(campNom, fecha, items)
+      .then(r => { if (r?.enviado === false) addLogEnvio('✗ No salió el resumen a Cele', 'error') })
+      .catch(() => addLogEnvio('✗ No salió el resumen a Cele', 'error'))
+  }, [addLogEnvio])
+
   // Manda el mail de una sede a cada dirección de `dirs`, una por una, y
   // marca cada una apenas sale. Si una falla, el error dice a cuáles ya salió.
   // Una dirección mal escrita (misma regla que Sedes) no se manda: es error.
@@ -590,13 +598,13 @@ export function useSheets() {
 
       addLogEnvio(`Listo. ${plan.filter(p => p.tipo !== 'repetida').length} emails procesados.`, 'ok')
       // Un solo resumen consolidado a Cele con toda la tanda
-      enviarResumenCele(campNom, fechaRef, resumenItems).catch(() => {})
+      mandarResumenCele(campNom, fechaRef, resumenItems)
       return true
     } finally {
       ocupadoRef.current = false
       setEnvio(s => ({ ...s, enviando: false, ocupado: false }))
     }
-  }, [addLogEnvio, markCopied, mandarA, verificarContraLog])
+  }, [addLogEnvio, markCopied, mandarA, verificarContraLog, mandarResumenCele])
 
   // Envío suelto de una sede (vista previa o ↻), con el mismo candado que la
   // tanda. Sale a las direcciones que faltan (o a todas si ya las tenía).
@@ -609,13 +617,13 @@ export function useSheets() {
       const dirs = destinosDe(d, dirEnviadasRef.current)
       await mandarA(d, dirs, { html: buildEmailHTML(d, campNom, template), subject: 'Como Vamos — ' + campNom + ' — ' + fmtFecha(fecha), fecha, campNom })
       // Resumen a Cele de este envío individual
-      enviarResumenCele(campNom, fecha, [{ sede: d.sede, email: dirs.join(', '), estado: 'enviado' }]).catch(() => {})
+      mandarResumenCele(campNom, fecha, [{ sede: d.sede, email: dirs.join(', '), estado: 'enviado' }])
       return dirs
     } finally {
       ocupadoRef.current = false
       setEnvio(s => ({ ...s, ocupado: false, sedeEnCurso: null }))
     }
-  }, [mandarA])
+  }, [mandarA, mandarResumenCele])
 
   // Guardar semana nueva en Sheets (o reemplazar si ya existe el corte — misma lógica que subirExcel)
   const guardarSemana = useCallback(async (fecha, sedesData, reemplazar = false) => {
