@@ -1,6 +1,6 @@
 import { obtenerBackup } from '../hooks/useSheets'
 import { cargarXLSX } from './xlsxLoader'
-import { hoyIso as hoy } from './formato'
+import { hoyIso as hoy, estadoSede } from './formato'
 
 // Exportaciones a .xlsx con SheetJS (se carga bajo demanda: ver xlsxLoader).
 // hoy() es la fecha local — toISOString daba la de Greenwich y a la noche el
@@ -83,7 +83,7 @@ export async function descargarResultadosExcel(campNombre, data, historial) {
     Objetivo: d.objetivo,
     Inscriptos: d.total,
     'Cumplimiento %': d.pct,
-    Estado: d.pct >= 50 ? 'En objetivo' : d.total > 0 ? 'En progreso' : 'Sin ingresos',
+    Estado: { ok: 'En objetivo', prog: 'En progreso', cero: 'Sin ingresos' }[estadoSede(d)],
   }))
   const totIng = data.reduce((a, d) => a + d.total, 0)
   const totObj = data.reduce((a, d) => a + d.objetivo, 0)

@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Legend, ReferenceLine } from 'recharts'
 import { obtenerHistorialCampana } from '../hooks/useSheets'
 import { C, F } from '../lib/theme'
+import { estadoSede, nombreCorto } from '../lib/formato'
 
 // Series de comparación: tonos que no se confunden con los colores de estado
 // (verde/ámbar/rojo significan "en objetivo / en progreso / sin ingresos")
@@ -141,7 +142,7 @@ export default function Historial({ historial, data, campanas, campanaActiva, on
 
   const sedeNombre = (cod) => {
     const found = todasSedes.find(([c]) => c === cod)?.[1] || cod
-    return found.replace(/ - BUENOS AIRES.*/, '').replace(/ - BS AS$/, '')
+    return nombreCorto(found)
   }
 
   const tabBtn = (n, label) => (
@@ -211,7 +212,7 @@ export default function Historial({ historial, data, campanas, campanaActiva, on
                             <td style={{ padding: '0 10px', position: 'sticky', left: 0, background: '#fff', zIndex: 1, whiteSpace: 'nowrap' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                 <span style={{ fontSize: 10, color: C.inkSoft, fontFamily: F.mono }}>{cod}</span>
-                                <span style={{ fontSize: 12, fontWeight: 600, color: C.ink }}>{nombre.replace(/ - BUENOS AIRES.*/, '').replace(/ - BS AS$/, '')}</span>
+                                <span style={{ fontSize: 12, fontWeight: 600, color: C.ink }}>{nombreCorto(nombre)}</span>
                               </div>
                             </td>
                             {vals.map((v, i) => {
@@ -250,7 +251,7 @@ export default function Historial({ historial, data, campanas, campanaActiva, on
               {todasSedes.map(([cod, nombre], i) => {
                 const sel = sedesComp.includes(cod)
                 const ci = sedesComp.indexOf(cod)
-                const shortName = nombre.replace(/ - BUENOS AIRES.*/, '').replace(/ - BS AS$/, '')
+                const shortName = nombreCorto(nombre)
                 return (
                   <button key={cod} onClick={() => toggleSede(cod)} aria-pressed={sel} style={{
                     height: 32, padding: '0 12px', borderRadius: 20, fontSize: 12.5, fontWeight: sel ? 700 : 500, fontFamily: F.body,
@@ -311,7 +312,7 @@ export default function Historial({ historial, data, campanas, campanaActiva, on
                         const d = data.find(x => String(x.cod_sede) === String(cod))
                         if (!d) return null
                         const pct = d.pct || 0
-                        const col = pct >= 50 ? C.ok : pct > 0 ? C.warn : C.danger
+                        const col = { ok: C.ok, prog: C.warn, cero: C.danger }[estadoSede(d)]
                         const diff = d.var
                         return (
                           <tr key={cod} style={{ borderBottom: `1px solid ${C.ruleSoft}` }}>
@@ -360,7 +361,7 @@ export default function Historial({ historial, data, campanas, campanaActiva, on
                 style={{ height: 40, padding: '0 10px', border: `1px solid ${C.rule}`, borderRadius: 8, fontSize: 14, background: '#fff', fontFamily: F.body, color: sedeComp3 ? C.ink : C.inkSoft, opacity: (!campA || !campB) ? 0.5 : 1 }}>
                 <option value="">Toda la zona</option>
                 {sedesComp3.map(([cod, nombre]) => (
-                  <option key={cod} value={cod}>{nombre.replace(/ - BUENOS AIRES.*/, '').replace(/ - BS AS$/, '')}</option>
+                  <option key={cod} value={cod}>{nombreCorto(nombre)}</option>
                 ))}
               </select>
             </div>

@@ -3,7 +3,7 @@ import { obtenerObjetivos, cerrarCampana, obtenerUltimoDeshacer, deshacerUltimo,
 import { C, F, cifra } from '../lib/theme'
 import { descargarBackupExcel, descargarResultadosExcel, leerBackupExcel } from '../lib/excel'
 import ModalShell from './ModalShell'
-import { fmtFecha, hoyIso, diasEntre } from '../lib/formato'
+import { fmtFecha, hoyIso, diasEntre, nombreCorto } from '../lib/formato'
 import { generarInformeCierre } from './InformesPDF'
 
 const labelStyle = { fontSize: 11, fontWeight: 600, color: C.inkSoft, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8, fontFamily: F.body }
@@ -258,7 +258,7 @@ function CierreModal({ campanas, campanaActiva, data, stats, sedes, historial, o
                 }}>
                   <span style={{ fontFamily: F.mono, fontSize: 11, color: C.inkSoft, width: 52, flexShrink: 0 }}>{cod}</span>
                   <span style={{ flex: 1, fontSize: 12.5, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {String(s.sede).replace(/ - BUENOS AIRES.*/, '').replace(/ - BS AS$/, '')}
+                    {nombreCorto(s.sede)}
                   </span>
                   <input
                     type="number" min="0" inputMode="numeric"
