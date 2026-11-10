@@ -184,6 +184,7 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
     if (chequeo.bajaron.length && !anterior) confirmar.push(`${chequeo.bajaron.length} ${chequeo.bajaron.length === 1 ? 'sede bajó' : 'sedes bajaron'}`)
     if (anterior && !fechasCargadas.has(fecha)) confirmar.push('es un corte anterior al último')
     if (chequeo.sinObjetivo.length) confirmar.push(`${chequeo.sinObjetivo.length} sin objetivo`)
+    if (m.otraColumnaTotal) confirmar.push('hay otra columna de total')
     if (!preview.objetivos) confirmar.push('no se pudieron leer los objetivos')
     return { bloqueos, confirmar }
   }
@@ -341,6 +342,11 @@ export default function ExcelUploader({ data, historial = [], onUpload, onGuarda
           {m.sumadas?.length > 0 && (
             <AvisoCarga tono="info" titulo={`El Excel viene desglosado: se sumaron las filas de ${m.sumadas.length} sedes`}>
               Cada sede aparece varias veces (por carrera o modalidad) y se toma la suma. Revisá en la tabla que los totales tengan sentido.
+            </AvisoCarga>
+          )}
+          {m.otraColumnaTotal && (
+            <AvisoCarga tono="revisar" titulo={`También hay una columna “${m.otraColumnaTotal}”: se tomó la del ${m.columnaTotal}`}>
+              Si el corte es esa otra columna, corregí el Excel y volvé a subirlo.
             </AvisoCarga>
           )}
           {chequeo.sinObjetivo.length > 0 && (

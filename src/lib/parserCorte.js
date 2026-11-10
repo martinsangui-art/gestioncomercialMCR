@@ -99,11 +99,16 @@ function leerHoja(ws, XLSX, nombreHoja, setRed) {
   let { iCod, iSede } = indicesHeader(headerRaw)
   if (soloSede) iCod = -1
 
-  // Columna de totales: header explícito → header fecha (la de más a la
-  // derecha) → última no vacía. Igual que antes.
-  let iTotal = header.findIndex(h => /total|ingresad|ingresant|acumulad|inscript/.test(h) && !/%|porc|objetivo|\bobj|meta|anterior/.test(h))
+  // Columna de totales: si en la fila de títulos hay columnas con fecha,
+  // gana la de la fecha MÁS RECIENTE. Solo sin ninguna fecha se busca un
+  // título que diga total / inscriptos / ingresados / acumulado. (Antes
+  // ganaba el "total": un "Total 1er Ingreso" al lado de la fecha se llevaba
+  // la columna equivocada.)
+  const iTotalTexto = header.findIndex(h => /total|ingresad|ingresant|acumulad|inscript/.test(h) && !/%|porc|objetivo|\bobj|meta|anterior/.test(h))
+  let iTotal = -1
   let detectadoPorFecha = false
-  if (iTotal === -1) {
+  let otraColumnaTotal = null
+  {
     // Columnas cuyo título es una fecha. Si hay más de una (por ejemplo la
     // semana anterior y la actual), el corte es la fecha MÁS RECIENTE, esté
     // donde esté; dos columnas con la misma fecha = no se puede saber cuál.
@@ -125,6 +130,12 @@ function leerHoja(ws, XLSX, nombreHoja, setRed) {
       }
       iTotal = max.i
       detectadoPorFecha = true
+      // Si además hay una columna que dice "total", se avisa cuál se tomó
+      if (iTotalTexto !== -1 && iTotalTexto !== iTotal) {
+        otraColumnaTotal = String(headerRaw[iTotalTexto] ?? '').trim() || String(arriba[iTotalTexto] ?? '').trim()
+      }
+    } else {
+      iTotal = iTotalTexto
     }
   }
   // Sin un título que diga "total" o una fecha, NO se adivina la columna (antes
@@ -208,7 +219,7 @@ function leerHoja(ws, XLSX, nombreHoja, setRed) {
 
   return {
     nombreHoja, filas, filasInvalidas, filasTotal, desagregado,
-    meta: { columnaTotal, letraColumna: XLSX.utils.encode_col(range.s.c + iTotal), filaTitulos: range.s.r + hIdx + 1, fechasEnTitulos, detectadoPorFecha, fechaCorte, fechaAmbigua, tieneObjetivo: iObj !== -1, codDesdeNombre: soloSede },
+    meta: { columnaTotal, letraColumna: XLSX.utils.encode_col(range.s.c + iTotal), filaTitulos: range.s.r + hIdx + 1, fechasEnTitulos, detectadoPorFecha, otraColumnaTotal, fechaCorte, fechaAmbigua, tieneObjetivo: iObj !== -1, codDesdeNombre: soloSede },
     iTotal, iCod, iSede, hIdx,
     puntaje: setRed ? filas.filter(f => f.enRed).length : filas.length,
   }

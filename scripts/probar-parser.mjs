@@ -190,5 +190,18 @@ const totalDe = (r, cod) => r.sedes.find(s => s.cod === String(cod))?.total
   check('doble lectura detecta la columna equivocada', !verificarCorte(buf, XLSX, otraColumna, cods).ok)
 }
 
+// 14. Una columna "Total 1er Ingreso" al lado de la de la fecha: gana la fecha
+//     y se avisa que había otra columna de total
+{
+  const aoa = [['Cod Sede', 'Sede', 'Total 1er Ingreso', fecha], ...Object.entries(RED).map(([c, n], i) => [Number(c), n, 100 + i, 10 + i])]
+  const buf = libro([['Hoja1', aoa]])
+  const r = parseCorte(buf, XLSX, { codigosRed })
+  check('total y fecha: toma la columna de la fecha', r.meta.detectadoPorFecha && r.meta.letraColumna === 'D' && totalDe(r, 87) === 13, JSON.stringify({ col: r.meta.letraColumna, t: totalDe(r, 87) }))
+  check('total y fecha: deja otraColumnaTotal', r.meta.otraColumnaTotal === 'Total 1er Ingreso', r.meta.otraColumnaTotal)
+  check('total y fecha: la doble lectura coincide', verificarCorte(buf, XLSX, r, codigosRed).ok)
+  const sinFecha = parseCorte(libro([['Hoja1', [['Cod Sede', 'Sede', 'Total 1er Ingreso'], ...Object.entries(RED).map(([c, n], i) => [Number(c), n, 100 + i])]]]), XLSX, { codigosRed })
+  check('solo total (sin fecha): toma el total, sin aviso', totalDe(sinFecha, 87) === 103 && sinFecha.meta.otraColumnaTotal === null)
+}
+
 console.log(fallas ? `\n${fallas} prueba(s) fallaron` : '\nTodo OK')
 process.exit(fallas ? 1 : 0)
