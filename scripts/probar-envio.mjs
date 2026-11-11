@@ -2,7 +2,7 @@
 // Correr con:  node scripts/probar-envio.mjs
 // Sin red ni planilla: destinos de cada sede, armado de una tanda, cotejo
 // contra log_envios y HTML del mail.
-import { destinosDe, yaRecibieron, planDeTanda, registradasEnLog, buildEmailHTML, agruparRegistro } from '../src/lib/envio.js'
+import { destinosDe, yaRecibieron, planDeTanda, registradasEnLog, porFueraEnLog, buildEmailHTML, agruparRegistro } from '../src/lib/envio.js'
 import { hoyIso } from '../src/lib/formato.js'
 
 let fallas = 0
@@ -67,6 +67,19 @@ const sede = (cod, email, extra = {}) => ({
   check('cotejo: fila con fecha_corte de este corte cuenta', reg2.has('70|a@ucasal.edu.ar'))
   check('cotejo: fila con fecha_corte de otro corte no cuenta', !reg2.has('71|a@ucasal.edu.ar'))
   check('cotejo: fila vieja sin fecha_corte sigue la regla de antes', reg2.has('72|a@ucasal.edu.ar'))
+  // Mail mandado por fuera de la app (via = 'por fuera'): cuenta como enviado
+  // y se distingue, solo en su corte
+  const fuera = [
+    fila({ cod_sede: 80, fecha_corte: '2026-10-23', via: 'por fuera' }),
+    fila({ cod_sede: 80, fecha_corte: '2026-10-23', via: 'por fuera', email: 'b@ucasal.edu.ar' }),
+    fila({ cod_sede: 81, fecha_corte: '2026-10-16', via: 'por fuera' }),   // otro corte
+    fila({ cod_sede: 82, fecha_corte: '2026-10-23' }),                     // salió por la app
+  ]
+  const filtro = { desde: '2026-10-23', campNom: '2do Ingreso 2026', fechaCorte: '2026-10-23' }
+  const reg3 = registradasEnLog(fuera, filtro), pf = porFueraEnLog(fuera, filtro)
+  check('por fuera: cuenta como enviado (cada dirección)', reg3.has('80|a@ucasal.edu.ar') && reg3.has('80|b@ucasal.edu.ar'))
+  check('por fuera: se distingue de lo que salió por la app', pf.has('80') && !pf.has('82'), JSON.stringify([...pf]))
+  check('por fuera: la marca de otro corte no cuenta', !pf.has('81') && !reg3.has('81|a@ucasal.edu.ar'))
 }
 
 // 4. HTML del mail: escapa sede y saludo, y un marcador desconocido queda vacío

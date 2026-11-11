@@ -7,7 +7,7 @@ import { fmtFecha, fmtCorto, hoyIso, nombreCorto, estadoSede } from '../lib/form
 // HTML del mail, destinos, armado de la tanda, cotejo y agrupado del registro:
 // funciones puras en lib/envio.js (probadas en scripts/probar-envio.mjs)
 import {
-  esc, DEFAULT_TEMPLATE, buildEmailHTML, agruparRegistro, sinObjetivo,
+  esc, DEFAULT_TEMPLATE, buildEmailHTML, agruparRegistro, sinObjetivo, esPorFuera,
   destinosDe as destinosSegun, yaRecibieron as yaRecibieronSegun,
 } from '../lib/envio'
 
@@ -198,7 +198,7 @@ const btnPri = { height: 40, padding: '0 18px', borderRadius: 8, fontSize: 14, f
 const btnSec = { height: 40, padding: '0 16px', borderRadius: 8, fontSize: 14, fontWeight: 600, fontFamily: F.body, background: '#fff', color: C.ink, border: `1px solid ${C.rule}`, cursor: 'pointer' }
 
 // Modal preview de email por sede
-function PreviewModal({ sede, destinos = [], yaRecibieron = [], campNombre, template, onClose, onSend, bloqueado = false }) {
+function PreviewModal({ sede, destinos = [], yaRecibieron = [], campNombre, template, onClose, onSend, onPorFuera, bloqueado = false }) {
   const [enviando, setEnviando] = useState(false)
   const [errorEnvio, setErrorEnvio] = useState(null)
   const htmlBase = buildEmailHTML(sede, campNombre, template)
@@ -229,6 +229,13 @@ function PreviewModal({ sede, destinos = [], yaRecibieron = [], campNombre, temp
       <div style={{ padding: '14px 20px', borderTop: `1px solid ${C.rule}`, display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center', flexShrink: 0, flexWrap: 'wrap' }}>
         {errorEnvio && <div role="alert" style={{ marginRight: 'auto', fontSize: 13, color: C.danger }}>No salió: {errorEnvio}</div>}
         <button onClick={onClose} disabled={enviando} className="btn-press" style={btnSec}>Cerrar</button>
+        {onPorFuera && (
+          <button onClick={() => onPorFuera(sede)} disabled={enviando || bloqueado || !sede.email}
+            title="Cele ya le mandó el mail por fuera de la app: marcarla como enviada sin mandar nada"
+            className="btn-press" style={{ ...btnSec, borderStyle: 'dashed', color: C.inkSoft, opacity: (enviando || bloqueado || !sede.email) ? 0.6 : 1 }}>
+            Ya se mandó por fuera
+          </button>
+        )}
         <button onClick={handleSend} disabled={enviando || bloqueado || !sede.email || sinObjetivo(sede)} className="btn-press" style={{ ...btnPri, opacity: (enviando || bloqueado || !sede.email || sinObjetivo(sede)) ? 0.6 : 1 }}>
           {enviando ? 'Enviando…' : destinos.length > 1 ? `Enviar los ${destinos.length} mails` : yaRecibieron.length ? `Enviar a ${destinos[0]}` : 'Enviar solo este mail'}
         </button>
@@ -259,7 +266,7 @@ function ConfirmModal({ title, sub, items, footNote, onClose, onConfirm, confirm
   )
 }
 
-export default function Envio({ data, copied, dirEnviadas = {}, envio, lanzarTanda, enviarSede, addLogEnvio, campanas, campanaActiva, guardarSemana, siglas = {} }) {
+export default function Envio({ data, copied, dirEnviadas = {}, envio, lanzarTanda, enviarSede, addLogEnvio, campanas, campanaActiva, guardarSemana, siglas = {}, porFuera = new Set(), marcarPorFuera, desmarcarPorFuera }) {
   const [seleccion, setSeleccion] = useState({})
   // La tanda en curso (progreso, registro y candado) vive en useSheets: si
   // Cele cambia de sección y vuelve, la ve igual y no puede lanzar otra.
@@ -283,6 +290,8 @@ export default function Envio({ data, copied, dirEnviadas = {}, envio, lanzarTan
   const [template, setTemplate] = useState(DEFAULT_TEMPLATE)
   const [mostrarEditorPlantilla, setMostrarEditorPlantilla] = useState(false)
   const [confirmando, setConfirmando] = useState({})
+  const [marcarFuera, setMarcarFuera] = useState(null) // sede a marcar como enviada por fuera
+  const [quitarFuera, setQuitarFuera] = useState(null) // sede a la que se le saca esa marca
   const logRef = useRef(null)
 
   // Cargar la plantilla de email guardada (si nunca se editó, usa la de siempre)
@@ -322,6 +331,8 @@ export default function Envio({ data, copied, dirEnviadas = {}, envio, lanzarTan
   const cerrada = camp?.estado === 'cerrada'
   const pendientes = data.filter(d => !copied[d.cod_sede])
   const enviadas   = data.filter(d => copied[d.cod_sede])
+  // "Reenviar todos" no incluye las que Cele mandó por fuera de la app
+  const reenviables = enviadas.filter(d => !porFuera.has(String(d.cod_sede)))
   const seleccionadas = Object.keys(seleccion).filter(c => seleccion[c])
   const aEnviar = seleccionadas.length > 0
     ? data.filter(d => seleccionadas.includes(String(d.cod_sede)) && !copied[d.cod_sede])
@@ -349,6 +360,17 @@ export default function Envio({ data, copied, dirEnviadas = {}, envio, lanzarTan
 
   // Reenvío individual de una sede ya marcada como enviada — no toca la
   // selección, solo un indicador puntual en ese chip y una línea en el registro.
+  const confirmarPorFuera = async (d) => {
+    setMarcarFuera(null)
+    try { await marcarPorFuera(d, camp?.nombre || '') }
+    catch (e) { addLogEnvio(`✗ No se pudo marcar ${d.sede}: ${e?.message || 'error'}`, 'error') }
+  }
+  const quitarPorFuera = async (d) => {
+    setQuitarFuera(null)
+    try { await desmarcarPorFuera(d, camp?.nombre || '') }
+    catch (e) { addLogEnvio(`✗ No se pudo desmarcar ${d.sede}: ${e?.message || 'error'}`, 'error') }
+  }
+
   const reenviarUno = async (d) => {
     try {
       await enviarSede(d, { template, campNom: camp?.nombre || '', esReenvio: true })
@@ -360,7 +382,7 @@ export default function Envio({ data, copied, dirEnviadas = {}, envio, lanzarTan
 
   // La tanda corre en useSheets (sobrevive al cambio de sección)
   const enviarTodos = () => lanzarTanda(aEnviar, { template, campNom: camp?.nombre || '' }).then(() => setSeleccion({}))
-  const reenviarTodos = () => lanzarTanda(enviadas, { esReenvio: true, template, campNom: camp?.nombre || '' })
+  const reenviarTodos = () => lanzarTanda(reenviables, { esReenvio: true, template, campNom: camp?.nombre || '' })
 
   // ── Carga a mano: los mismos cuidados que con el Excel ─────────────────
   // Antes un valor vacío o con decimales se guardaba como 0 sin aviso.
@@ -456,6 +478,7 @@ export default function Envio({ data, copied, dirEnviadas = {}, envio, lanzarTan
           template={template}
           onClose={() => setPreviewSede(null)}
           onSend={enviarUno}
+          onPorFuera={copied[previewSede.cod_sede] ? null : (d) => { setPreviewSede(null); setMarcarFuera(d) }}
           bloqueado={ocupado}
         />
       )}
@@ -606,6 +629,18 @@ export default function Envio({ data, copied, dirEnviadas = {}, envio, lanzarTan
                       >
                         Ver
                       </button>
+                      <button
+                        onClick={() => setMarcarFuera(d)} disabled={ocupado || !d.email} className="hide-mobile"
+                        title="Cele ya le mandó el mail por fuera de la app: marcarla como enviada sin mandar nada"
+                        aria-label={`Marcar ${d.sede} como enviada por fuera de la app`}
+                        style={{
+                          height: 30, padding: '0 10px', borderRadius: 7, fontSize: 12, fontWeight: 600, fontFamily: F.body,
+                          border: `1px dashed ${C.rule}`, background: '#fff', color: C.inkSoft,
+                          cursor: ocupado || !d.email ? 'not-allowed' : 'pointer', flexShrink: 0, opacity: ocupado || !d.email ? 0.5 : 1,
+                        }}
+                      >
+                        Enviado por fuera
+                      </button>
                     </div>
                   )
                 })}
@@ -621,9 +656,9 @@ export default function Envio({ data, copied, dirEnviadas = {}, envio, lanzarTan
                 </div>
                 <TooltipHelp text="Para cuando un envío falló en el medio (por ejemplo, si el servicio de mails estaba caído) y hay que mandarlos de nuevo. El ↻ de cada sede reenvía solo ese." />
                 <div style={{ flex: 1 }} />
-                {!enviando && (
+                {!enviando && reenviables.length > 0 && (
                   <button onClick={() => setModalConfirmReenvio(true)} disabled={ocupado} style={{ ...btnSec, height: 34, fontSize: 13, cursor: ocupado ? 'not-allowed' : 'pointer', opacity: ocupado ? 0.5 : 1 }}>
-                    Reenviar todos ({enviadas.length})
+                    Reenviar todos ({reenviables.length})
                   </button>
                 )}
               </div>
@@ -635,6 +670,14 @@ export default function Envio({ data, copied, dirEnviadas = {}, envio, lanzarTan
                     padding: '4px 5px 4px 11px', fontWeight: 600,
                   }}>
                     ✓ {d.sede}
+                    {porFuera.has(String(d.cod_sede)) ? (<>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: C.inkSoft }}>por fuera</span>
+                    <button
+                      onClick={() => setQuitarFuera(d)} disabled={ocupado}
+                      title="Sacar la marca de enviado por fuera" aria-label={`Sacar la marca de enviado por fuera a ${d.sede}`}
+                      style={{ border: 'none', background: 'rgba(15,138,95,0.16)', color: '#0B6B49', borderRadius: '50%', width: 20, height: 20, fontSize: 11, lineHeight: 1, cursor: ocupado ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, padding: 0 }}
+                    >✕</button>
+                    </>) : (
                     <button
                       onClick={() => reenviarUno(d)}
                       disabled={ocupado}
@@ -649,6 +692,7 @@ export default function Envio({ data, copied, dirEnviadas = {}, envio, lanzarTan
                     >
                       {sedeEnCurso === String(d.cod_sede) ? '…' : '↻'}
                     </button>
+                    )}
                   </span>
                 ))}
               </div>
@@ -808,7 +852,7 @@ export default function Envio({ data, copied, dirEnviadas = {}, envio, lanzarTan
                             background: it.estado === 'enviado' ? '#E3F4EC' : '#FBE7EA',
                             color: it.estado === 'enviado' ? '#0B6B49' : '#8E0C22',
                           }}>
-                            {it.estado === 'enviado' ? '✓' : '✗'} {it.sede}
+                            {it.estado === 'enviado' ? '✓' : '✗'} {it.sede}{esPorFuera(it) ? ' · por fuera' : ''}
                           </span>
                         ))}
                       </div>
@@ -835,15 +879,39 @@ export default function Envio({ data, copied, dirEnviadas = {}, envio, lanzarTan
       )}
 
       {/* Modal confirmación de reenvío masivo */}
+      {marcarFuera && (
+        <ConfirmModal
+          title={`¿Marcar ${marcarFuera.sede} como enviada?`}
+          sub="No se manda ningún mail desde la app"
+          items={[marcarFuera]}
+          footNote="Para cuando Cele ya le mandó el corte por fuera de la app. Queda en el registro como “por fuera”, deja de figurar pendiente y el envío automático no se lo repite. Se puede deshacer con la ✕ en Enviadas."
+          onClose={() => setMarcarFuera(null)}
+          onConfirm={() => confirmarPorFuera(marcarFuera)}
+          confirmLabel="Marcar como enviada"
+        />
+      )}
+
+      {quitarFuera && (
+        <ConfirmModal
+          title={`¿Sacar la marca a ${quitarFuera.sede}?`}
+          sub="No se manda ningún mail desde la app"
+          items={[quitarFuera]}
+          footNote="Se borra del registro solo la marca de “enviado por fuera” de este corte. La sede vuelve a quedar pendiente."
+          onClose={() => setQuitarFuera(null)}
+          onConfirm={() => quitarPorFuera(quitarFuera)}
+          confirmLabel="Sacar la marca"
+        />
+      )}
+
       {modalConfirmReenvio && (
         <ConfirmModal
-          title={`¿Reenviar ${enviadas.length} mails?`}
-          sub="A sedes que ya figuran como enviadas"
-          items={enviadas}
+          title={`¿Reenviar ${reenviables.length} mails?`}
+          sub="A sedes que ya figuran como enviadas (no a las mandadas por fuera)"
+          items={reenviables}
           footNote="Usalo solo si el envío anterior no llegó de verdad (por ejemplo, si el servicio de mails estaba caído): las sedes que sí lo recibieron lo van a recibir de nuevo."
           onClose={() => setModalConfirmReenvio(false)}
           onConfirm={() => { setModalConfirmReenvio(false); reenviarTodos() }}
-          confirmLabel={`Reenviar los ${enviadas.length} mails`}
+          confirmLabel={`Reenviar los ${reenviables.length} mails`}
         />
       )}
     </div>
