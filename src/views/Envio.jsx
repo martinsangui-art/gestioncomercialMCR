@@ -663,15 +663,20 @@ export default function Envio({ data, copied, dirEnviadas = {}, envio, lanzarTan
                 )}
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {enviadas.map(d => (
-                  <span key={d.cod_sede} style={{
+                {enviadas.map(d => {
+                  // La que salió por fuera de la app se ve "en hueco": borde
+                  // punteado y fondo claro, para distinguirla en el conjunto.
+                  const fuera = porFuera.has(String(d.cod_sede))
+                  return (
+                  <span key={d.cod_sede} title={fuera ? 'Enviado por fuera de la app' : undefined} style={{
                     display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontFamily: F.body,
-                    background: '#E3F4EC', color: '#0B6B49', borderRadius: 20,
-                    padding: '4px 5px 4px 11px', fontWeight: 600,
+                    background: fuera ? '#F6FBF8' : '#E3F4EC', color: '#0B6B49', borderRadius: 20,
+                    border: fuera ? '1.5px dashed #6DBB95' : '1.5px solid transparent',
+                    padding: '3px 5px 3px 11px', fontWeight: 600,
                   }}>
                     ✓ {d.sede}
-                    {porFuera.has(String(d.cod_sede)) ? (<>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: C.inkSoft }}>por fuera</span>
+                    {fuera ? (<>
+                    <span style={{ fontSize: 10.5, fontWeight: 700, color: '#0B6B49', background: '#E3F4EC', borderRadius: 10, padding: '1px 7px', textTransform: 'uppercase', letterSpacing: '.04em' }}>por fuera</span>
                     <button
                       onClick={() => setQuitarFuera(d)} disabled={ocupado}
                       title="Sacar la marca de enviado por fuera" aria-label={`Sacar la marca de enviado por fuera a ${d.sede}`}
@@ -694,7 +699,8 @@ export default function Envio({ data, copied, dirEnviadas = {}, envio, lanzarTan
                     </button>
                     )}
                   </span>
-                ))}
+                  )
+                })}
               </div>
             </div>
           )}
