@@ -31,6 +31,8 @@ function generarToken() {
 
 // Valida que el token no esté vencido ni manipulado
 function validarToken(token) {
+  // Sin secreto configurado cualquiera podría armar un token válido
+  if (!AUTH_SECRET) return false;
   if (!token || token.indexOf('.') === -1) return false;
   var partes = token.split('.');
   if (partes.length !== 2) return false;
@@ -44,10 +46,22 @@ function validarToken(token) {
   return true;
 }
 
+// Tope de 10 intentos fallidos cada 15 minutos (se cuentan en CacheService);
+// un login correcto borra la cuenta.
+var LOGIN_MAX_FALLOS = 10;
+var LOGIN_VENTANA_SEG = 900;
+
 function login(password) {
+  var cache = CacheService.getScriptCache();
+  var fallos = Number(cache.get('login_fallos')) || 0;
+  if (fallos >= LOGIN_MAX_FALLOS) throw new Error('Demasiados intentos. Probá de nuevo en 15 minutos.');
   if (!password) throw new Error('Falta la contraseña');
   var hash = sha256(password + AUTH_PASSWORD_SALT);
-  if (hash !== AUTH_PASSWORD_HASH) throw new Error('Contraseña incorrecta');
+  if (hash !== AUTH_PASSWORD_HASH) {
+    cache.put('login_fallos', String(fallos + 1), LOGIN_VENTANA_SEG);
+    throw new Error('Contraseña incorrecta');
+  }
+  cache.remove('login_fallos');
   return { token: generarToken(), expiraEnHoras: SESSION_HOURS };
 }
 
@@ -97,6 +111,9 @@ function doGet(e) {
     else if (action === 'historial') result = okData(getHistorial(campana));
     else if (action === 'semana_actual') result = okData(getSemanaActual(campana));
     else if (action === 'semanas')  result = okData(getSemanas(campana));
+    else if (action === 'enviar_email' && !destinatarioPermitido(e.parameter.to)) {
+      result = { ok: false, error: 'Ese destinatario no está cargado en Sedes: ' + e.parameter.to };
+    }
     else if (action === 'enviar_email') {
       result = okData(enviarEmailMake({
         to:      e.parameter.to,
@@ -444,6 +461,17 @@ function enviarEmailMake(params) {
   } finally {
     lock.releaseLock();
   }
+}
+
+// Solo se manda a Cele o a una dirección cargada en alguna sede (activa o
+// no): con un token robado no se puede usar la cuenta para mandar a cualquiera.
+function destinatarioPermitido(to) {
+  var t = String(to || '').trim().toLowerCase();
+  if (!t) return false;
+  if (t === EMAIL_CELE.toLowerCase()) return true;
+  return getSedesTodas().some(function(s) {
+    return String(s.email || '').split(/[,;\s]+/).some(function(a) { return a.trim().toLowerCase() === t; });
+  });
 }
 
 // ¿Ya figura en log_envios como 'enviado' este mismo mail? Misma sede, misma

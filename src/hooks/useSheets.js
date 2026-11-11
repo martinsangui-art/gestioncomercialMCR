@@ -200,7 +200,8 @@ export function useAuth() {
       setAuthed(true)
       setSessionExpired(false)
     } catch (e) {
-      setError(e.message === 'Contraseña incorrecta' ? 'Contraseña incorrecta' : 'Error al conectar. Intentá de nuevo.')
+      // Mensajes de Apps Script que se muestran tal cual; cualquier otro es de conexión
+      setError(e.message === 'Contraseña incorrecta' || /^Demasiados intentos/.test(e.message) ? e.message : 'Error al conectar. Intentá de nuevo.')
     }
     setLoading(false)
   }, [])
