@@ -10,8 +10,9 @@ function nombreArchivo(txt) {
   return txt.replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, ' ').trim()
 }
 
-// Copia completa de la base (campañas, objetivos, historial, sedes y log de
-// envíos) — el respaldo para guardar fuera de la planilla.
+// Copia completa de la base (campañas, objetivos, historial, sedes, log de
+// envíos, notas de seguimiento y configuración) — el respaldo para guardar
+// fuera de la planilla. Restaurar usa solo campañas, objetivos e historial.
 export async function descargarBackupExcel() {
   const X = await cargarXLSX()
   const data = await obtenerBackup()
@@ -21,7 +22,7 @@ export async function descargarBackupExcel() {
     ['generado', ahora.toLocaleString('es-AR')],
     ['nota', 'Backup de Gestión Comercial. Para volver a este punto: Dashboard → Restaurar backup.'],
   ]), '_info')
-  ;['campanas', 'objetivos', 'historial', 'sedes', 'log_envios'].forEach(nombre => {
+  ;['campanas', 'objetivos', 'historial', 'sedes', 'log_envios', 'notas_sede', 'config'].forEach(nombre => {
     const rows = data[nombre] || []
     X.utils.book_append_sheet(wb, X.utils.json_to_sheet(rows.length ? rows : [{}]), nombre)
   })

@@ -1374,7 +1374,9 @@ function deshacerUltimo(body) {
   }
 }
 
-// Copia completa de la base para descargar como Excel de respaldo
+// Copia completa de la base para descargar como Excel de respaldo (también
+// las notas de seguimiento y la configuración, que antes quedaban afuera; la
+// restauración sigue tocando solo campañas, objetivos e historial)
 function getBackup() {
   function hoja(nombre) {
     var h = SS.getSheetByName(nombre);
@@ -1389,6 +1391,8 @@ function getBackup() {
     historial: hoja('historial'),
     sedes: hoja('sedes'),
     log_envios: hoja('log_envios'),
+    notas_sede: hoja('notas_sede'),
+    config: hoja('config'),
   };
 }
 
