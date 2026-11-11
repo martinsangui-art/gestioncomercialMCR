@@ -198,7 +198,7 @@ const btnPri = { height: 40, padding: '0 18px', borderRadius: 8, fontSize: 14, f
 const btnSec = { height: 40, padding: '0 16px', borderRadius: 8, fontSize: 14, fontWeight: 600, fontFamily: F.body, background: '#fff', color: C.ink, border: `1px solid ${C.rule}`, cursor: 'pointer' }
 
 // Modal preview de email por sede
-function PreviewModal({ sede, destinos = [], yaRecibieron = [], campNombre, template, onClose, onSend, bloqueado = false }) {
+function PreviewModal({ sede, destinos = [], yaRecibieron = [], campNombre, template, onClose, onSend, onPorFuera, bloqueado = false }) {
   const [enviando, setEnviando] = useState(false)
   const [errorEnvio, setErrorEnvio] = useState(null)
   const htmlBase = buildEmailHTML(sede, campNombre, template)
@@ -229,6 +229,13 @@ function PreviewModal({ sede, destinos = [], yaRecibieron = [], campNombre, temp
       <div style={{ padding: '14px 20px', borderTop: `1px solid ${C.rule}`, display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center', flexShrink: 0, flexWrap: 'wrap' }}>
         {errorEnvio && <div role="alert" style={{ marginRight: 'auto', fontSize: 13, color: C.danger }}>No salió: {errorEnvio}</div>}
         <button onClick={onClose} disabled={enviando} className="btn-press" style={btnSec}>Cerrar</button>
+        {onPorFuera && (
+          <button onClick={() => onPorFuera(sede)} disabled={enviando || bloqueado || !sede.email}
+            title="Cele ya le mandó el mail por fuera de la app: marcarla como enviada sin mandar nada"
+            className="btn-press" style={{ ...btnSec, borderStyle: 'dashed', color: C.inkSoft, opacity: (enviando || bloqueado || !sede.email) ? 0.6 : 1 }}>
+            Ya se mandó por fuera
+          </button>
+        )}
         <button onClick={handleSend} disabled={enviando || bloqueado || !sede.email || sinObjetivo(sede)} className="btn-press" style={{ ...btnPri, opacity: (enviando || bloqueado || !sede.email || sinObjetivo(sede)) ? 0.6 : 1 }}>
           {enviando ? 'Enviando…' : destinos.length > 1 ? `Enviar los ${destinos.length} mails` : yaRecibieron.length ? `Enviar a ${destinos[0]}` : 'Enviar solo este mail'}
         </button>
@@ -284,6 +291,7 @@ export default function Envio({ data, copied, dirEnviadas = {}, envio, lanzarTan
   const [mostrarEditorPlantilla, setMostrarEditorPlantilla] = useState(false)
   const [confirmando, setConfirmando] = useState({})
   const [marcarFuera, setMarcarFuera] = useState(null) // sede a marcar como enviada por fuera
+  const [quitarFuera, setQuitarFuera] = useState(null) // sede a la que se le saca esa marca
   const logRef = useRef(null)
 
   // Cargar la plantilla de email guardada (si nunca se editó, usa la de siempre)
@@ -358,7 +366,7 @@ export default function Envio({ data, copied, dirEnviadas = {}, envio, lanzarTan
     catch (e) { addLogEnvio(`✗ No se pudo marcar ${d.sede}: ${e?.message || 'error'}`, 'error') }
   }
   const quitarPorFuera = async (d) => {
-    if (!window.confirm(`¿Sacar la marca de "enviado por fuera" a ${d.sede}? Vuelve a quedar pendiente (no se manda nada).`)) return
+    setQuitarFuera(null)
     try { await desmarcarPorFuera(d, camp?.nombre || '') }
     catch (e) { addLogEnvio(`✗ No se pudo desmarcar ${d.sede}: ${e?.message || 'error'}`, 'error') }
   }
@@ -470,6 +478,7 @@ export default function Envio({ data, copied, dirEnviadas = {}, envio, lanzarTan
           template={template}
           onClose={() => setPreviewSede(null)}
           onSend={enviarUno}
+          onPorFuera={copied[previewSede.cod_sede] ? null : (d) => { setPreviewSede(null); setMarcarFuera(d) }}
           bloqueado={ocupado}
         />
       )}
@@ -621,7 +630,7 @@ export default function Envio({ data, copied, dirEnviadas = {}, envio, lanzarTan
                         Ver
                       </button>
                       <button
-                        onClick={() => setMarcarFuera(d)} disabled={ocupado || !d.email}
+                        onClick={() => setMarcarFuera(d)} disabled={ocupado || !d.email} className="hide-mobile"
                         title="Cele ya le mandó el mail por fuera de la app: marcarla como enviada sin mandar nada"
                         aria-label={`Marcar ${d.sede} como enviada por fuera de la app`}
                         style={{
@@ -664,7 +673,7 @@ export default function Envio({ data, copied, dirEnviadas = {}, envio, lanzarTan
                     {porFuera.has(String(d.cod_sede)) ? (<>
                     <span style={{ fontSize: 11, fontWeight: 700, color: C.inkSoft }}>por fuera</span>
                     <button
-                      onClick={() => quitarPorFuera(d)} disabled={ocupado}
+                      onClick={() => setQuitarFuera(d)} disabled={ocupado}
                       title="Sacar la marca de enviado por fuera" aria-label={`Sacar la marca de enviado por fuera a ${d.sede}`}
                       style={{ border: 'none', background: 'rgba(15,138,95,0.16)', color: '#0B6B49', borderRadius: '50%', width: 20, height: 20, fontSize: 11, lineHeight: 1, cursor: ocupado ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, padding: 0 }}
                     >✕</button>
@@ -879,6 +888,18 @@ export default function Envio({ data, copied, dirEnviadas = {}, envio, lanzarTan
           onClose={() => setMarcarFuera(null)}
           onConfirm={() => confirmarPorFuera(marcarFuera)}
           confirmLabel="Marcar como enviada"
+        />
+      )}
+
+      {quitarFuera && (
+        <ConfirmModal
+          title={`¿Sacar la marca a ${quitarFuera.sede}?`}
+          sub="No se manda ningún mail desde la app"
+          items={[quitarFuera]}
+          footNote="Se borra del registro solo la marca de “enviado por fuera” de este corte. La sede vuelve a quedar pendiente."
+          onClose={() => setQuitarFuera(null)}
+          onConfirm={() => quitarPorFuera(quitarFuera)}
+          confirmLabel="Sacar la marca"
         />
       )}
 
