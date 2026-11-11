@@ -40,64 +40,34 @@ export function onAuthExpired(fn) {
 // Siempre va idempotente=1: si ese mail ya salió para la sede, la campaña y el
 // corte, Apps Script no lo repite y contesta { duplicado: true }. Un reenvío
 // pedido a propósito (↻ o "Reenviar todos") va además con reenvio=1.
-// Devuelve { status, duplicado }.
-function enviarUnaDireccion(payload) {
-  if (direccionesDe(payload.to).length !== 1) return Promise.reject(new Error('Se manda a una sola dirección por vez: ' + payload.to))
+// Va por POST (antes por JSONP: el HTML del mail viajaba en la URL y un pedido
+// colgado se cortaba a ciegas a los 30 s). Si no hay respuesta en 90 s, post()
+// da error. Devuelve { status, duplicado }.
+async function enviarUnaDireccion(payload) {
+  if (direccionesDe(payload.to).length !== 1) throw new Error('Se manda a una sola dirección por vez: ' + payload.to)
   if (DEMO) {
     return import('../dev/demoData').then(m => new Promise(res => setTimeout(() => {
       m.registrarEnvioDemo(payload); res({ status: 200 })
     }, 250)))
   }
-  return new Promise((resolve, reject) => {
-    const cb = '_cb_email_' + Date.now() + '_' + Math.random().toString(36).slice(2)
-    const url = API + '?action=enviar_email&callback=' + cb +
-      '&token='    + encodeURIComponent(getToken()) +
-      '&to='       + encodeURIComponent(payload.to) +
-      '&subject='  + encodeURIComponent(payload.subject) +
-      '&html='     + encodeURIComponent(payload.html) +
-      '&sede='     + encodeURIComponent(payload.sede) +
-      '&cod='      + encodeURIComponent(payload.cod) +
-      '&fecha='    + encodeURIComponent(payload.fecha) +
-      '&campana='  + encodeURIComponent(payload.campana || '') +
-      '&idempotente=1' + (payload.reenvio ? '&reenvio=1' : '')
-
-    // Antes esto resolvía { ok: true } a los 10 segundos: si Apps Script no
-    // contestaba, el front inventaba un éxito, pintaba el tilde verde y seguía
-    // con la sede siguiente. Ese era el bug del envío del 03/08 (San Nicolás y
-    // Tres Arroyos quedaron "enviadas" en pantalla sin fila en log_envios).
-    // Ahora un timeout es un error de verdad, y 10s era además demasiado poco:
-    // Apps Script tiene que llamar al webhook de Make antes de contestar.
-    const timeout = setTimeout(() => {
-      cleanup()
-      reject(new Error('Timeout: el envío no respondió a tiempo'))
-    }, 30000)
-    window[cb] = (data) => {
-      cleanup()
-      if (data?.error === 'AUTH_REQUIRED') {
-        setToken(''); notifyAuthExpired()
-        reject(new Error('AUTH_REQUIRED'))
-        return
-      }
-      if (data && data.ok === false) {
-        reject(new Error(traducirError(data.error) || 'Error al enviar'))
-        return
-      }
-      // enviarEmailMake devuelve el status HTTP del webhook de Make. Apps Script
-      // lo registra como 'error' en log_envios si no es 2xx, así que el front
-      // tampoco lo puede dar por enviado.
-      const status = data?.data?.status
-      if (status != null && (status < 200 || status >= 300)) {
-        reject(new Error('El webhook de envío respondió ' + status))
-        return
-      }
-      resolve(data?.data || {})
-    }
-    function cleanup() { clearTimeout(timeout); delete window[cb]; if (el?.parentNode) el.parentNode.removeChild(el) }
-    const el = document.createElement('script')
-    el.src = url
-    el.onerror = () => { cleanup(); reject(new Error('Error de red')) }
-    document.head.appendChild(el)
+  const data = await post({
+    action: 'enviar_email',
+    to: payload.to,
+    subject: payload.subject,
+    html: payload.html,
+    sede: payload.sede,
+    cod: payload.cod,
+    fecha: payload.fecha,
+    campana: payload.campana || '',
+    idempotente: '1',
+    ...(payload.reenvio ? { reenvio: '1' } : {}),
   })
+  // enviarEmailMake devuelve el status HTTP del webhook de Make. Apps Script
+  // lo registra como 'error' en log_envios si no es 2xx, así que el front
+  // tampoco lo puede dar por enviado.
+  const status = data?.status
+  if (status != null && (status < 200 || status >= 300)) throw new Error('El webhook de envío respondió ' + status)
+  return data || {}
 }
 
 // Errores técnicos de Apps Script, dichos en castellano
@@ -827,12 +797,10 @@ export function agregarNotaSede(cod_sede, nota) {
 }
 
 // Manda a Cele un resumen consolidado de una tanda de envíos (individual o masiva)
+// Por POST, como los envíos (antes por JSONP, con todo el detalle en la URL)
 export function enviarResumenCele(campana, fecha, items) {
-  return jsonp('resumen_cele', {
-    campana,
-    fecha,
-    items: JSON.stringify(items),
-  })
+  if (DEMO) return Promise.resolve({ enviado: true })
+  return post({ action: 'resumen_cele', campana, fecha, items })
 }
 
 // ── Gestión de sedes ────────────────────────────────────────────────────────

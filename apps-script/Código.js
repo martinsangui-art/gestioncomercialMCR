@@ -194,6 +194,10 @@ function okData(data) { return { ok: true, data: data }; }
 //     { campana_id, cod_sede, objetivo }
 //   restaurar_backup → reemplaza campanas/objetivos/historial por los de un backup
 //     { hojas: { campanas: [[header...], [fila...]], objetivos: [...], historial: [...] } }
+//   enviar_email     → mismo envío que por GET (con las mismas validaciones)
+//     { to, subject, html, sede, cod, fecha, campana, idempotente?, reenvio? }
+//   resumen_cele     → resumen de una tanda a Cele, como por GET
+//     { campana, fecha, items: [{ sede, email, estado }] }
 // ════════════════════════════════════════════════════════════════════════
 function doPost(e) {
   try {
@@ -220,6 +224,26 @@ function doPost(e) {
     if (action === 'deshacer') return ok(deshacerUltimo(body));
     if (action === 'restaurar_backup') return ok(restaurarBackup(body));
     if (action === 'set_objetivo') return ok(setObjetivo(body));
+    // Envío por POST (el front nuevo): el HTML del mail ya no viaja en la URL.
+    // Las mismas acciones siguen por GET para el front viejo.
+    if (action === 'enviar_email') {
+      if (!destinatarioPermitido(body.to)) return err('Ese destinatario no está cargado en Sedes: ' + body.to);
+      return ok(enviarEmailMake({
+        to:      body.to,
+        subject: body.subject,
+        html:    body.html,
+        sede:    body.sede,
+        cod:     body.cod,
+        fecha:   body.fecha,
+        campana: body.campana,
+        idempotente: body.idempotente,
+        reenvio:     body.reenvio,
+      }));
+    }
+    if (action === 'resumen_cele') {
+      var items = typeof body.items === 'string' ? JSON.parse(body.items || '[]') : (body.items || []);
+      return ok(enviarResumenCele({ campana: body.campana, fecha: body.fecha, items: items }));
+    }
 
     return err('action no reconocida: ' + action);
   } catch(ex) {
