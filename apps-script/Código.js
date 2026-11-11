@@ -862,8 +862,8 @@ function agregarSede(body) {
   });
   h.appendRow(fila);
   SpreadsheetApp.flush();
-  // Si viene el objetivo de la campaña activa se carga en el mismo paso: una
-  // sede sin objetivo no aparece en el tablero ni en los cortes.
+  // Si viene el objetivo de la campaña activa se carga en el mismo paso: sin
+  // objetivo, la sede entra al corte con 0% y no recibe el mail.
   if (body.campana_id && Number(body.objetivo) > 0) {
     setObjetivo({ campana_id: body.campana_id, cod_sede: body.cod_sede, objetivo: body.objetivo });
   }
@@ -1022,11 +1022,15 @@ function getSemanaActual(campanaId) {
     objMap[String(o.cod_sede)] = Number(o.objetivo);
   });
 
-  // Sedes
+  // Sedes activas (código normalizado: Sheets guarda "060" como 60)
   var sedesMap = {};
   getSedes().forEach(function(s) {
-    sedesMap[String(s.cod_sede)] = { sede: s.sede, email: s.email, saludo: s.saludo };
+    sedesMap[normCodigo(s.cod_sede)] = { sede: s.sede, email: s.email, saludo: s.saludo };
   });
+
+  // Una sede desactivada sale del corte actual (antes seguía en el tablero y en
+  // el envío, sin email ni objetivo). Su historial no se toca.
+  actual = actual.filter(function(r) { return sedesMap[normCodigo(r.cod_sede)]; });
 
   return actual.map(function(r) {
     var cod = String(r.cod_sede);
@@ -1034,7 +1038,7 @@ function getSemanaActual(campanaId) {
     var obj = objMap[cod] || 0;
     var prev = prevMap[cod] !== undefined ? Number(prevMap[cod]) : null;
     var pct = obj > 0 ? Math.round(total / obj * 100) : 0;
-    var info = sedesMap[cod] || {};
+    var info = sedesMap[normCodigo(cod)] || {};
     return {
       cod_sede:  cod,
       sede:      info.sede || r.sede,
