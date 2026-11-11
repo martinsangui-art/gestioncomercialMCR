@@ -356,12 +356,27 @@ function chequearEscenarioActivoMake() {
 }
 
 // Wrapper sin argumentos — los triggers de Apps Script llaman a la función
-// por nombre, sin parámetros.
+// por nombre, sin parámetros. Si el chequeo mismo falla (token vencido, API de
+// Make caída, config incompleta), antes se tragaba el error y la alarma quedaba
+// muda sin que nadie se enterara: ahora avisa por mail a ALERTA_EMAIL.
 function chequearEstadoMakeTrigger() {
-  try { chequearEstadoMake(); } catch (ex) {
-    // Si falla la config (token vencido, etc.) no hay mucho más para hacer acá;
-    // se ve corriendo 'chequear_make' manualmente para diagnosticar.
+  var motivo = null;
+  try {
+    var r = chequearEstadoMake();
+    if (!r || r.ok === false) motivo = (r && r.error) ? r.error + (r.detalle ? '\n\n' + r.detalle : '') : 'El chequeo no devolvió resultado';
+  } catch (ex) {
+    motivo = ex.message;
   }
+  if (!motivo) return;
+  var alertaEmail = PropertiesService.getScriptProperties().getProperty('ALERTA_EMAIL');
+  if (!alertaEmail) return;
+  MailApp.sendEmail({
+    to: alertaEmail,
+    subject: 'Cómo Vamos: no se pudo chequear el escenario de Make',
+    body: 'El chequeo diario del escenario de Make no se pudo hacer, así que hoy no se sabe si los mails a las sedes están saliendo.\n\n' +
+      'Motivo: ' + motivo + '\n\n' +
+      'Revisá MAKE_API_TOKEN, MAKE_SCENARIO_ID y MAKE_ZONE, o corré chequear_make a mano para ver el detalle.',
+  });
 }
 
 // Instala (o reinstala, sin duplicar) un chequeo diario del estado real del
