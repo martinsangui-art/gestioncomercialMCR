@@ -351,7 +351,7 @@ export default function Envio({ data, copied, dirEnviadas = {}, envio, lanzarTan
   // selección, solo un indicador puntual en ese chip y una línea en el registro.
   const reenviarUno = async (d) => {
     try {
-      await enviarSede(d, { template, campNom: camp?.nombre || '' })
+      await enviarSede(d, { template, campNom: camp?.nombre || '', esReenvio: true })
       addLogEnvio(`✓ ${d.sede} (reenviado)`, 'ok')
     } catch {
       addLogEnvio(`✗ Error al reenviar ${d.sede}`, 'error')

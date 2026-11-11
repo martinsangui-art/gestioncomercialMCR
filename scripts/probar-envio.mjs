@@ -56,6 +56,17 @@ const sede = (cod, email, extra = {}) => ({
   check('cotejo: no cuenta las de estado error', !reg.has('63|a@ucasal.edu.ar'))
   check('cotejo: no cuenta el [RESUMEN]', ![...reg].some(k => k.includes('mcrossi')), JSON.stringify([...reg]))
   check('cotejo: nada más que esas dos', reg.size === 2, JSON.stringify([...reg]))
+  // Filas nuevas con fecha_corte: cuentan solo si son de este corte; las viejas
+  // (sin fecha_corte) siguen la regla de siempre
+  const conCorte = [
+    fila({ cod_sede: 70, fecha_corte: '2026-10-23' }),  // de este corte: cuenta
+    fila({ cod_sede: 71, fecha_corte: '2026-10-16' }),  // mandada el 24 pero del corte anterior: no cuenta
+    fila({ cod_sede: 72 }),                             // vieja, sin fecha_corte: cuenta
+  ]
+  const reg2 = registradasEnLog(conCorte, { desde: '2026-10-23', campNom: '2do Ingreso 2026', fechaCorte: '2026-10-23' })
+  check('cotejo: fila con fecha_corte de este corte cuenta', reg2.has('70|a@ucasal.edu.ar'))
+  check('cotejo: fila con fecha_corte de otro corte no cuenta', !reg2.has('71|a@ucasal.edu.ar'))
+  check('cotejo: fila vieja sin fecha_corte sigue la regla de antes', reg2.has('72|a@ucasal.edu.ar'))
 }
 
 // 4. HTML del mail: escapa sede y saludo, y un marcador desconocido queda vacío

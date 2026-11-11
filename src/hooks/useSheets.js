@@ -37,11 +37,15 @@ export function onAuthExpired(fn) {
 // "To": con "a@x, b@y" el webhook igual contesta 200 y el mail no sale
 // (Morón, 14/08). Por eso una sede con varios mails recibe un mail por
 // dirección — mismo contenido y saludo — uno detrás del otro (ver mandarA).
+// Siempre va idempotente=1: si ese mail ya salió para la sede, la campaña y el
+// corte, Apps Script no lo repite y contesta { duplicado: true }. Un reenvío
+// pedido a propósito (↻ o "Reenviar todos") va además con reenvio=1.
+// Devuelve { status, duplicado }.
 function enviarUnaDireccion(payload) {
   if (direccionesDe(payload.to).length !== 1) return Promise.reject(new Error('Se manda a una sola dirección por vez: ' + payload.to))
   if (DEMO) {
     return import('../dev/demoData').then(m => new Promise(res => setTimeout(() => {
-      m.registrarEnvioDemo(payload); res({ ok: true, data: { status: 200 } })
+      m.registrarEnvioDemo(payload); res({ status: 200 })
     }, 250)))
   }
   return new Promise((resolve, reject) => {
@@ -54,7 +58,8 @@ function enviarUnaDireccion(payload) {
       '&sede='     + encodeURIComponent(payload.sede) +
       '&cod='      + encodeURIComponent(payload.cod) +
       '&fecha='    + encodeURIComponent(payload.fecha) +
-      '&campana='  + encodeURIComponent(payload.campana || '')
+      '&campana='  + encodeURIComponent(payload.campana || '') +
+      '&idempotente=1' + (payload.reenvio ? '&reenvio=1' : '')
 
     // Antes esto resolvía { ok: true } a los 10 segundos: si Apps Script no
     // contestaba, el front inventaba un éxito, pintaba el tilde verde y seguía
@@ -85,7 +90,7 @@ function enviarUnaDireccion(payload) {
         reject(new Error('El webhook de envío respondió ' + status))
         return
       }
-      resolve(data)
+      resolve(data?.data || {})
     }
     function cleanup() { clearTimeout(timeout); delete window[cb]; if (el?.parentNode) el.parentNode.removeChild(el) }
     const el = document.createElement('script')
@@ -322,7 +327,7 @@ export function useSheets() {
             // lo mandado desde el corte en adelante (antes exigía el mismo día
             // y un corte mandado otro día quedaba todo como pendiente).
             const porSede = {}
-            registradasEnLog(log, { desde: fecha, campNom: camp.nombre }).forEach(k => {
+            registradasEnLog(log, { desde: fecha, campNom: camp.nombre, fechaCorte: fecha }).forEach(k => {
               const i = k.indexOf('|')
               const cod = k.slice(0, i)
               porSede[cod] = porSede[cod] || []
@@ -430,13 +435,17 @@ export function useSheets() {
   // Manda el mail de una sede a cada dirección de `dirs`, una por una, y
   // marca cada una apenas sale. Si una falla, el error dice a cuáles ya salió.
   // Una dirección mal escrita (misma regla que Sedes) no se manda: es error.
-  const mandarA = useCallback(async (d, dirs, { html, subject, fecha, campNom }) => {
+  // Devuelve { salieron, duplicadas }: duplicadas son las que Apps Script ya
+  // tenía registradas para este corte (no se volvieron a mandar).
+  const mandarA = useCallback(async (d, dirs, { html, subject, fecha, campNom, reenvio = false }) => {
     const invalidas = dirs.filter(a => !EMAIL_RE.test(a))
     const avisoInvalidas = invalidas.length ? ' · dirección inválida: ' + invalidas.join(', ') : ''
     const salieron = []
+    const duplicadas = []
     for (const to of dirs.filter(a => EMAIL_RE.test(a))) {
       try {
-        await enviarUnaDireccion({ to, subject, html, sede: d.sede, cod: String(d.cod_sede), fecha, campana: campNom })
+        const r = await enviarUnaDireccion({ to, subject, html, sede: d.sede, cod: String(d.cod_sede), fecha, campana: campNom, reenvio })
+        if (r?.duplicado) duplicadas.push(to)
       } catch (e) {
         if (e?.message === 'AUTH_REQUIRED') throw e
         const error = new Error((e?.message || 'Error al enviar') + ' — no salió a ' + to +
@@ -454,7 +463,7 @@ export function useSheets() {
       error.salieron = [...salieron]
       throw error
     }
-    return salieron
+    return { salieron, duplicadas }
   }, [markCopied])
 
   // Compara lo que el front cree que mandó contra lo que Apps Script realmente
@@ -462,7 +471,7 @@ export function useSheets() {
   // (faltantes) y los que dieron error pero sí figuran enviados (recuperadas).
   // `desde` es la fecha local en que arrancó la tanda: vale cualquier fila
   // registrada desde ese día (cubre una tanda que cruza la medianoche).
-  const verificarContraLog = useCallback(async ({ okCods, okDirs, errDirs, desde, campNom, lista }) => {
+  const verificarContraLog = useCallback(async ({ okCods, okDirs, errDirs, desde, campNom, fechaCorte, lista }) => {
     const conError = Object.keys(errDirs).filter(c => errDirs[c].length)
     if (!okCods.length && !conError.length) return { faltantes: [], recuperadas: [] }
     let registro
@@ -474,7 +483,7 @@ export function useSheets() {
     }
     // Registrado = una fila 'enviado' de esa sede y esa dirección desde el
     // día en que arrancó la tanda.
-    const registradas = registradasEnLog(registro, { desde, campNom })
+    const registradas = registradasEnLog(registro, { desde, campNom, fechaCorte })
     const faltantes = []
     okCods.forEach(cod => {
       const sinRegistro = (okDirs[cod] || []).filter(a => !registradas.has(cod + '|' + a.toLowerCase()))
@@ -533,7 +542,7 @@ export function useSheets() {
       const avisadas = new Set()
       if (!esReenvio && plan.some(p => p.tipo === 'enviar')) {
         try {
-          const reg = registradasEnLog(await obtenerLogEnvios(500), { desde: fechaRef, campNom })
+          const reg = registradasEnLog(await obtenerLogEnvios(500), { desde: fechaRef, campNom, fechaCorte: fechaRef })
           plan.forEach(({ d, tipo }) => {
             if (tipo !== 'enviar') return
             const cod = String(d.cod_sede)
@@ -583,16 +592,23 @@ export function useSheets() {
           }
           dirs = destinosDe(d, dirEnviadasRef.current)
         }
-        const parcial = dirs.length < todas.length
         try {
           const htmlRich = buildEmailHTML(d, campNom, template)
-          okDirs[cod] = await mandarA(d, dirs, {
+          const { salieron, duplicadas } = await mandarA(d, dirs, {
             html: htmlRich, subject: 'Como Vamos — ' + campNom + ' — ' + fmtFecha(d.fecha || fechaRef),
-            fecha: d.fecha || fechaRef, campNom,
+            fecha: d.fecha || fechaRef, campNom, reenvio: esReenvio,
           })
-          okCods.push(cod)
-          addLogEnvio(`✓ ${d.sede}${parcial ? ' (solo a ' + dirs.join(', ') + ')' : ''}${esReenvio ? ' (reenviado)' : ''}`, 'ok')
-          resumenItems.push(itemPorCod[cod] = { sede: d.sede, email: dirs.join(', '), estado: 'enviado' })
+          // Las que Apps Script ya tenía registradas para este corte no se
+          // volvieron a mandar: cuentan como enviadas, pero no de esta tanda
+          if (duplicadas.length) addLogEnvio(`• ${d.sede}: ya había salido a ${duplicadas.join(', ')}`, 'info')
+          const nuevas = salieron.filter(a => !duplicadas.includes(a))
+          if (nuevas.length) {
+            okDirs[cod] = nuevas
+            okCods.push(cod)
+            const parcial = nuevas.length < todas.length
+            addLogEnvio(`✓ ${d.sede}${parcial ? ' (solo a ' + nuevas.join(', ') + ')' : ''}${esReenvio ? ' (reenviado)' : ''}`, 'ok')
+            resumenItems.push(itemPorCod[cod] = { sede: d.sede, email: nuevas.join(', '), estado: 'enviado' })
+          }
         } catch (e) {
           // Sin sesión no tiene sentido seguir: cada sede daría el mismo error
           if (e?.message === 'AUTH_REQUIRED') {
@@ -609,7 +625,7 @@ export function useSheets() {
       // Verificación contra el log real: el tilde verde vale solo si Apps Script
       // dejó la fila en log_envios. Si no quedó registrada, se saca el tilde acá
       // mismo en vez de que la sede aparezca como enviada hasta el próximo F5.
-      const { faltantes, recuperadas } = await verificarContraLog({ okCods, okDirs, errDirs, desde: desdeEnvio, campNom, lista })
+      const { faltantes, recuperadas } = await verificarContraLog({ okCods, okDirs, errDirs, desde: desdeEnvio, campNom, fechaCorte: fechaRef, lista })
       faltantes.forEach(cod => { if (itemPorCod[cod]) itemPorCod[cod].estado = 'error' })
       // Una sede que figuraba con error pasa a enviada si todas las
       // direcciones de esta tanda terminaron saliendo
@@ -631,7 +647,7 @@ export function useSheets() {
 
   // Envío suelto de una sede (vista previa o ↻), con el mismo candado que la
   // tanda. Sale a las direcciones que faltan (o a todas si ya las tenía).
-  const enviarSede = useCallback(async (d, { template, campNom = '' } = {}) => {
+  const enviarSede = useCallback(async (d, { template, campNom = '', esReenvio = false } = {}) => {
     if (ocupadoRef.current) throw new Error('Hay un envío en curso: esperá a que termine')
     if (sinObjetivo(d)) throw new Error('La sede no tiene objetivo en la campaña: no se envía')
     ocupadoRef.current = true
@@ -639,15 +655,17 @@ export function useSheets() {
     try {
       const fecha = d.fecha || hoyIso()
       const dirs = destinosDe(d, dirEnviadasRef.current)
-      await mandarA(d, dirs, { html: buildEmailHTML(d, campNom, template), subject: 'Como Vamos — ' + campNom + ' — ' + fmtFecha(fecha), fecha, campNom })
-      // Resumen a Cele de este envío individual
-      mandarResumenCele(campNom, fecha, [{ sede: d.sede, email: dirs.join(', '), estado: 'enviado' }])
-      return dirs
+      const { salieron, duplicadas } = await mandarA(d, dirs, { html: buildEmailHTML(d, campNom, template), subject: 'Como Vamos — ' + campNom + ' — ' + fmtFecha(fecha), fecha, campNom, reenvio: esReenvio })
+      if (duplicadas.length) addLogEnvio(`• ${d.sede}: ya había salido a ${duplicadas.join(', ')}`, 'info')
+      const nuevas = salieron.filter(a => !duplicadas.includes(a))
+      // Resumen a Cele de este envío individual (si salió algo)
+      if (nuevas.length) mandarResumenCele(campNom, fecha, [{ sede: d.sede, email: nuevas.join(', '), estado: 'enviado' }])
+      return salieron
     } finally {
       ocupadoRef.current = false
       setEnvio(s => ({ ...s, ocupado: false, sedeEnCurso: null }))
     }
-  }, [mandarA, mandarResumenCele])
+  }, [mandarA, mandarResumenCele, addLogEnvio])
 
   // Guardar semana nueva en Sheets (o reemplazar si ya existe el corte — misma lógica que subirExcel)
   // Después de guardar se relee la planilla, igual que con el Excel.

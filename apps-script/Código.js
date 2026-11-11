@@ -106,6 +106,8 @@ function doGet(e) {
         cod:     e.parameter.cod,
         fecha:   e.parameter.fecha,
         campana: e.parameter.campana,
+        idempotente: e.parameter.idempotente,
+        reenvio:     e.parameter.reenvio,
       }));
     }
     else if (action === 'log_envios') {
@@ -387,43 +389,92 @@ function eliminarCorte(body) {
 // ════════════════════════════════════════════════════════════════════════
 var MAKE_WEBHOOK = PropertiesService.getScriptProperties().getProperty('MAKE_WEBHOOK');
 
+// params.fecha es la fecha del CORTE (queda en log_envios como fecha_corte).
+// Con idempotente=1 (lo manda el front nuevo), si ese mail ya figura enviado
+// para la misma sede, campaña, corte y dirección, no se vuelve a mandar y se
+// devuelve { duplicado: true }; un reenvío explícito (reenvio=1) sale igual.
+// Sin idempotente (front viejo) el comportamiento es el de siempre.
 function enviarEmailMake(params) {
-  var status = 0;
+  // Un envío por vez: si llegan dos pedidos iguales juntos (dos pestañas, un
+  // reintento), el segundo ya ve registrado al primero.
+  var lock = LockService.getScriptLock();
+  lock.waitLock(25000);
   try {
-    var options = {
-      method: 'post',
-      headers: { 'Content-Type': 'application/json' },
-      payload: JSON.stringify({
-        to:      String(params.to || ''),
-        subject: String(params.subject || ''),
-        html:    String(params.html || ''),
-        sede:    String(params.sede || ''),
-        cod:     String(params.cod || ''),
-        fecha:   String(params.fecha || ''),
-        tipo:    'email'
-      }),
-      muteHttpExceptions: true
-    };
-    var response = UrlFetchApp.fetch(MAKE_WEBHOOK, options);
-    status = response.getResponseCode();
-  } catch(exFetch) {
+    if (String(params.idempotente) === '1' && String(params.reenvio) !== '1' && yaSalioEsteMail(params)) {
+      return { status: 200, duplicado: true };
+    }
+    var status = 0;
+    try {
+      var options = {
+        method: 'post',
+        headers: { 'Content-Type': 'application/json' },
+        payload: JSON.stringify({
+          to:      String(params.to || ''),
+          subject: String(params.subject || ''),
+          html:    String(params.html || ''),
+          sede:    String(params.sede || ''),
+          cod:     String(params.cod || ''),
+          fecha:   String(params.fecha || ''),
+          tipo:    'email'
+        }),
+        muteHttpExceptions: true
+      };
+      var response = UrlFetchApp.fetch(MAKE_WEBHOOK, options);
+      status = response.getResponseCode();
+    } catch(exFetch) {
+      registrarEnvio({
+        sede: params.sede, cod: params.cod, email: params.to,
+        campana: (params.campana || '') + ' [ERROR FETCH: ' + exFetch.message + ']',
+        fecha_corte: params.fecha,
+        ok: false,
+      });
+      throw exFetch;
+    }
+
     registrarEnvio({
-      sede: params.sede, cod: params.cod, email: params.to,
-      campana: (params.campana || '') + ' [ERROR FETCH: ' + exFetch.message + ']',
-      ok: false,
+      sede: params.sede,
+      cod: params.cod,
+      email: params.to,
+      campana: params.campana || '',
+      fecha_corte: params.fecha,
+      ok: status >= 200 && status < 300,
     });
-    throw exFetch;
+
+    return { status: status };
+  } finally {
+    lock.releaseLock();
   }
+}
 
-  registrarEnvio({
-    sede: params.sede,
-    cod: params.cod,
-    email: params.to,
-    campana: params.campana || '',
-    ok: status >= 200 && status < 300,
-  });
+// ¿Ya figura en log_envios como 'enviado' este mismo mail? Misma sede, misma
+// campaña (columna campana exacta), mismo corte (fecha_corte) y misma
+// dirección (en minúscula y sin espacios). Las filas viejas, sin fecha_corte,
+// no cuentan: para esas sigue valiendo el cotejo del front.
+function yaSalioEsteMail(params) {
+  var rows = getLogSheet().getDataRange().getValues();
+  if (rows.length <= 1) return false;
+  var hdr = rows[0].map(String);
+  var iCod = hdr.indexOf('cod_sede'), iCamp = hdr.indexOf('campana'), iEmail = hdr.indexOf('email');
+  var iEstado = hdr.indexOf('estado'), iCorte = hdr.indexOf('fecha_corte');
+  if (iCod === -1 || iCamp === -1 || iEmail === -1 || iEstado === -1 || iCorte === -1) return false;
+  var corte = String(params.fecha || '').slice(0, 10);
+  if (!corte) return false;
+  var cod = normCodigo(params.cod), camp = String(params.campana || ''), to = String(params.to || '').trim().toLowerCase();
+  var tz = Session.getScriptTimeZone();
+  for (var i = rows.length - 1; i >= 1; i--) {
+    var r = rows[i];
+    if (String(r[iEstado]) !== 'enviado') continue;
+    var fc = r[iCorte] instanceof Date ? Utilities.formatDate(r[iCorte], tz, 'yyyy-MM-dd') : String(r[iCorte] || '').slice(0, 10);
+    if (fc === corte && normCodigo(r[iCod]) === cod && String(r[iCamp]) === camp &&
+        String(r[iEmail]).trim().toLowerCase() === to) return true;
+  }
+  return false;
+}
 
-  return { status: status };
+// Código de sede comparable: Sheets guarda "060" como 60
+function normCodigo(v) {
+  var s = String(v === null || v === undefined ? '' : v).trim().replace(/\.0+$/, '');
+  return /^\d+$/.test(s) ? String(Number(s)) : s;
 }
 
 // ── Resumen ejecutivo a Cele tras cada tanda de envío ────────────────────
@@ -628,7 +679,14 @@ function registrarEnvio(p) {
   var now = new Date();
   var fecha = Utilities.formatDate(now, Session.getScriptTimeZone(), 'yyyy-MM-dd');
   var hora  = Utilities.formatDate(now, Session.getScriptTimeZone(), 'HH:mm:ss');
-  h.appendRow([fecha, hora, p.campana, p.sede, p.cod, p.email, p.ok ? 'enviado' : 'error']);
+  var fila = [fecha, hora, p.campana, p.sede, p.cod, p.email, p.ok ? 'enviado' : 'error'];
+  // fecha_corte: de qué corte es el mail ('fecha' es el día de ENVÍO). Va como
+  // texto ("'"): si no, Sheets lo convierte en fecha. Las filas viejas quedan
+  // con la columna vacía.
+  var iCorte = asegurarColumna(h, 'fecha_corte');
+  while (fila.length <= iCorte) fila.push('');
+  fila[iCorte] = p.fecha_corte ? "'" + String(p.fecha_corte).slice(0, 10) : '';
+  h.appendRow(fila);
   SpreadsheetApp.flush();
 }
 

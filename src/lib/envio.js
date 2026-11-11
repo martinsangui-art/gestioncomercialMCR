@@ -112,13 +112,20 @@ export function planDeTanda(lista) {
 // Cotejo contra log_envios: el Set de 'cod|email' (email en minúscula) que
 // figuran como 'enviado' para la campaña desde la fecha `desde` (r.fecha es
 // el día de ENVÍO). El resumen a Cele ([RESUMEN]) no es el mail de una sede.
-export function registradasEnLog(log, { desde, campNom } = {}) {
+// Si la fila dice de qué corte es (fecha_corte, filas nuevas), cuenta solo si
+// es `fechaCorte`; las filas viejas, sin esa columna, siguen la regla de antes.
+export function registradasEnLog(log, { desde, campNom, fechaCorte } = {}) {
   const registradas = new Set()
+  const delCorte = (r) => {
+    const fc = String(r.fecha_corte ?? '').trim()
+    return !fechaCorte || !fc || fc.slice(0, 10) === String(fechaCorte).slice(0, 10)
+  }
   ;(log || [])
     .filter(r => String(r.fecha).slice(0, 10) >= String(desde).slice(0, 10) &&
                  r.estado === 'enviado' &&
                  String(r.sede ?? '') !== '[RESUMEN]' && String(r.cod_sede ?? '') !== '' &&
-                 (!campNom || String(r.campana || '').indexOf(campNom) >= 0))
+                 (!campNom || String(r.campana || '').indexOf(campNom) >= 0) &&
+                 delCorte(r))
     .forEach(r => direccionesDe(r.email).forEach(a => registradas.add(String(r.cod_sede) + '|' + a.toLowerCase())))
   return registradas
 }
