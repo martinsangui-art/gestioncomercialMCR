@@ -48,6 +48,27 @@ export function registrarEnvioDemo(p) {
   enviosDemo.unshift({ fecha: `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`, hora: `${z(d.getHours())}:${z(d.getMinutes())}:00`, campana: p.campana, sede: p.sede, cod_sede: p.cod, email: p.to, estado: 'enviado' })
   try { sessionStorage.setItem(CLAVE_ENVIOS_DEMO, JSON.stringify(enviosDemo)) } catch { /* sin storage: queda en memoria */ }
 }
+const guardarEnviosDemo = () => { try { sessionStorage.setItem(CLAVE_ENVIOS_DEMO, JSON.stringify(enviosDemo)) } catch { /* en memoria */ } }
+
+// Como marcar_por_fuera / desmarcar_por_fuera de Apps Script
+export function marcarPorFueraDemo(d, campana) {
+  const dt = new Date(), z = n => String(n).padStart(2, '0')
+  const dirs = String(d.email || '').split(/[,;\s]+/).filter(Boolean)
+  if (!dirs.length) throw new Error('La sede no tiene email cargado')
+  dirs.forEach(to => enviosDemo.unshift({ fecha: `${dt.getFullYear()}-${z(dt.getMonth() + 1)}-${z(dt.getDate())}`, hora: `${z(dt.getHours())}:${z(dt.getMinutes())}:00`,
+    campana, sede: d.sede, cod_sede: d.cod_sede, email: to, estado: 'enviado', fecha_corte: d.fecha, via: 'por fuera' }))
+  guardarEnviosDemo()
+  return { marcadas: dirs, ya_estaban: [] }
+}
+export function desmarcarPorFueraDemo(d, campana) {
+  const antes = enviosDemo.length
+  for (let i = enviosDemo.length - 1; i >= 0; i--) {
+    const r = enviosDemo[i]
+    if (r.via === 'por fuera' && String(r.cod_sede) === String(d.cod_sede) && r.campana === campana && r.fecha_corte === d.fecha) enviosDemo.splice(i, 1)
+  }
+  guardarEnviosDemo()
+  return { borradas: antes - enviosDemo.length }
+}
 
 const NOTAS = [
   { fecha: '2026-08-20 11:05', cod_sede: '55', nota: 'Llamé, van a cargar esta semana' },

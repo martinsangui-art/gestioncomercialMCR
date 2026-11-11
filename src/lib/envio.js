@@ -114,20 +114,32 @@ export function planDeTanda(lista) {
 // el día de ENVÍO). El resumen a Cele ([RESUMEN]) no es el mail de una sede.
 // Si la fila dice de qué corte es (fecha_corte, filas nuevas), cuenta solo si
 // es `fechaCorte`; las filas viejas, sin esa columna, siguen la regla de antes.
-export function registradasEnLog(log, { desde, campNom, fechaCorte } = {}) {
-  const registradas = new Set()
+const enviadasDelCorte = (log, { desde, campNom, fechaCorte } = {}) => {
   const delCorte = (r) => {
     const fc = String(r.fecha_corte ?? '').trim()
     return !fechaCorte || !fc || fc.slice(0, 10) === String(fechaCorte).slice(0, 10)
   }
-  ;(log || [])
+  return (log || [])
     .filter(r => String(r.fecha).slice(0, 10) >= String(desde).slice(0, 10) &&
                  r.estado === 'enviado' &&
                  String(r.sede ?? '') !== '[RESUMEN]' && String(r.cod_sede ?? '') !== '' &&
                  (!campNom || String(r.campana || '').indexOf(campNom) >= 0) &&
                  delCorte(r))
+}
+export function registradasEnLog(log, filtro = {}) {
+  const registradas = new Set()
+  enviadasDelCorte(log, filtro)
     .forEach(r => direccionesDe(r.email).forEach(a => registradas.add(String(r.cod_sede) + '|' + a.toLowerCase())))
   return registradas
+}
+
+// Mail mandado por fuera de la app (Cele a mano): la fila del log lleva
+// via = 'por fuera'. Cuenta como enviado (está en registradasEnLog); esto
+// devuelve el Set de cod_sede marcadas así en el corte, para mostrarlo.
+export const VIA_POR_FUERA = 'por fuera'
+export const esPorFuera = (r) => String(r?.via ?? '').trim() === VIA_POR_FUERA
+export function porFueraEnLog(log, filtro = {}) {
+  return new Set(enviadasDelCorte(log, filtro).filter(esPorFuera).map(r => String(r.cod_sede)))
 }
 
 // "Registro de envíos": una tanda = filas consecutivas (por fecha y hora) con

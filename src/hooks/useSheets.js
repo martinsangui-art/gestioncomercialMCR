@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { direccionesDe, hoyIso, fmtFecha, EMAIL_RE } from '../lib/formato'
-import { buildEmailHTML, destinosDe, yaRecibieron, planDeTanda, registradasEnLog, sinObjetivo } from '../lib/envio'
+import { buildEmailHTML, destinosDe, yaRecibieron, planDeTanda, registradasEnLog, porFueraEnLog, sinObjetivo } from '../lib/envio'
 import { normCod } from '../lib/parserCorte'
 
 // Modo demo (solo en `npm run dev`, abriendo con ?demo): datos inventados y
@@ -206,6 +206,8 @@ export function useSheets() {
   // El ref es la copia viva (se actualiza en el acto): la tanda de envío
   // calcula los destinos de cada sede contra él, no contra una foto vieja.
   const [dirEnviadas, setDirEnviadasState] = useState({})
+  // cod_sede cuyo mail del corte salió por fuera de la app (lo mandó Cele a mano)
+  const [porFuera, setPorFuera] = useState(() => new Set())
   const dirEnviadasRef = useRef({})
   const setDirEnviadas = useCallback((upd) => {
     dirEnviadasRef.current = typeof upd === 'function' ? upd(dirEnviadasRef.current) : upd
@@ -283,6 +285,7 @@ export function useSheets() {
       // Si mientras tanto se pidió otra campaña, esta respuesta ya no sirve
       if (pedido !== pedidoActual.current) return
       setDirEnviadas({})
+      setPorFuera(new Set())
       cargadaRef.current = campanaId
       setState(s => ({ ...s, loading: false, recargando: false, campanaActiva: campanaId, data, historial }))
 
@@ -298,6 +301,7 @@ export function useSheets() {
             // lo mandado desde el corte en adelante (antes exigía el mismo día
             // y un corte mandado otro día quedaba todo como pendiente).
             const porSede = {}
+            setPorFuera(porFueraEnLog(log, { desde: fecha, campNom: camp.nombre, fechaCorte: fecha }))
             registradasEnLog(log, { desde: fecha, campNom: camp.nombre, fechaCorte: fecha }).forEach(k => {
               const i = k.indexOf('|')
               const cod = k.slice(0, i)
@@ -638,6 +642,39 @@ export function useSheets() {
     }
   }, [mandarA, mandarResumenCele, addLogEnvio])
 
+  // Mail del corte mandado por fuera de la app (Cele a mano): queda en el
+  // registro como enviado, con via = 'por fuera', sin pasar por Make. La sede
+  // deja de estar pendiente y el envío automático no se lo repite. Desmarcar
+  // borra solo esas filas (lo que salió por la app no se toca).
+  const marcarPorFuera = useCallback(async (d, campNom) => {
+    if (ocupadoRef.current) throw new Error('Hay un envío en curso: esperá a que termine')
+    const cod = String(d.cod_sede), fecha = d.fecha
+    const r = DEMO
+      ? await import('../dev/demoData').then(m => m.marcarPorFueraDemo(d, campNom))
+      : await post({ action: 'marcar_por_fuera', cod, campana: campNom, fecha })
+    markCopied(cod)
+    setPorFuera(prev => new Set([...prev, cod]))
+    addLogEnvio(`• ${d.sede}: marcada como enviada por fuera de la app`, 'info')
+    return r
+  }, [markCopied, addLogEnvio])
+
+  const desmarcarPorFuera = useCallback(async (d, campNom) => {
+    if (ocupadoRef.current) throw new Error('Hay un envío en curso: esperá a que termine')
+    const cod = String(d.cod_sede), fecha = d.fecha
+    const r = DEMO
+      ? await import('../dev/demoData').then(m => m.desmarcarPorFueraDemo(d, campNom))
+      : await post({ action: 'desmarcar_por_fuera', cod, campana: campNom, fecha })
+    // Lo que sigue enviado de verdad se recalcula contra el registro
+    const log = await obtenerLogEnvios(500)
+    const reg = registradasEnLog(log, { desde: fecha, campNom, fechaCorte: fecha })
+    const quedan = direccionesDe(d.email).map(a => a.toLowerCase()).filter(a => reg.has(cod + '|' + a))
+    markUncopied(cod)
+    if (quedan.length) markCopied(cod, quedan)
+    setPorFuera(porFueraEnLog(log, { desde: fecha, campNom, fechaCorte: fecha }))
+    addLogEnvio(`• ${d.sede}: se sacó la marca de enviado por fuera`, 'info')
+    return r
+  }, [markCopied, markUncopied, addLogEnvio])
+
   // Guardar semana nueva en Sheets (o reemplazar si ya existe el corte — misma lógica que subirExcel)
   // Después de guardar se relee la planilla, igual que con el Excel.
   const guardarSemana = useCallback(async (fecha, sedesData, reemplazar = false) => {
@@ -730,6 +767,9 @@ export function useSheets() {
     ...state,
     copied,
     dirEnviadas,
+    porFuera,
+    marcarPorFuera,
+    desmarcarPorFuera,
     stats,
     cargarCampana,
     markCopied,

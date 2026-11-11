@@ -122,7 +122,7 @@ function AppShell({ onLogout }) {
 
   const {
     loading, recargando, error, errorRecarga, campanas, sedes, campanaActiva, data, historial,
-    copied, dirEnviadas, stats, cargarCampana,
+    copied, dirEnviadas, porFuera, marcarPorFuera, desmarcarPorFuera, stats, cargarCampana,
     envio, lanzarTanda, enviarSede, addLogEnvio,
     guardarSemana, subirExcel, refrescarSedes, refrescarCampanas,
   } = useSheets()
@@ -280,6 +280,7 @@ function AppShell({ onLogout }) {
               envio={envio} lanzarTanda={lanzarTanda} enviarSede={enviarSede} addLogEnvio={addLogEnvio}
               campanas={campanas} campanaActiva={campanaActiva}
               guardarSemana={guardarSemana} siglas={siglas}
+              porFuera={porFuera} marcarPorFuera={marcarPorFuera} desmarcarPorFuera={desmarcarPorFuera}
             />
           )}
         </div>

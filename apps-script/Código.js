@@ -198,6 +198,11 @@ function okData(data) { return { ok: true, data: data }; }
 //     { to, subject, html, sede, cod, fecha, campana, idempotente?, reenvio? }
 //   resumen_cele     → resumen de una tanda a Cele, como por GET
 //     { campana, fecha, items: [{ sede, email, estado }] }
+//   marcar_por_fuera → registra que el mail de una sede salió por fuera de la
+//     app (lo mandó Cele a mano): cuenta como enviado para ese corte
+//     { cod, campana, fecha }   (fecha = la del corte)
+//   desmarcar_por_fuera → saca esa marca (las filas 'por fuera' de ese corte)
+//     { cod, campana, fecha }
 // ════════════════════════════════════════════════════════════════════════
 function doPost(e) {
   try {
@@ -240,6 +245,8 @@ function doPost(e) {
         reenvio:     body.reenvio,
       }));
     }
+    if (action === 'marcar_por_fuera') return ok(marcarPorFuera(body));
+    if (action === 'desmarcar_por_fuera') return ok(desmarcarPorFuera(body));
     if (action === 'resumen_cele') {
       var items = typeof body.items === 'string' ? JSON.parse(body.items || '[]') : (body.items || []);
       return ok(enviarResumenCele({ campana: body.campana, fecha: body.fecha, items: items }));
@@ -753,8 +760,85 @@ function registrarEnvio(p) {
   var iCorte = asegurarColumna(h, 'fecha_corte');
   while (fila.length <= iCorte) fila.push('');
   fila[iCorte] = p.fecha_corte ? "'" + String(p.fecha_corte).slice(0, 10) : '';
+  // via: 'por fuera' cuando el mail no salió por la app (ver marcarPorFuera).
+  // La columna se crea recién la primera vez que hace falta.
+  if (p.via) {
+    var iVia = asegurarColumna(h, 'via');
+    while (fila.length <= iVia) fila.push('');
+    fila[iVia] = p.via;
+  }
   h.appendRow(fila);
   SpreadsheetApp.flush();
+}
+
+// ── Mail enviado por fuera de la app ─────────────────────────────────────
+// Cuando Cele le manda el corte a una sede a mano (por ejemplo Pilar, el
+// 06/11), la app la seguía mostrando pendiente y ofrecía "Enviar el mail que
+// falta", con riesgo de que le llegara dos veces. Esto deja una fila
+// 'enviado' por cada dirección de la sede, con via = 'por fuera' y sin pasar
+// por Make: el front la cuenta como enviada y el envío automático no la repite
+// (yaSalioEsteMail). Las direcciones salen de la hoja sedes, no del pedido.
+var VIA_POR_FUERA = 'por fuera';
+
+function sedeParaMarcar(body) {
+  var cod = normCodigo(body.cod);
+  var corte = String(body.fecha || '').slice(0, 10);
+  if (!cod) throw new Error('Falta la sede');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(corte)) throw new Error('Falta la fecha del corte');
+  if (!String(body.campana || '')) throw new Error('Falta la campaña');
+  var sede = getSedesTodas().filter(function(s) { return normCodigo(s.cod_sede) === cod; })[0];
+  if (!sede) throw new Error('No se encontró la sede ' + body.cod);
+  return { cod: cod, corte: corte, sede: sede };
+}
+
+function marcarPorFuera(body) {
+  var x = sedeParaMarcar(body);
+  var dirs = String(x.sede.email || '').split(/[,;\s]+/).filter(function(a) { return a; });
+  if (!dirs.length) throw new Error('La sede no tiene email cargado');
+  var lock = LockService.getScriptLock();
+  lock.waitLock(25000);
+  try {
+    var marcadas = [], yaEstaban = [];
+    dirs.forEach(function(to) {
+      var params = { cod: x.cod, campana: body.campana, fecha: x.corte, to: to };
+      if (yaSalioEsteMail(params)) { yaEstaban.push(to); return; }
+      registrarEnvio({ sede: x.sede.sede, cod: x.sede.cod_sede, email: to, campana: body.campana,
+                       fecha_corte: x.corte, ok: true, via: VIA_POR_FUERA });
+      marcadas.push(to);
+    });
+    return { marcadas: marcadas, ya_estaban: yaEstaban };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Solo borra filas 'por fuera' de esa sede, campaña y corte: un mail que salió
+// de verdad por la app no se toca.
+function desmarcarPorFuera(body) {
+  var x = sedeParaMarcar(body);
+  var lock = LockService.getScriptLock();
+  lock.waitLock(25000);
+  try {
+    var h = getLogSheet();
+    var rows = h.getDataRange().getValues();
+    var hdr = rows[0].map(String);
+    var iCod = hdr.indexOf('cod_sede'), iCamp = hdr.indexOf('campana'), iCorte = hdr.indexOf('fecha_corte'), iVia = hdr.indexOf('via');
+    if (iVia === -1 || iCorte === -1) return { borradas: 0 };
+    var tz = Session.getScriptTimeZone(), borradas = 0;
+    for (var i = rows.length - 1; i >= 1; i--) {
+      var r = rows[i];
+      var fc = r[iCorte] instanceof Date ? Utilities.formatDate(r[iCorte], tz, 'yyyy-MM-dd') : String(r[iCorte] || '').slice(0, 10);
+      if (String(r[iVia]) === VIA_POR_FUERA && fc === x.corte && normCodigo(r[iCod]) === x.cod &&
+          String(r[iCamp]) === String(body.campana)) {
+        h.deleteRow(i + 1);
+        borradas++;
+      }
+    }
+    SpreadsheetApp.flush();
+    return { borradas: borradas };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function getLogEnvios(limite) {
