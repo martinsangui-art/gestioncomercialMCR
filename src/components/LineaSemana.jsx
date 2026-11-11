@@ -1,6 +1,7 @@
 import { C, F, rotulo } from '../lib/theme'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { hoyIso, diasEntre, fmtCorto } from '../lib/formato'
+import { sinObjetivo } from '../lib/envio'
 
 // La rutina de cada semana dibujada como una línea de subte: tres estaciones
 // en orden (cargar el corte → mandar los mails → llamar a las que no avanzan).
@@ -10,9 +11,10 @@ export default function LineaSemana({ data, copied, paraLlamar, ultimaOp, vencid
   const isMobile = useIsMobile()
   const fecha = data[0]?.fecha ? String(data[0].fecha).slice(0, 10) : null
   const edad = fecha ? diasEntre(fecha, hoyIso()) : null
-  // Las sedes sin email no se pueden mandar: no bloquean el paso de los mails
-  const conEmail = data.filter(d => String(d.email || '').trim())
-  const sinEmail = data.length - conEmail.length
+  // Las sedes sin email o sin objetivo no se mandan: no bloquean el paso de los mails
+  const sinObj = data.filter(sinObjetivo).length
+  const conEmail = data.filter(d => !sinObjetivo(d) && String(d.email || '').trim())
+  const sinEmail = data.length - sinObj - conEmail.length
   const enviados = conEmail.filter(d => copied[d.cod_sede]).length
   const total = conEmail.length
 
@@ -42,7 +44,7 @@ export default function LineaSemana({ data, copied, paraLlamar, ultimaOp, vencid
     {
       titulo: 'Mails enviados',
       estado: !corteHecho ? 'pendiente' : mailsHechos ? 'hecho' : 'actual',
-      detalle: corteHecho ? `${enviados} de ${total} sedes${sinEmail ? ` · ${sinEmail} sin email` : ''}` : '—',
+      detalle: corteHecho ? `${enviados} de ${total} sedes${sinEmail ? ` · ${sinEmail} sin email` : ''}${sinObj ? ` · ${sinObj} sin objetivo` : ''}` : '—',
       links: corteHecho && !mailsHechos ? [{ label: 'Ir a Envío', onClick: onIrEnvio }] : [],
     },
     {

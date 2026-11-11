@@ -40,6 +40,15 @@ export function normCod(v) {
 
 const lower = (h) => String(h ?? '').toLowerCase().trim()
 
+// Una fecha nativa del Excel → 'yyyy-mm-dd'. Se le suman 12 horas antes de
+// leer año, mes y día: según el huso, SheetJS devuelve la medianoche corrida
+// unos segundos o minutos, y así un desvío hacia cualquier lado no cambia el día.
+const MEDIO_DIA_MS = 12 * 3600 * 1000
+function isoDeFecha(d) {
+  const x = new Date(d.getTime() + MEDIO_DIA_MS)
+  return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`
+}
+
 // "12" → 12 · "1.234" / "1,234" → 1234 · "3,5" → 3.5 · "" o "-" → 0 · "s/d" → NaN
 function aNumero(v) {
   const s = String(v ?? '').trim().replace(/\s/g, '')
@@ -99,18 +108,23 @@ function leerHoja(ws, XLSX, nombreHoja, setRed) {
   let { iCod, iSede } = indicesHeader(headerRaw)
   if (soloSede) iCod = -1
 
-  // Columna de totales: header explícito → header fecha (la de más a la
-  // derecha) → última no vacía. Igual que antes.
-  let iTotal = header.findIndex(h => /total|ingresad|ingresant|acumulad|inscript/.test(h) && !/%|porc|objetivo|\bobj|meta|anterior/.test(h))
+  // Columna de totales: si en la fila de títulos hay columnas con fecha,
+  // gana la de la fecha MÁS RECIENTE. Solo sin ninguna fecha se busca un
+  // título que diga total / inscriptos / ingresados / acumulado. (Antes
+  // ganaba el "total": un "Total 1er Ingreso" al lado de la fecha se llevaba
+  // la columna equivocada.)
+  const iTotalTexto = header.findIndex(h => /total|ingresad|ingresant|acumulad|inscript/.test(h) && !/%|porc|objetivo|\bobj|meta|anterior/.test(h))
+  let iTotal = -1
   let detectadoPorFecha = false
-  if (iTotal === -1) {
+  let otraColumnaTotal = null
+  {
     // Columnas cuyo título es una fecha. Si hay más de una (por ejemplo la
     // semana anterior y la actual), el corte es la fecha MÁS RECIENTE, esté
     // donde esté; dos columnas con la misma fecha = no se puede saber cuál.
     const rng0 = XLSX.utils.decode_range(ws['!ref'])
     const fechaDeTitulo = (i) => {
       const c = ws[XLSX.utils.encode_cell({ r: rng0.s.r + hIdx, c: rng0.s.c + i })]
-      if (c && c.v instanceof Date) return `${c.v.getFullYear()}-${String(c.v.getMonth() + 1).padStart(2, '0')}-${String(c.v.getDate()).padStart(2, '0')}`
+      if (c && c.v instanceof Date) return isoDeFecha(c.v)
       const t = String(headerRaw[i] ?? '').trim()
       let m = t.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/)
       if (m) { let [, d, mo, y] = m; if (Number(mo) > 12) [d, mo] = [mo, d]; return `${y.length === 2 ? '20' + y : y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}` }
@@ -125,6 +139,12 @@ function leerHoja(ws, XLSX, nombreHoja, setRed) {
       }
       iTotal = max.i
       detectadoPorFecha = true
+      // Si además hay una columna que dice "total", se avisa cuál se tomó
+      if (iTotalTexto !== -1 && iTotalTexto !== iTotal) {
+        otraColumnaTotal = String(headerRaw[iTotalTexto] ?? '').trim() || String(arriba[iTotalTexto] ?? '').trim()
+      }
+    } else {
+      iTotal = iTotalTexto
     }
   }
   // Sin un título que diga "total" o una fecha, NO se adivina la columna (antes
@@ -154,8 +174,8 @@ function leerHoja(ws, XLSX, nombreHoja, setRed) {
       d = o ? new Date(o.y, o.m - 1, o.d) : null
     }
     if (d instanceof Date && !isNaN(d)) {
-      fechaCorte = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`
-      columnaTotal = `${p2(d.getDate())}/${p2(d.getMonth() + 1)}/${d.getFullYear()}`
+      fechaCorte = isoDeFecha(d)
+      columnaTotal = fechaCorte.split('-').reverse().join('/')
     }
   } else {
     const hRaw = String(headerRaw[iTotal] || '').trim()
@@ -208,7 +228,7 @@ function leerHoja(ws, XLSX, nombreHoja, setRed) {
 
   return {
     nombreHoja, filas, filasInvalidas, filasTotal, desagregado,
-    meta: { columnaTotal, letraColumna: XLSX.utils.encode_col(range.s.c + iTotal), filaTitulos: range.s.r + hIdx + 1, fechasEnTitulos, detectadoPorFecha, fechaCorte, fechaAmbigua, tieneObjetivo: iObj !== -1, codDesdeNombre: soloSede },
+    meta: { columnaTotal, letraColumna: XLSX.utils.encode_col(range.s.c + iTotal), filaTitulos: range.s.r + hIdx + 1, fechasEnTitulos, detectadoPorFecha, otraColumnaTotal, fechaCorte, fechaAmbigua, tieneObjetivo: iObj !== -1, codDesdeNombre: soloSede },
     iTotal, iCod, iSede, hIdx,
     puntaje: setRed ? filas.filter(f => f.enRed).length : filas.length,
   }
@@ -313,7 +333,6 @@ export function parseCorte(arrayBuffer, XLSX, { codigosRed = [] } = {}) {
       otrasIgnoradas: esNacional ? codsDesc.length - posiblesNuevas.length : 0,
       pais,
       sumadas: sumar ? [...repetidos] : sumadasPorModalidad,
-      duplicados: [],
       filasInvalidas: h.filasInvalidas.filter(f => !setRed || setRed.has(f.cod)),
       totalFilas: sedes.length,
     },

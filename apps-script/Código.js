@@ -31,6 +31,8 @@ function generarToken() {
 
 // Valida que el token no esté vencido ni manipulado
 function validarToken(token) {
+  // Sin secreto configurado cualquiera podría armar un token válido
+  if (!AUTH_SECRET) return false;
   if (!token || token.indexOf('.') === -1) return false;
   var partes = token.split('.');
   if (partes.length !== 2) return false;
@@ -44,10 +46,22 @@ function validarToken(token) {
   return true;
 }
 
+// Tope de 10 intentos fallidos cada 15 minutos (se cuentan en CacheService);
+// un login correcto borra la cuenta.
+var LOGIN_MAX_FALLOS = 10;
+var LOGIN_VENTANA_SEG = 900;
+
 function login(password) {
+  var cache = CacheService.getScriptCache();
+  var fallos = Number(cache.get('login_fallos')) || 0;
+  if (fallos >= LOGIN_MAX_FALLOS) throw new Error('Demasiados intentos. Probá de nuevo en 15 minutos.');
   if (!password) throw new Error('Falta la contraseña');
   var hash = sha256(password + AUTH_PASSWORD_SALT);
-  if (hash !== AUTH_PASSWORD_HASH) throw new Error('Contraseña incorrecta');
+  if (hash !== AUTH_PASSWORD_HASH) {
+    cache.put('login_fallos', String(fallos + 1), LOGIN_VENTANA_SEG);
+    throw new Error('Contraseña incorrecta');
+  }
+  cache.remove('login_fallos');
   return { token: generarToken(), expiraEnHoras: SESSION_HOURS };
 }
 
@@ -97,6 +111,9 @@ function doGet(e) {
     else if (action === 'historial') result = okData(getHistorial(campana));
     else if (action === 'semana_actual') result = okData(getSemanaActual(campana));
     else if (action === 'semanas')  result = okData(getSemanas(campana));
+    else if (action === 'enviar_email' && !destinatarioPermitido(e.parameter.to)) {
+      result = { ok: false, error: 'Ese destinatario no está cargado en Sedes: ' + e.parameter.to };
+    }
     else if (action === 'enviar_email') {
       result = okData(enviarEmailMake({
         to:      e.parameter.to,
@@ -106,6 +123,8 @@ function doGet(e) {
         cod:     e.parameter.cod,
         fecha:   e.parameter.fecha,
         campana: e.parameter.campana,
+        idempotente: e.parameter.idempotente,
+        reenvio:     e.parameter.reenvio,
       }));
     }
     else if (action === 'log_envios') {
@@ -175,6 +194,10 @@ function okData(data) { return { ok: true, data: data }; }
 //     { campana_id, cod_sede, objetivo }
 //   restaurar_backup → reemplaza campanas/objetivos/historial por los de un backup
 //     { hojas: { campanas: [[header...], [fila...]], objetivos: [...], historial: [...] } }
+//   enviar_email     → mismo envío que por GET (con las mismas validaciones)
+//     { to, subject, html, sede, cod, fecha, campana, idempotente?, reenvio? }
+//   resumen_cele     → resumen de una tanda a Cele, como por GET
+//     { campana, fecha, items: [{ sede, email, estado }] }
 // ════════════════════════════════════════════════════════════════════════
 function doPost(e) {
   try {
@@ -201,6 +224,26 @@ function doPost(e) {
     if (action === 'deshacer') return ok(deshacerUltimo(body));
     if (action === 'restaurar_backup') return ok(restaurarBackup(body));
     if (action === 'set_objetivo') return ok(setObjetivo(body));
+    // Envío por POST (el front nuevo): el HTML del mail ya no viaja en la URL.
+    // Las mismas acciones siguen por GET para el front viejo.
+    if (action === 'enviar_email') {
+      if (!destinatarioPermitido(body.to)) return err('Ese destinatario no está cargado en Sedes: ' + body.to);
+      return ok(enviarEmailMake({
+        to:      body.to,
+        subject: body.subject,
+        html:    body.html,
+        sede:    body.sede,
+        cod:     body.cod,
+        fecha:   body.fecha,
+        campana: body.campana,
+        idempotente: body.idempotente,
+        reenvio:     body.reenvio,
+      }));
+    }
+    if (action === 'resumen_cele') {
+      var items = typeof body.items === 'string' ? JSON.parse(body.items || '[]') : (body.items || []);
+      return ok(enviarResumenCele({ campana: body.campana, fecha: body.fecha, items: items }));
+    }
 
     return err('action no reconocida: ' + action);
   } catch(ex) {
@@ -337,12 +380,27 @@ function chequearEscenarioActivoMake() {
 }
 
 // Wrapper sin argumentos — los triggers de Apps Script llaman a la función
-// por nombre, sin parámetros.
+// por nombre, sin parámetros. Si el chequeo mismo falla (token vencido, API de
+// Make caída, config incompleta), antes se tragaba el error y la alarma quedaba
+// muda sin que nadie se enterara: ahora avisa por mail a ALERTA_EMAIL.
 function chequearEstadoMakeTrigger() {
-  try { chequearEstadoMake(); } catch (ex) {
-    // Si falla la config (token vencido, etc.) no hay mucho más para hacer acá;
-    // se ve corriendo 'chequear_make' manualmente para diagnosticar.
+  var motivo = null;
+  try {
+    var r = chequearEstadoMake();
+    if (!r || r.ok === false) motivo = (r && r.error) ? r.error + (r.detalle ? '\n\n' + r.detalle : '') : 'El chequeo no devolvió resultado';
+  } catch (ex) {
+    motivo = ex.message;
   }
+  if (!motivo) return;
+  var alertaEmail = PropertiesService.getScriptProperties().getProperty('ALERTA_EMAIL');
+  if (!alertaEmail) return;
+  MailApp.sendEmail({
+    to: alertaEmail,
+    subject: 'Cómo Vamos: no se pudo chequear el escenario de Make',
+    body: 'El chequeo diario del escenario de Make no se pudo hacer, así que hoy no se sabe si los mails a las sedes están saliendo.\n\n' +
+      'Motivo: ' + motivo + '\n\n' +
+      'Revisá MAKE_API_TOKEN, MAKE_SCENARIO_ID y MAKE_ZONE, o corré chequear_make a mano para ver el detalle.',
+  });
 }
 
 // Instala (o reinstala, sin duplicar) un chequeo diario del estado real del
@@ -387,43 +445,103 @@ function eliminarCorte(body) {
 // ════════════════════════════════════════════════════════════════════════
 var MAKE_WEBHOOK = PropertiesService.getScriptProperties().getProperty('MAKE_WEBHOOK');
 
+// params.fecha es la fecha del CORTE (queda en log_envios como fecha_corte).
+// Con idempotente=1 (lo manda el front nuevo), si ese mail ya figura enviado
+// para la misma sede, campaña, corte y dirección, no se vuelve a mandar y se
+// devuelve { duplicado: true }; un reenvío explícito (reenvio=1) sale igual.
+// Sin idempotente (front viejo) el comportamiento es el de siempre.
 function enviarEmailMake(params) {
-  var status = 0;
+  // Un envío por vez: si llegan dos pedidos iguales juntos (dos pestañas, un
+  // reintento), el segundo ya ve registrado al primero.
+  var lock = LockService.getScriptLock();
+  lock.waitLock(25000);
   try {
-    var options = {
-      method: 'post',
-      headers: { 'Content-Type': 'application/json' },
-      payload: JSON.stringify({
-        to:      String(params.to || ''),
-        subject: String(params.subject || ''),
-        html:    String(params.html || ''),
-        sede:    String(params.sede || ''),
-        cod:     String(params.cod || ''),
-        fecha:   String(params.fecha || ''),
-        tipo:    'email'
-      }),
-      muteHttpExceptions: true
-    };
-    var response = UrlFetchApp.fetch(MAKE_WEBHOOK, options);
-    status = response.getResponseCode();
-  } catch(exFetch) {
+    if (String(params.idempotente) === '1' && String(params.reenvio) !== '1' && yaSalioEsteMail(params)) {
+      return { status: 200, duplicado: true };
+    }
+    var status = 0;
+    try {
+      var options = {
+        method: 'post',
+        headers: { 'Content-Type': 'application/json' },
+        payload: JSON.stringify({
+          to:      String(params.to || ''),
+          subject: String(params.subject || ''),
+          html:    String(params.html || ''),
+          sede:    String(params.sede || ''),
+          cod:     String(params.cod || ''),
+          fecha:   String(params.fecha || ''),
+          tipo:    'email'
+        }),
+        muteHttpExceptions: true
+      };
+      var response = UrlFetchApp.fetch(MAKE_WEBHOOK, options);
+      status = response.getResponseCode();
+    } catch(exFetch) {
+      registrarEnvio({
+        sede: params.sede, cod: params.cod, email: params.to,
+        campana: (params.campana || '') + ' [ERROR FETCH: ' + exFetch.message + ']',
+        fecha_corte: params.fecha,
+        ok: false,
+      });
+      throw exFetch;
+    }
+
     registrarEnvio({
-      sede: params.sede, cod: params.cod, email: params.to,
-      campana: (params.campana || '') + ' [ERROR FETCH: ' + exFetch.message + ']',
-      ok: false,
+      sede: params.sede,
+      cod: params.cod,
+      email: params.to,
+      campana: params.campana || '',
+      fecha_corte: params.fecha,
+      ok: status >= 200 && status < 300,
     });
-    throw exFetch;
+
+    return { status: status };
+  } finally {
+    lock.releaseLock();
   }
+}
 
-  registrarEnvio({
-    sede: params.sede,
-    cod: params.cod,
-    email: params.to,
-    campana: params.campana || '',
-    ok: status >= 200 && status < 300,
+// Solo se manda a Cele o a una dirección cargada en alguna sede (activa o
+// no): con un token robado no se puede usar la cuenta para mandar a cualquiera.
+function destinatarioPermitido(to) {
+  var t = String(to || '').trim().toLowerCase();
+  if (!t) return false;
+  if (t === EMAIL_CELE.toLowerCase()) return true;
+  return getSedesTodas().some(function(s) {
+    return String(s.email || '').split(/[,;\s]+/).some(function(a) { return a.trim().toLowerCase() === t; });
   });
+}
 
-  return { status: status };
+// ¿Ya figura en log_envios como 'enviado' este mismo mail? Misma sede, misma
+// campaña (columna campana exacta), mismo corte (fecha_corte) y misma
+// dirección (en minúscula y sin espacios). Las filas viejas, sin fecha_corte,
+// no cuentan: para esas sigue valiendo el cotejo del front.
+function yaSalioEsteMail(params) {
+  var rows = getLogSheet().getDataRange().getValues();
+  if (rows.length <= 1) return false;
+  var hdr = rows[0].map(String);
+  var iCod = hdr.indexOf('cod_sede'), iCamp = hdr.indexOf('campana'), iEmail = hdr.indexOf('email');
+  var iEstado = hdr.indexOf('estado'), iCorte = hdr.indexOf('fecha_corte');
+  if (iCod === -1 || iCamp === -1 || iEmail === -1 || iEstado === -1 || iCorte === -1) return false;
+  var corte = String(params.fecha || '').slice(0, 10);
+  if (!corte) return false;
+  var cod = normCodigo(params.cod), camp = String(params.campana || ''), to = String(params.to || '').trim().toLowerCase();
+  var tz = Session.getScriptTimeZone();
+  for (var i = rows.length - 1; i >= 1; i--) {
+    var r = rows[i];
+    if (String(r[iEstado]) !== 'enviado') continue;
+    var fc = r[iCorte] instanceof Date ? Utilities.formatDate(r[iCorte], tz, 'yyyy-MM-dd') : String(r[iCorte] || '').slice(0, 10);
+    if (fc === corte && normCodigo(r[iCod]) === cod && String(r[iCamp]) === camp &&
+        String(r[iEmail]).trim().toLowerCase() === to) return true;
+  }
+  return false;
+}
+
+// Código de sede comparable: Sheets guarda "060" como 60
+function normCodigo(v) {
+  var s = String(v === null || v === undefined ? '' : v).trim().replace(/\.0+$/, '');
+  return /^\d+$/.test(s) ? String(Number(s)) : s;
 }
 
 // ── Resumen ejecutivo a Cele tras cada tanda de envío ────────────────────
@@ -628,7 +746,14 @@ function registrarEnvio(p) {
   var now = new Date();
   var fecha = Utilities.formatDate(now, Session.getScriptTimeZone(), 'yyyy-MM-dd');
   var hora  = Utilities.formatDate(now, Session.getScriptTimeZone(), 'HH:mm:ss');
-  h.appendRow([fecha, hora, p.campana, p.sede, p.cod, p.email, p.ok ? 'enviado' : 'error']);
+  var fila = [fecha, hora, p.campana, p.sede, p.cod, p.email, p.ok ? 'enviado' : 'error'];
+  // fecha_corte: de qué corte es el mail ('fecha' es el día de ENVÍO). Va como
+  // texto ("'"): si no, Sheets lo convierte en fecha. Las filas viejas quedan
+  // con la columna vacía.
+  var iCorte = asegurarColumna(h, 'fecha_corte');
+  while (fila.length <= iCorte) fila.push('');
+  fila[iCorte] = p.fecha_corte ? "'" + String(p.fecha_corte).slice(0, 10) : '';
+  h.appendRow(fila);
   SpreadsheetApp.flush();
 }
 
@@ -737,8 +862,8 @@ function agregarSede(body) {
   });
   h.appendRow(fila);
   SpreadsheetApp.flush();
-  // Si viene el objetivo de la campaña activa se carga en el mismo paso: una
-  // sede sin objetivo no aparece en el tablero ni en los cortes.
+  // Si viene el objetivo de la campaña activa se carga en el mismo paso: sin
+  // objetivo, la sede entra al corte con 0% y no recibe el mail.
   if (body.campana_id && Number(body.objetivo) > 0) {
     setObjetivo({ campana_id: body.campana_id, cod_sede: body.cod_sede, objetivo: body.objetivo });
   }
@@ -825,31 +950,40 @@ function setSedeActiva(body) {
   throw new Error('No se encontró la sede');
 }
 
+// Regla de pertenencia de una fila del historial a una campaña, por el valor
+// de su columna de campaña. La usan getHistorial y el reemplazo de un corte.
+function perteneceACampana(campanaId) {
+  // Buscar por campana_id en hoja objetivos para obtener nombre exacto
+  var campanas = getCampanas();
+  var campObj = campanas.filter(function(c){ return c.id === campanaId; })[0];
+  var nombreExacto = campObj ? campObj.nombre : null;
+  // Nombres exactos de las OTRAS campañas: una fila que es exactamente de
+  // otra campaña no se cuenta acá aunque la contenga como substring (ej:
+  // "2do Ingreso" no se lleva las filas de "2do Ingreso 2027").
+  var otrosNombres = {};
+  campanas.forEach(function(c) { if (c.id !== campanaId) otrosNombres[String(c.nombre)] = true; });
+  return function(valor) {
+    var val = String(valor || '');
+    if (nombreExacto) {
+      if (val === nombreExacto) return true;
+      if (otrosNombres[val]) return false;
+      return val.indexOf(nombreExacto) >= 0;
+    }
+    // fallback
+    var patron = campanaId === 'C1' ? '1er Ingreso' : '2do Ingreso';
+    return val.indexOf(patron) >= 0;
+  };
+}
+
 function getHistorial(campanaId) {
   var h = SS.getSheetByName('historial');
   var rows = h.getDataRange().getValues();
   var keys = rows[0];
   var data = rows.slice(1).map(function(r) { return rowToObj(keys, r); });
   if (campanaId) {
-    // Buscar por campana_id en hoja objetivos para obtener nombre exacto
-    var campanas = getCampanas();
-    var campObj = campanas.filter(function(c){ return c.id === campanaId; })[0];
-    var nombreExacto = campObj ? campObj.nombre : null;
-    // Nombres exactos de las OTRAS campañas: una fila que es exactamente de
-    // otra campaña no se cuenta acá aunque la contenga como substring (ej:
-    // "2do Ingreso" no se lleva las filas de "2do Ingreso 2027").
-    var otrosNombres = {};
-    campanas.forEach(function(c) { if (c.id !== campanaId) otrosNombres[String(c.nombre)] = true; });
+    var esDeLaCampana = perteneceACampana(campanaId);
     data = data.filter(function(r) {
-      var val = String(r['campaña'] || r['campana'] || r[3] || '');
-      if (nombreExacto) {
-        if (val === nombreExacto) return true;
-        if (otrosNombres[val]) return false;
-        return val.indexOf(nombreExacto) >= 0;
-      }
-      // fallback
-      var patron = campanaId === 'C1' ? '1er Ingreso' : '2do Ingreso';
-      return val.indexOf(patron) >= 0;
+      return esDeLaCampana(r['campaña'] || r['campana'] || r[3] || '');
     });
   }
   return data;
@@ -888,11 +1022,15 @@ function getSemanaActual(campanaId) {
     objMap[String(o.cod_sede)] = Number(o.objetivo);
   });
 
-  // Sedes
+  // Sedes activas (código normalizado: Sheets guarda "060" como 60)
   var sedesMap = {};
   getSedes().forEach(function(s) {
-    sedesMap[String(s.cod_sede)] = { sede: s.sede, email: s.email, saludo: s.saludo };
+    sedesMap[normCodigo(s.cod_sede)] = { sede: s.sede, email: s.email, saludo: s.saludo };
   });
+
+  // Una sede desactivada sale del corte actual (antes seguía en el tablero y en
+  // el envío, sin email ni objetivo). Su historial no se toca.
+  actual = actual.filter(function(r) { return sedesMap[normCodigo(r.cod_sede)]; });
 
   return actual.map(function(r) {
     var cod = String(r.cod_sede);
@@ -900,7 +1038,7 @@ function getSemanaActual(campanaId) {
     var obj = objMap[cod] || 0;
     var prev = prevMap[cod] !== undefined ? Number(prevMap[cod]) : null;
     var pct = obj > 0 ? Math.round(total / obj * 100) : 0;
-    var info = sedesMap[cod] || {};
+    var info = sedesMap[normCodigo(cod)] || {};
     return {
       cod_sede:  cod,
       sede:      info.sede || r.sede,
@@ -921,75 +1059,85 @@ function getSemanaActual(campanaId) {
 // ESCRITURA — Agregar o reemplazar semana
 // ════════════════════════════════════════════════════════════════════════
 function agregarSemana(body) {
-  var hHist = SS.getSheetByName('historial');
-  var campanaId   = body.campana_id;
-  var campanaNombre = body.campana_nombre;
-  var fecha       = body.fecha;       // "2026-06-19"
-  var sedes       = body.sedes;       // [{cod, sede, total}]
-  var reemplazar  = body.reemplazar === true;
+  // Una carga por vez: dos cargas del mismo corte al mismo tiempo podían
+  // borrarse o duplicarse entre sí.
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var hHist = SS.getSheetByName('historial');
+    var campanaId   = body.campana_id;
+    var campanaNombre = body.campana_nombre;
+    var fecha       = body.fecha;       // "2026-06-19"
+    var sedes       = body.sedes;       // [{cod, sede, total}]
+    var reemplazar  = body.reemplazar === true;
 
-  if (!fecha || !sedes || !sedes.length) throw new Error('Faltan datos: fecha y sedes son requeridos');
+    if (!fecha || !sedes || !sedes.length) throw new Error('Faltan datos: fecha y sedes son requeridos');
 
-  // Verificar si ya existe esa fecha para esa campaña
-  var hist = getHistorial(campanaId);
-  var fechasExistentes = {};
-  hist.forEach(function(r) { fechasExistentes[r.fecha] = true; });
-
-  var reemplazadas = [];
-  if (fechasExistentes[fecha]) {
-    if (!reemplazar) {
-      // El front va a capturar este mensaje y ofrecer el botón de reemplazar
-      throw new Error('Ya existe el corte del ' + fecha + ' para ' + campanaId);
-    }
-    // Borrar las filas existentes para esa fecha y campaña antes de insertar
-    var allRows = hHist.getDataRange().getValues();
-    var rowsToDelete = [];
-    for (var i = allRows.length - 1; i >= 1; i--) {
-      var rowFecha = allRows[i][0];
-      if (rowFecha instanceof Date) {
-        rowFecha = Utilities.formatDate(rowFecha, Session.getScriptTimeZone(), 'yyyy-MM-dd');
-      }
-      rowFecha = String(rowFecha);
-      var rowCampana = String(allRows[i][3] || '');
-      if (rowFecha === fecha && rowCampana.indexOf(campanaNombre) >= 0) {
-        rowsToDelete.push(i + 1); // +1 porque getValues es 0-indexed, deleteRow es 1-indexed
-        var copia = allRows[i].slice(0, 7);
-        copia[0] = rowFecha;
-        // Sheets lee '62%' como 0.62 — se guarda de nuevo como texto, igual que al cargar
-        var tot = Number(copia[4]) || 0, ob = Number(copia[5]) || 0;
-        copia[6] = ob > 0 ? Math.round(tot / ob * 100) + '%' : '0%';
-        reemplazadas.push(copia);
-      }
-    }
-    rowsToDelete.forEach(function(rowNum) {
-      hHist.deleteRow(rowNum);
+    // Objetivos y filas nuevas ANTES de borrar nada: si algo falla acá, el
+    // corte que se iba a reemplazar queda intacto.
+    var objMap = {};
+    getObjetivos(campanaId).forEach(function(o) {
+      objMap[String(o.cod_sede)] = Number(o.objetivo);
     });
-    SpreadsheetApp.flush();
+    var filas = sedes.map(function(s) {
+      var cod   = String(s.cod);
+      var total = Number(s.total) || 0;
+      var obj   = objMap[cod] || 0;
+      var pct   = obj > 0 ? Math.round(total / obj * 100) + '%' : '0%';
+      return [fecha, cod, s.sede, campanaNombre, total, obj, pct];
+    });
+
+    // Verificar si ya existe esa fecha para esa campaña
+    var hist = getHistorial(campanaId);
+    var fechasExistentes = {};
+    hist.forEach(function(r) { fechasExistentes[r.fecha] = true; });
+
+    var reemplazadas = [];
+    if (fechasExistentes[fecha]) {
+      if (!reemplazar) {
+        // El front va a capturar este mensaje y ofrecer el botón de reemplazar
+        throw new Error('Ya existe el corte del ' + fecha + ' para ' + campanaId);
+      }
+      // Borrar las filas existentes para esa fecha y campaña antes de insertar,
+      // con la misma regla de pertenencia que getHistorial (antes un indexOf
+      // suelto: reemplazar en "2do Ingreso" borraba también "2do Ingreso 2027")
+      var esDeLaCampana = perteneceACampana(campanaId);
+      var allRows = hHist.getDataRange().getValues();
+      var rowsToDelete = [];
+      for (var i = allRows.length - 1; i >= 1; i--) {
+        var rowFecha = allRows[i][0];
+        if (rowFecha instanceof Date) {
+          rowFecha = Utilities.formatDate(rowFecha, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+        }
+        rowFecha = String(rowFecha);
+        var rowCampana = String(allRows[i][3] || '');
+        if (rowFecha === fecha && esDeLaCampana(rowCampana)) {
+          rowsToDelete.push(i + 1); // +1 porque getValues es 0-indexed, deleteRow es 1-indexed
+          var copia = allRows[i].slice(0, 7);
+          copia[0] = rowFecha;
+          // Sheets lee '62%' como 0.62 — se guarda de nuevo como texto, igual que al cargar
+          var tot = Number(copia[4]) || 0, ob = Number(copia[5]) || 0;
+          copia[6] = ob > 0 ? Math.round(tot / ob * 100) + '%' : '0%';
+          reemplazadas.push(copia);
+        }
+      }
+      rowsToDelete.forEach(function(rowNum) {
+        hHist.deleteRow(rowNum);
+      });
+      SpreadsheetApp.flush();
+    }
+
+    var lastRow = hHist.getLastRow();
+    hHist.getRange(lastRow + 1, 1, filas.length, 7).setValues(filas);
+
+    registrarDeshacer('agregar_semana',
+      (reemplazar ? 'Reemplazo' : 'Carga') + ' del corte ' + fmtFechaDDMMAAAA(fecha) + ' · ' + campanaNombre,
+      { campana_id: campanaId, campana_nombre: campanaNombre, fecha: fecha, reemplazadas: reemplazadas });
+
+    return { insertadas: filas.length, fecha: fecha, campana: campanaId, reemplazado: reemplazar };
+  } finally {
+    lock.releaseLock();
   }
-
-  // Objetivos para calcular %
-  var objMap = {};
-  getObjetivos(campanaId).forEach(function(o) {
-    objMap[String(o.cod_sede)] = Number(o.objetivo);
-  });
-
-  // Armar filas
-  var filas = sedes.map(function(s) {
-    var cod   = String(s.cod);
-    var total = Number(s.total) || 0;
-    var obj   = objMap[cod] || 0;
-    var pct   = obj > 0 ? Math.round(total / obj * 100) + '%' : '0%';
-    return [fecha, cod, s.sede, campanaNombre, total, obj, pct];
-  });
-
-  var lastRow = hHist.getLastRow();
-  hHist.getRange(lastRow + 1, 1, filas.length, 7).setValues(filas);
-
-  registrarDeshacer('agregar_semana',
-    (reemplazar ? 'Reemplazo' : 'Carga') + ' del corte ' + fmtFechaDDMMAAAA(fecha) + ' · ' + campanaNombre,
-    { campana_id: campanaId, campana_nombre: campanaNombre, fecha: fecha, reemplazadas: reemplazadas });
-
-  return { insertadas: filas.length, fecha: fecha, campana: campanaId, reemplazado: reemplazar };
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -1226,7 +1374,9 @@ function deshacerUltimo(body) {
   }
 }
 
-// Copia completa de la base para descargar como Excel de respaldo
+// Copia completa de la base para descargar como Excel de respaldo (también
+// las notas de seguimiento y la configuración, que antes quedaban afuera; la
+// restauración sigue tocando solo campañas, objetivos e historial)
 function getBackup() {
   function hoja(nombre) {
     var h = SS.getSheetByName(nombre);
@@ -1241,6 +1391,8 @@ function getBackup() {
     historial: hoja('historial'),
     sedes: hoja('sedes'),
     log_envios: hoja('log_envios'),
+    notas_sede: hoja('notas_sede'),
+    config: hoja('config'),
   };
 }
 

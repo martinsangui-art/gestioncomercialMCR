@@ -3,7 +3,7 @@ import { obtenerSedesTodas, agregarSede, editarSede, setSedeActiva, obtenerObjet
 import { C, F } from '../lib/theme'
 import ModalShell from '../components/ModalShell'
 import { estadoSede, ESTADOS } from '../components/FichaSede'
-import { direccionesDe } from '../lib/formato'
+import { direccionesDe, EMAIL_RE } from '../lib/formato'
 import { useIsMobile } from '../hooks/useIsMobile'
 
 // Grupos de la tabla: misma regla de estado que el resto de la app
@@ -106,8 +106,6 @@ function isActiva(s) {
 }
 
 const inputStyle = { width: '100%', height: 34, padding: '0 10px', border: `1px solid ${C.rule}`, borderRadius: 7, fontSize: 13, fontFamily: F.body, background: '#fff', minWidth: 0 }
-
-const EMAIL_RE = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/
 
 // Normaliza el campo de email de una sede: acepta 1 o varios destinatarios
 // separados por coma, punto y coma, o espacios/saltos de línea (formatos
@@ -271,7 +269,7 @@ function FilaSedeEditable({ s, objetivo, campanaActiva, onGuardado, compacto = f
           </td>
           <td style={{ ...td, fontSize: 12.5, color: C.inkSoft }}>{s.saludo}</td>
           <td style={{ ...td, textAlign: 'right', fontFamily: F.mono, fontWeight: 700, color: objetivo ? C.ink : C.crimson }}>
-            {objetivo || (activa ? <span title="Sin objetivo no aparece en el tablero">falta</span> : '—')}
+            {objetivo || (activa ? <span title="Sin objetivo, la sede entra al corte con 0% y no recibe el mail">falta</span> : '—')}
           </td>
         </>
       )}
@@ -332,11 +330,11 @@ function GestionSedesModal({ onClose, onChanged, campanaActiva }) {
       setErrorNueva(emailCheck.error); return
     }
     if (campanaActiva && !(Number(nueva.objetivo) > 0)) {
-      setErrorNueva(`Poné el objetivo de ${campanaActiva.nombre}: sin objetivo la sede no aparece en el tablero`); return
+      setErrorNueva(`Poné el objetivo de ${campanaActiva.nombre}: sin objetivo, la sede entra al corte con 0% y no recibe el mail`); return
     }
     setAgregando(true); setErrorNueva(null)
     try {
-      await agregarSede({ ...nueva, email: emailCheck.value ?? '', campana_id: campanaActiva?.id, objetivo: Number(nueva.objetivo) || 0 })
+      await agregarSede({ ...nueva, cod_sede: nueva.cod_sede.trim(), sede: nueva.sede.trim(), email: emailCheck.value ?? '', campana_id: campanaActiva?.id, objetivo: Number(nueva.objetivo) || 0 })
       setNueva({ cod_sede: '', sede: '', email: '', saludo: 'Estimados', objetivo: '' })
       handleGuardado()
     } catch (e) { setErrorNueva(e.message) }
@@ -359,7 +357,7 @@ function GestionSedesModal({ onClose, onChanged, campanaActiva }) {
           <>
             {sinObjetivo > 0 && (
               <div style={{ margin: '14px 8px 4px', padding: '10px 14px', borderRadius: 8, background: '#FBF0D9', color: '#6B4A00', fontSize: 13, fontFamily: F.body }}>
-                <strong>{sinObjetivo} {sinObjetivo === 1 ? 'sede activa no tiene' : 'sedes activas no tienen'} objetivo</strong> en {campanaActiva.nombre}: no aparecen en el tablero hasta que se lo cargues con “Editar”.
+                <strong>{sinObjetivo} {sinObjetivo === 1 ? 'sede activa no tiene' : 'sedes activas no tienen'} objetivo</strong> en {campanaActiva.nombre}: {sinObjetivo === 1 ? 'entra al corte con 0% y no recibe el mail' : 'entran al corte con 0% y no reciben el mail'} hasta que se lo cargues con “Editar”.
               </div>
             )}
             {compacto ? (

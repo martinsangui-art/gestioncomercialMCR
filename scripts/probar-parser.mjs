@@ -68,7 +68,7 @@ const totalDe = (r, cod) => r.sedes.find(s => s.cod === String(cod))?.total
   OTRAS.forEach(([c, n]) => filas.push([c, n, 'Abogacía', 5]))
   const r = parseCorte(libro([['Datos', filas]]), XLSX, { codigosRed })
   check('por carrera: suma las filas de cada sede', totalDe(r, 42) === 6, totalDe(r, 42))
-  check('por carrera: informa que sumó', r.meta.sumadas.length === 5 && r.meta.duplicados.length === 0)
+  check('por carrera: informa que sumó', r.meta.sumadas.length === 5)
 }
 
 // 4. Una sede repetida sin columna de carrera ni modalidad: NO se adivina, se frena
@@ -140,7 +140,7 @@ const totalDe = (r, cod) => r.sedes.find(s => s.cod === String(cod))?.total
   check('real: es nacional y no lista otras zonas', r.meta.esNacional)
   const conJujuy = parseCorte(libro([['H', aoa]]), XLSX, { codigosRed: [...codigosRed, '10'] })
   check('real: suma las modalidades sin código (Jujuy 46+37+9)', totalDe(conJujuy, 10) === 92 && conJujuy.sedes.find(s => s.cod === '10').filas.length === 3)
-  check('real: una sede de varias modalidades no cuenta como repetido', conJujuy.meta.duplicados.length === 0)
+  check('real: una sede de varias modalidades no cuenta como repetido', conJujuy.meta.sumadas.includes('10'), JSON.stringify(conJujuy.meta.sumadas))
 }
 
 // 10. Sin título de fecha ni "total": no se adivina la columna
@@ -188,6 +188,37 @@ const totalDe = (r, cod) => r.sedes.find(s => s.cod === String(cod))?.total
   check('doble lectura detecta una sede perdida', !verificarCorte(buf, XLSX, sinUna, cods).ok)
   const otraColumna = { ...r, lectura: { ...r.lectura, iTotal: r.lectura.iTotal + 1 } }
   check('doble lectura detecta la columna equivocada', !verificarCorte(buf, XLSX, otraColumna, cods).ok)
+}
+
+// 14. Una columna "Total 1er Ingreso" al lado de la de la fecha: gana la fecha
+//     y se avisa que había otra columna de total
+{
+  const aoa = [['Cod Sede', 'Sede', 'Total 1er Ingreso', fecha], ...Object.entries(RED).map(([c, n], i) => [Number(c), n, 100 + i, 10 + i])]
+  const buf = libro([['Hoja1', aoa]])
+  const r = parseCorte(buf, XLSX, { codigosRed })
+  check('total y fecha: toma la columna de la fecha', r.meta.detectadoPorFecha && r.meta.letraColumna === 'D' && totalDe(r, 87) === 13, JSON.stringify({ col: r.meta.letraColumna, t: totalDe(r, 87) }))
+  check('total y fecha: deja otraColumnaTotal', r.meta.otraColumnaTotal === 'Total 1er Ingreso', r.meta.otraColumnaTotal)
+  check('total y fecha: la doble lectura coincide', verificarCorte(buf, XLSX, r, codigosRed).ok)
+  const sinFecha = parseCorte(libro([['Hoja1', [['Cod Sede', 'Sede', 'Total 1er Ingreso'], ...Object.entries(RED).map(([c, n], i) => [Number(c), n, 100 + i])]]]), XLSX, { codigosRed })
+  check('solo total (sin fecha): toma el total, sin aviso', totalDe(sinFecha, 87) === 103 && sinFecha.meta.otraColumnaTotal === null)
+}
+
+// 15. Fechas nativas corridas unos segundos (SheetJS, según el huso): se suman
+//     12 horas antes de leer el día, así un desvío hacia cualquier lado de la
+//     medianoche no cambia el día. Correr con TZ=America/Argentina/Buenos_Aires y TZ=UTC.
+{
+  const conTitulo = (f) => [['Cod Sede', 'Sede', f], ...Object.entries(RED).map(([c, n]) => [Number(c), n, 1])]
+  const leer = (f) => { const buf = libro([['H', conTitulo(f)]]); const r = parseCorte(buf, XLSX, { codigosRed }); return { r, v: verificarCorte(buf, XLSX, r, codigosRed) } }
+  const casos = [
+    [new Date(2026, 9, 22, 23, 59, 30), '2026-10-23', '22/10 23:59:30 (medianoche del 23 corrida 30 s antes) → 23'],
+    [new Date(2026, 9, 23, 0, 0, 48), '2026-10-23', '23/10 00:00:48 (corrida 48 s después) → 23'],
+    [new Date(2026, 9, 21, 23, 59, 30), '2026-10-22', '21/10 23:59:30 → 22'],
+    [new Date(2026, 9, 22, 0, 0, 48), '2026-10-22', '22/10 00:00:48 → 22'],
+  ]
+  casos.forEach(([f, esperada, nombre]) => {
+    const { r, v } = leer(f)
+    check(`fecha nativa ${nombre}`, r.meta.fechaCorte === esperada && v.ok, `${r.meta.fechaCorte} ${JSON.stringify(v.problemas)}`)
+  })
 }
 
 console.log(fallas ? `\n${fallas} prueba(s) fallaron` : '\nTodo OK')

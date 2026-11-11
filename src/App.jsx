@@ -122,7 +122,8 @@ function AppShell({ onLogout }) {
 
   const {
     loading, recargando, error, errorRecarga, campanas, sedes, campanaActiva, data, historial,
-    copied, dirEnviadas, stats, cargarCampana, markCopied, markUncopied,
+    copied, dirEnviadas, stats, cargarCampana,
+    envio, lanzarTanda, enviarSede, addLogEnvio,
     guardarSemana, subirExcel, refrescarSedes, refrescarCampanas,
   } = useSheets()
 
@@ -213,6 +214,7 @@ function AppShell({ onLogout }) {
               data={data} stats={stats} sedes={sedes} historial={historial}
               onCampanasChanged={refrescarCampanas}
               onRecargarCampana={cargarCampana}
+              onAviso={(texto) => setAviso({ texto, tono: 'error', ms: 9000 })}
             />
           )}
         </PageHeader>
@@ -230,7 +232,8 @@ function AppShell({ onLogout }) {
             />
           )}
           {view === 'dashboard' && cerrada && data.length > 0 && (
-            <PanelCerrada camp={camp} data={data} stats={stats} historial={historial} />
+            <PanelCerrada camp={camp} data={data} stats={stats} historial={historial}
+              onAviso={(texto) => setAviso({ texto, tono: 'error', ms: 9000 })} />
           )}
 
           {view === 'dashboard' && activa && (
@@ -273,7 +276,8 @@ function AppShell({ onLogout }) {
           )}
           {view === 'envio' && (
             <Envio
-              data={data} copied={copied} dirEnviadas={dirEnviadas} onCopied={markCopied} onUncopied={markUncopied}
+              data={data} copied={copied} dirEnviadas={dirEnviadas}
+              envio={envio} lanzarTanda={lanzarTanda} enviarSede={enviarSede} addLogEnvio={addLogEnvio}
               campanas={campanas} campanaActiva={campanaActiva}
               guardarSemana={guardarSemana} siglas={siglas}
             />
@@ -310,7 +314,7 @@ function SessionExpiredModal({ onDismiss }) {
       }}>
         <div style={{ fontFamily: F.display, fontSize: 21, fontWeight: 800, fontStretch: '108%', color: C.ink }}>La sesión venció</div>
         <div style={{ fontSize: 14.5, color: C.inkSoft, margin: '10px 0 22px', lineHeight: 1.55 }}>
-          Por seguridad dura unas horas. Volvé a entrar con la contraseña para seguir. Si estabas cargando un corte a mano, los números quedaron guardados y aparecen al volver.
+          Por seguridad dura unas horas. Volvé a entrar con la contraseña para seguir. Si estabas cargando un corte a mano, los números quedaron guardados y aparecen al volver. Si estabas revisando un Excel, vas a tener que volver a subirlo.
         </div>
         <button onClick={requestClose} className="btn-press" autoFocus style={{
           width: '100%', height: 46, borderRadius: 10, fontSize: 15, fontWeight: 800, fontFamily: F.body,

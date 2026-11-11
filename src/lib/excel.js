@@ -1,6 +1,6 @@
 import { obtenerBackup } from '../hooks/useSheets'
 import { cargarXLSX } from './xlsxLoader'
-import { hoyIso as hoy } from './formato'
+import { hoyIso as hoy, estadoSede } from './formato'
 
 // Exportaciones a .xlsx con SheetJS (se carga bajo demanda: ver xlsxLoader).
 // hoy() es la fecha local — toISOString daba la de Greenwich y a la noche el
@@ -10,8 +10,9 @@ function nombreArchivo(txt) {
   return txt.replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, ' ').trim()
 }
 
-// Copia completa de la base (campañas, objetivos, historial, sedes y log de
-// envíos) — el respaldo para guardar fuera de la planilla.
+// Copia completa de la base (campañas, objetivos, historial, sedes, log de
+// envíos, notas de seguimiento y configuración) — el respaldo para guardar
+// fuera de la planilla. Restaurar usa solo campañas, objetivos e historial.
 export async function descargarBackupExcel() {
   const X = await cargarXLSX()
   const data = await obtenerBackup()
@@ -21,7 +22,7 @@ export async function descargarBackupExcel() {
     ['generado', ahora.toLocaleString('es-AR')],
     ['nota', 'Backup de Gestión Comercial. Para volver a este punto: Dashboard → Restaurar backup.'],
   ]), '_info')
-  ;['campanas', 'objetivos', 'historial', 'sedes', 'log_envios'].forEach(nombre => {
+  ;['campanas', 'objetivos', 'historial', 'sedes', 'log_envios', 'notas_sede', 'config'].forEach(nombre => {
     const rows = data[nombre] || []
     X.utils.book_append_sheet(wb, X.utils.json_to_sheet(rows.length ? rows : [{}]), nombre)
   })
@@ -36,10 +37,13 @@ export async function leerBackupExcel(file) {
   const X = await cargarXLSX()
   const wb = X.read(await file.arrayBuffer(), { type: 'array', cellDates: true })
   const aIso = (v) => {
-    // Si alguien abrió y guardó el backup en Excel, las fechas vuelven como Date
+    // Si alguien abrió y guardó el backup en Excel, las fechas vuelven como
+    // Date. +12 horas antes de leer el día: un desvío de segundos o minutos de
+    // SheetJS (según el huso) no cambia la fecha.
     if (v instanceof Date) {
+      const d = new Date(v.getTime() + 12 * 3600 * 1000)
       const p = n => String(n).padStart(2, '0')
-      return `${v.getFullYear()}-${p(v.getMonth() + 1)}-${p(v.getDate())}`
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
     }
     return v
   }
@@ -80,7 +84,7 @@ export async function descargarResultadosExcel(campNombre, data, historial) {
     Objetivo: d.objetivo,
     Inscriptos: d.total,
     'Cumplimiento %': d.pct,
-    Estado: d.pct >= 50 ? 'En objetivo' : d.total > 0 ? 'En progreso' : 'Sin ingresos',
+    Estado: { ok: 'En objetivo', prog: 'En progreso', cero: 'Sin ingresos' }[estadoSede(d)],
   }))
   const totIng = data.reduce((a, d) => a + d.total, 0)
   const totObj = data.reduce((a, d) => a + d.objetivo, 0)

@@ -14,13 +14,21 @@ export function fmtCorto(iso) {
   return p.length === 3 ? `${p[2]}/${p[1]}` : ''
 }
 
-// Fecha de hoy en hora local (toISOString da la fecha UTC: a la noche en
-// Argentina ya es "mañana")
+// Fecha de hoy en Buenos Aires, sin depender del huso de la máquina
+// (toISOString da la fecha UTC: a la noche en Argentina ya es "mañana"; y una
+// compu con otro huso daba otro día que el de log_envios)
+const FMT_HOY_BA = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/Argentina/Buenos_Aires', year: 'numeric', month: '2-digit', day: '2-digit',
+})
 export function hoyIso() {
-  const d = new Date()
-  const p = n => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+  const p = {}
+  FMT_HOY_BA.formatToParts(new Date()).forEach(x => { p[x.type] = x.value })
+  return `${p.year}-${p.month}-${p.day}`
 }
+
+// Una dirección de mail bien formada (una sola). La usan Sedes, al guardar, y
+// el envío, que no manda a una dirección que no la cumpla.
+export const EMAIL_RE = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/
 
 // Las direcciones del campo email de una sede ("a@x, b@y" → ['a@x', 'b@y']).
 // Una sede puede tener más de un mail: cada dirección recibe su propio mail.

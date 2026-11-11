@@ -2,7 +2,16 @@ import { useState, useEffect } from 'react'
 import { ASSETS_PDF, precargarAssetsPDF } from '../lib/assetsPDF'
 import { C, F } from '../lib/theme'
 import ModalShell from './ModalShell'
-import { hoyIso } from '../lib/formato'
+import { hoyIso, estadoSede, nombreCorto } from '../lib/formato'
+
+// Estado de cada sede con la misma regla que el resto de la app (lib/formato)
+const ORDEN_ESTADO = { ok: 0, prog: 1, cero: 2 }
+const TEXTO_ESTADO = { ok: 'En objetivo', prog: 'En progreso', cero: 'Sin ingresos' }
+const TAG_ESTADO = {
+  ok: '<span class="tag-ok">En objetivo</span>',
+  prog: '<span class="tag-w">En progreso</span>',
+  cero: '<span class="tag-bad">Sin ingresos</span>',
+}
 
 function fmtFecha(iso) {
   if (!iso) return ''
@@ -129,16 +138,18 @@ function abrirVentanaPDF(html, onToast) {
 
 function generarPDFGeneral(data, campNombre, fecha, onToast) {
   const sorted = [...data].sort((a, b) => {
-    const pa = a.pct >= 50 ? 0 : a.total > 0 ? 1 : 2
-    const pb = b.pct >= 50 ? 0 : b.total > 0 ? 1 : 2
+    const pa = ORDEN_ESTADO[estadoSede(a)]
+    const pb = ORDEN_ESTADO[estadoSede(b)]
     return pa !== pb ? pa - pb : a.sede.localeCompare(b.sede)
   })
-  const ok = sorted.filter(d => d.pct >= 50).length
-  const warn = sorted.filter(d => d.pct > 0 && d.pct < 50).length
-  const zero = sorted.filter(d => d.total === 0).length
+  const ok = sorted.filter(d => estadoSede(d) === 'ok').length
+  // Antes contaba "pct entre 1 y 49": una sede con inscriptos y 0% no
+  // aparecía en ningún grupo del resumen
+  const warn = sorted.filter(d => estadoSede(d) === 'prog').length
+  const zero = sorted.filter(d => estadoSede(d) === 'cero').length
   const rows = sorted.map(d => {
     const ps = d.pct + '%'
-    const tag = d.pct >= 50 ? '<span class="tag-ok">En objetivo</span>' : d.total > 0 ? '<span class="tag-w">En progreso</span>' : '<span class="tag-bad">Sin ingresos</span>'
+    const tag = TAG_ESTADO[estadoSede(d)]
     const diff = d.var
     const varStr = diff !== null ? (diff > 0 ? '+' + diff : diff === 0 ? '=' : String(diff)) : '—'
     const varColor = diff > 0 ? '#16a34a' : diff < 0 ? '#be123c' : '#9ca3af'
@@ -192,7 +203,7 @@ function cuerpoSede(d, historial, campNombre, conHist) {
     }
   })
 
-  const kpiClass = d.pct >= 50 ? 'ok' : d.total > 0 ? 'warn' : 'bad'
+  const kpiClass = { ok: 'ok', prog: 'warn', cero: 'bad' }[estadoSede(d)]
   const parts = []
   parts.push(`<div class="sede-title"><h2>${d.sede}</h2><p>Código: ${d.cod_sede} - ${campNombre}</p></div>`)
   parts.push('<div class="kpi-grid">')
@@ -231,8 +242,8 @@ export function generarInformeCierre({ camp, data, historial, porSede = false, o
   const totIng = data.reduce((a, d) => a + d.total, 0)
   const totObj = data.reduce((a, d) => a + d.objetivo, 0)
   const pctGlobal = totObj ? Math.round(totIng / totObj * 100) : 0
-  const enObj = data.filter(d => d.pct >= 50).length
-  const sinIng = data.filter(d => d.total === 0).length
+  const enObj = data.filter(d => estadoSede(d) === 'ok').length
+  const sinIng = data.filter(d => estadoSede(d) === 'cero').length
 
   // Evolución global por corte
   const porFecha = {}
@@ -270,11 +281,11 @@ export function generarInformeCierre({ camp, data, historial, porSede = false, o
     if (primerTotal[cod] === undefined) primerTotal[cod] = Number(r.total) || 0
   })
   const crec = (d) => d.total - (primerTotal[String(d.cod_sede)] ?? d.total)
-  const corto = (n) => n.replace(/ - BUENOS AIRES.*/, '').replace(/ - BS AS$/, '')
+  const corto = nombreCorto
 
   const ranking = [...data].sort((a, b) => b.pct - a.pct || b.total - a.total)
   const filas = ranking.map((d, i) => {
-    const tag = d.pct >= 50 ? '<span class="tag-ok">En objetivo</span>' : d.total > 0 ? '<span class="tag-w">En progreso</span>' : '<span class="tag-bad">Sin ingresos</span>'
+    const tag = TAG_ESTADO[estadoSede(d)]
     const c = crec(d)
     return `<tr><td style="text-align:center;font-weight:700">${i + 1}</td><td>${corto(d.sede)}</td>
       <td style="text-align:center">${d.objetivo}</td><td style="text-align:center;font-weight:700">${d.total}</td>
@@ -334,8 +345,8 @@ function generarPDFComparacion(sedesSeleccionadas, campNombre, fecha, historial,
     const y = 10 + i * (BAR_H + GAP)
     const pct = d.pct
     const bW = Math.max(2, Math.round((pct / 100) * BAR_MAX))
-    const col = pct >= 50 ? '#0F8A5F' : d.total > 0 ? '#C98A0B' : '#C8102E'
-    let lbl = d.sede.replace(/ - BUENOS AIRES$/, '').replace(/ - BS AS$/, '')
+    const col = { ok: '#0F8A5F', prog: '#C98A0B', cero: '#C8102E' }[estadoSede(d)]
+    let lbl = nombreCorto(d.sede)
     if (lbl.length > 26) lbl = lbl.slice(0, 25) + '...'
     return `<rect x="${LBL_W}" y="${y}" width="${BAR_MAX}" height="${BAR_H}" rx="3" fill="#f1f5f9"/>
       <rect x="${LBL_W}" y="${y}" width="${bW}" height="${BAR_H}" rx="3" fill="${col}"/>
@@ -349,8 +360,8 @@ function generarPDFComparacion(sedesSeleccionadas, campNombre, fecha, historial,
 
   const filas = sedes.map(d => {
     const ps = d.pct + '%'
-    const col = d.pct >= 50 ? '#16a34a' : d.total > 0 ? '#d97706' : '#be123c'
-    const estado = d.pct >= 50 ? 'En objetivo' : d.total > 0 ? 'En progreso' : 'Sin ingresos'
+    const col = { ok: '#16a34a', prog: '#d97706', cero: '#be123c' }[estadoSede(d)]
+    const estado = TEXTO_ESTADO[estadoSede(d)]
     const varTxt = d.var === null ? '—' : d.var > 0 ? '+' + d.var : d.var < 0 ? String(d.var) : 'Sin cambio'
 
     const fechas = Object.keys(historial).sort()
@@ -361,7 +372,7 @@ function generarPDFComparacion(sedesSeleccionadas, campNombre, fecha, historial,
       tend = delta > 0 ? `+${delta} acum.` : delta < 0 ? `${delta} acum.` : 'Estable'
     }
     return `<tr>
-      <td>${d.sede.replace(/ - BUENOS AIRES$/, '').replace(/ - BS AS$/, '')}</td>
+      <td>${nombreCorto(d.sede)}</td>
       <td style="text-align:center">${d.objetivo}</td>
       <td style="text-align:center;font-weight:700">${d.total}</td>
       <td style="text-align:center;font-weight:700;color:${col}">${ps}</td>
@@ -387,9 +398,9 @@ function generarPDFComparacion(sedesSeleccionadas, campNombre, fecha, historial,
   sedes.forEach((d, i) => {
     const ps = d.pct + '%'
     const medalla = i === 0 ? 'Mejor cumplimiento' : ''
-    const col = d.pct >= 50 ? '#16a34a' : d.total > 0 ? '#d97706' : '#be123c'
+    const col = { ok: '#16a34a', prog: '#d97706', cero: '#be123c' }[estadoSede(d)]
     parts.push(`<tr><td style="text-align:center;font-weight:700">${i + 1}</td>
-      <td>${d.sede.replace(/ - BUENOS AIRES$/, '').replace(/ - BS AS$/, '')}</td>
+      <td>${nombreCorto(d.sede)}</td>
       <td style="text-align:center;font-weight:700;color:${col}">${ps}</td>
       <td>${medalla}</td></tr>`)
   })
