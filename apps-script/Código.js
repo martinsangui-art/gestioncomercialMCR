@@ -926,31 +926,40 @@ function setSedeActiva(body) {
   throw new Error('No se encontró la sede');
 }
 
+// Regla de pertenencia de una fila del historial a una campaña, por el valor
+// de su columna de campaña. La usan getHistorial y el reemplazo de un corte.
+function perteneceACampana(campanaId) {
+  // Buscar por campana_id en hoja objetivos para obtener nombre exacto
+  var campanas = getCampanas();
+  var campObj = campanas.filter(function(c){ return c.id === campanaId; })[0];
+  var nombreExacto = campObj ? campObj.nombre : null;
+  // Nombres exactos de las OTRAS campañas: una fila que es exactamente de
+  // otra campaña no se cuenta acá aunque la contenga como substring (ej:
+  // "2do Ingreso" no se lleva las filas de "2do Ingreso 2027").
+  var otrosNombres = {};
+  campanas.forEach(function(c) { if (c.id !== campanaId) otrosNombres[String(c.nombre)] = true; });
+  return function(valor) {
+    var val = String(valor || '');
+    if (nombreExacto) {
+      if (val === nombreExacto) return true;
+      if (otrosNombres[val]) return false;
+      return val.indexOf(nombreExacto) >= 0;
+    }
+    // fallback
+    var patron = campanaId === 'C1' ? '1er Ingreso' : '2do Ingreso';
+    return val.indexOf(patron) >= 0;
+  };
+}
+
 function getHistorial(campanaId) {
   var h = SS.getSheetByName('historial');
   var rows = h.getDataRange().getValues();
   var keys = rows[0];
   var data = rows.slice(1).map(function(r) { return rowToObj(keys, r); });
   if (campanaId) {
-    // Buscar por campana_id en hoja objetivos para obtener nombre exacto
-    var campanas = getCampanas();
-    var campObj = campanas.filter(function(c){ return c.id === campanaId; })[0];
-    var nombreExacto = campObj ? campObj.nombre : null;
-    // Nombres exactos de las OTRAS campañas: una fila que es exactamente de
-    // otra campaña no se cuenta acá aunque la contenga como substring (ej:
-    // "2do Ingreso" no se lleva las filas de "2do Ingreso 2027").
-    var otrosNombres = {};
-    campanas.forEach(function(c) { if (c.id !== campanaId) otrosNombres[String(c.nombre)] = true; });
+    var esDeLaCampana = perteneceACampana(campanaId);
     data = data.filter(function(r) {
-      var val = String(r['campaña'] || r['campana'] || r[3] || '');
-      if (nombreExacto) {
-        if (val === nombreExacto) return true;
-        if (otrosNombres[val]) return false;
-        return val.indexOf(nombreExacto) >= 0;
-      }
-      // fallback
-      var patron = campanaId === 'C1' ? '1er Ingreso' : '2do Ingreso';
-      return val.indexOf(patron) >= 0;
+      return esDeLaCampana(r['campaña'] || r['campana'] || r[3] || '');
     });
   }
   return data;
@@ -1022,75 +1031,85 @@ function getSemanaActual(campanaId) {
 // ESCRITURA — Agregar o reemplazar semana
 // ════════════════════════════════════════════════════════════════════════
 function agregarSemana(body) {
-  var hHist = SS.getSheetByName('historial');
-  var campanaId   = body.campana_id;
-  var campanaNombre = body.campana_nombre;
-  var fecha       = body.fecha;       // "2026-06-19"
-  var sedes       = body.sedes;       // [{cod, sede, total}]
-  var reemplazar  = body.reemplazar === true;
+  // Una carga por vez: dos cargas del mismo corte al mismo tiempo podían
+  // borrarse o duplicarse entre sí.
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var hHist = SS.getSheetByName('historial');
+    var campanaId   = body.campana_id;
+    var campanaNombre = body.campana_nombre;
+    var fecha       = body.fecha;       // "2026-06-19"
+    var sedes       = body.sedes;       // [{cod, sede, total}]
+    var reemplazar  = body.reemplazar === true;
 
-  if (!fecha || !sedes || !sedes.length) throw new Error('Faltan datos: fecha y sedes son requeridos');
+    if (!fecha || !sedes || !sedes.length) throw new Error('Faltan datos: fecha y sedes son requeridos');
 
-  // Verificar si ya existe esa fecha para esa campaña
-  var hist = getHistorial(campanaId);
-  var fechasExistentes = {};
-  hist.forEach(function(r) { fechasExistentes[r.fecha] = true; });
-
-  var reemplazadas = [];
-  if (fechasExistentes[fecha]) {
-    if (!reemplazar) {
-      // El front va a capturar este mensaje y ofrecer el botón de reemplazar
-      throw new Error('Ya existe el corte del ' + fecha + ' para ' + campanaId);
-    }
-    // Borrar las filas existentes para esa fecha y campaña antes de insertar
-    var allRows = hHist.getDataRange().getValues();
-    var rowsToDelete = [];
-    for (var i = allRows.length - 1; i >= 1; i--) {
-      var rowFecha = allRows[i][0];
-      if (rowFecha instanceof Date) {
-        rowFecha = Utilities.formatDate(rowFecha, Session.getScriptTimeZone(), 'yyyy-MM-dd');
-      }
-      rowFecha = String(rowFecha);
-      var rowCampana = String(allRows[i][3] || '');
-      if (rowFecha === fecha && rowCampana.indexOf(campanaNombre) >= 0) {
-        rowsToDelete.push(i + 1); // +1 porque getValues es 0-indexed, deleteRow es 1-indexed
-        var copia = allRows[i].slice(0, 7);
-        copia[0] = rowFecha;
-        // Sheets lee '62%' como 0.62 — se guarda de nuevo como texto, igual que al cargar
-        var tot = Number(copia[4]) || 0, ob = Number(copia[5]) || 0;
-        copia[6] = ob > 0 ? Math.round(tot / ob * 100) + '%' : '0%';
-        reemplazadas.push(copia);
-      }
-    }
-    rowsToDelete.forEach(function(rowNum) {
-      hHist.deleteRow(rowNum);
+    // Objetivos y filas nuevas ANTES de borrar nada: si algo falla acá, el
+    // corte que se iba a reemplazar queda intacto.
+    var objMap = {};
+    getObjetivos(campanaId).forEach(function(o) {
+      objMap[String(o.cod_sede)] = Number(o.objetivo);
     });
-    SpreadsheetApp.flush();
+    var filas = sedes.map(function(s) {
+      var cod   = String(s.cod);
+      var total = Number(s.total) || 0;
+      var obj   = objMap[cod] || 0;
+      var pct   = obj > 0 ? Math.round(total / obj * 100) + '%' : '0%';
+      return [fecha, cod, s.sede, campanaNombre, total, obj, pct];
+    });
+
+    // Verificar si ya existe esa fecha para esa campaña
+    var hist = getHistorial(campanaId);
+    var fechasExistentes = {};
+    hist.forEach(function(r) { fechasExistentes[r.fecha] = true; });
+
+    var reemplazadas = [];
+    if (fechasExistentes[fecha]) {
+      if (!reemplazar) {
+        // El front va a capturar este mensaje y ofrecer el botón de reemplazar
+        throw new Error('Ya existe el corte del ' + fecha + ' para ' + campanaId);
+      }
+      // Borrar las filas existentes para esa fecha y campaña antes de insertar,
+      // con la misma regla de pertenencia que getHistorial (antes un indexOf
+      // suelto: reemplazar en "2do Ingreso" borraba también "2do Ingreso 2027")
+      var esDeLaCampana = perteneceACampana(campanaId);
+      var allRows = hHist.getDataRange().getValues();
+      var rowsToDelete = [];
+      for (var i = allRows.length - 1; i >= 1; i--) {
+        var rowFecha = allRows[i][0];
+        if (rowFecha instanceof Date) {
+          rowFecha = Utilities.formatDate(rowFecha, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+        }
+        rowFecha = String(rowFecha);
+        var rowCampana = String(allRows[i][3] || '');
+        if (rowFecha === fecha && esDeLaCampana(rowCampana)) {
+          rowsToDelete.push(i + 1); // +1 porque getValues es 0-indexed, deleteRow es 1-indexed
+          var copia = allRows[i].slice(0, 7);
+          copia[0] = rowFecha;
+          // Sheets lee '62%' como 0.62 — se guarda de nuevo como texto, igual que al cargar
+          var tot = Number(copia[4]) || 0, ob = Number(copia[5]) || 0;
+          copia[6] = ob > 0 ? Math.round(tot / ob * 100) + '%' : '0%';
+          reemplazadas.push(copia);
+        }
+      }
+      rowsToDelete.forEach(function(rowNum) {
+        hHist.deleteRow(rowNum);
+      });
+      SpreadsheetApp.flush();
+    }
+
+    var lastRow = hHist.getLastRow();
+    hHist.getRange(lastRow + 1, 1, filas.length, 7).setValues(filas);
+
+    registrarDeshacer('agregar_semana',
+      (reemplazar ? 'Reemplazo' : 'Carga') + ' del corte ' + fmtFechaDDMMAAAA(fecha) + ' · ' + campanaNombre,
+      { campana_id: campanaId, campana_nombre: campanaNombre, fecha: fecha, reemplazadas: reemplazadas });
+
+    return { insertadas: filas.length, fecha: fecha, campana: campanaId, reemplazado: reemplazar };
+  } finally {
+    lock.releaseLock();
   }
-
-  // Objetivos para calcular %
-  var objMap = {};
-  getObjetivos(campanaId).forEach(function(o) {
-    objMap[String(o.cod_sede)] = Number(o.objetivo);
-  });
-
-  // Armar filas
-  var filas = sedes.map(function(s) {
-    var cod   = String(s.cod);
-    var total = Number(s.total) || 0;
-    var obj   = objMap[cod] || 0;
-    var pct   = obj > 0 ? Math.round(total / obj * 100) + '%' : '0%';
-    return [fecha, cod, s.sede, campanaNombre, total, obj, pct];
-  });
-
-  var lastRow = hHist.getLastRow();
-  hHist.getRange(lastRow + 1, 1, filas.length, 7).setValues(filas);
-
-  registrarDeshacer('agregar_semana',
-    (reemplazar ? 'Reemplazo' : 'Carga') + ' del corte ' + fmtFechaDDMMAAAA(fecha) + ' · ' + campanaNombre,
-    { campana_id: campanaId, campana_nombre: campanaNombre, fecha: fecha, reemplazadas: reemplazadas });
-
-  return { insertadas: filas.length, fecha: fecha, campana: campanaId, reemplazado: reemplazar };
 }
 
 // ════════════════════════════════════════════════════════════════════════
