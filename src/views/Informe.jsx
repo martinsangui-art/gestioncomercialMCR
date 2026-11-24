@@ -10,7 +10,7 @@ import {
 import { descargarDocx, htmlInforme } from '../lib/informeDocx'
 import ImportarWord from '../components/ImportarWord'
 import { headerPDF, footerPDF, abrirVentanaPDF } from '../components/InformesPDF'
-import { precargarAssetsPDF } from '../lib/assetsPDF'
+import { precargarAssetsPDF, ASSETS_PDF } from '../lib/assetsPDF'
 
 // Campos editables de cada tipo de anotación (en el editor, una viñeta por renglón)
 const CAMPOS = {
@@ -163,6 +163,8 @@ export default function Informe({ data, historial, campanas, campanaActiva, sede
   const [origen, setOrigen] = useState({})    // id → 'notas' | 'claude' | 'editado' | 'faltante' | 'revisar'
   const [revisar, setRevisar] = useState({})  // id → por qué revisar lo de Gemini
   const [redactando, setRedactando] = useState(false)
+  const [progreso, setProgreso] = useState(null)     // 'tanda 2 de 4' mientras Gemini redacta
+  const [ocupadoWord, setOcupadoWord] = useState(false) // leyendo o guardando el Word: la pantalla se bloquea
   const [errorGemini, setErrorGemini] = useState(null)
   const [generando, setGenerando] = useState(false)
   const [mensaje, setMensaje] = useState(null)
@@ -255,38 +257,63 @@ export default function Informe({ data, historial, campanas, campanaActiva, sede
     setOrigen(o => ({ ...o, [id]: 'editado' }))
   }
 
+  // Gemini redacta en tandas chicas, un pedido por tanda: cada uno entra
+  // holgado en el tiempo del navegador y, si una tanda falla, las demás no se
+  // pierden (sus anotaciones quedan con las notas tal cual y marcadas).
+  const TANDA_REDACCION = 6
   const conGemini = async () => {
     if (Object.values(origen).some(o => o === 'editado') &&
       !window.confirm('Gemini va a reescribir todas las anotaciones y se pierden los cambios que hiciste acá. ¿Seguimos?')) return
     const pedida = lunes, huellaPedida = huella
     const entradas = Object.fromEntries(items.map(it => [it.id, entradaGemini(it)]))
+    const tandas = []
+    for (let i = 0; i < items.length; i += TANDA_REDACCION) tandas.push(items.slice(i, i + TANDA_REDACCION))
     setRedactando(true); setErrorGemini(null)
+    const nuevosT = {}, nuevosO = {}, nuevosR = {}
+    let fallidas = 0, ultimoError = null
     try {
-      const r = await redactarInforme(items.map(it => ({ id: it.id, sede: tituloAnotacion(it.sede, listaSedes), ...entradas[it.id] })))
-      // Cambió la semana o las notas mientras Gemini redactaba: no se aplica
+      for (let k = 0; k < tandas.length; k++) {
+        setProgreso(tandas.length > 1 ? `tanda ${k + 1} de ${tandas.length}` : null)
+        let r
+        try {
+          r = await redactarInforme(tandas[k].map(it => ({ id: it.id, sede: tituloAnotacion(it.sede, listaSedes), ...entradas[it.id] })))
+        } catch (e) {
+          if (e.message === 'SIN_API_KEY' || e.message === 'AUTH_REQUIRED') throw e
+          fallidas++; ultimoError = e
+          tandas[k].forEach(it => { nuevosO[it.id] = 'faltante' })
+          continue
+        }
+        // Cambió la semana o las notas mientras Gemini redactaba: no se aplica
+        if (vigente.current !== pedida || huellaRef.current !== huellaPedida) return
+        ;(r?.items || []).forEach(x => {
+          const it = items.find(i => i.id === x.id)
+          if (!it) return
+          if (x.faltante) { nuevosO[x.id] = 'faltante'; return }
+          const t = tipoDe(it)
+          const salida = t === 'reunion' ? { motivo: x.motivo, resultado: x.resultado }
+            : t === 'auditoria' ? { resultado: x.resultado, acciones: x.acciones }
+            : { texto: x.texto }
+          const problema = controlarRedaccion(entradas[x.id], salida)
+          nuevosT[x.id] = aTexto(salida)
+          nuevosO[x.id] = problema ? 'revisar' : 'claude'
+          if (problema) nuevosR[x.id] = problema
+        })
+      }
       if (vigente.current !== pedida || huellaRef.current !== huellaPedida) return
-      const nuevosT = {}, nuevosO = {}, nuevosR = {}
-      ;(r?.items || []).forEach(x => {
-        const it = items.find(i => i.id === x.id)
-        if (!it) return
-        if (x.faltante) { nuevosO[x.id] = 'faltante'; return }
-        const t = tipoDe(it)
-        const salida = t === 'reunion' ? { motivo: x.motivo, resultado: x.resultado }
-          : t === 'auditoria' ? { resultado: x.resultado, acciones: x.acciones }
-          : { texto: x.texto }
-        const problema = controlarRedaccion(entradas[x.id], salida)
-        nuevosT[x.id] = aTexto(salida)
-        nuevosO[x.id] = problema ? 'revisar' : 'claude'
-        if (problema) nuevosR[x.id] = problema
+      // Lo que Gemini no devolvió vuelve a las notas tal cual (nunca queda una
+      // redacción vieja con la marca de "tus notas")
+      items.forEach(it => {
+        if (nuevosO[it.id] === 'faltante') nuevosT[it.id] = aTexto(redaccionBase({ ...it, tipo: tipoDe(it) }))
       })
       setTextos(prev => ({ ...prev, ...nuevosT }))
       setOrigen(prev => ({ ...prev, ...nuevosO }))
       setRevisar(nuevosR); setRedaccionVieja(false)
+      if (fallidas) setErrorGemini(`Gemini no pudo con ${fallidas} de ${tandas.length} tandas (${ultimoError?.message}). Esas anotaciones quedaron con tus notas tal cual y marcadas: podés volver a tocar "Redactar con Gemini" en un rato.`)
     } catch (e) {
       setErrorGemini(e.message === 'SIN_API_KEY'
         ? 'Todavía no está cargada la clave de Gemini en el Apps Script (GEMINI_API_KEY). Mientras tanto podés armar el informe con tus notas tal cual.'
         : `No se pudo redactar con Gemini: ${e.message}`)
-    } finally { setRedactando(false) }
+    } finally { setRedactando(false); setProgreso(null) }
   }
 
   const volverANotas = () => {
@@ -297,7 +324,13 @@ export default function Informe({ data, historial, campanas, campanaActiva, sede
     try { localStorage.removeItem(clave) } catch { /* nada */ }
   }
 
+  // Antes de bajar: si hay anotaciones marcadas, avisar (no bloquear)
+  const pendientes = Object.values(origen).filter(o => o === 'revisar' || o === 'faltante').length
+  const confirmarPendientes = () => !pendientes || window.confirm(
+    `Hay ${pendientes} anotaci${pendientes === 1 ? 'ón marcada' : 'ones marcadas'} en rojo para revisar. ¿Bajar el informe igual?`)
+
   const bajarWord = async () => {
+    if (!confirmarPendientes()) return
     setGenerando(true); setMensaje(null)
     try {
       await descargarDocx(informe)
@@ -309,23 +342,26 @@ export default function Informe({ data, historial, campanas, campanaActiva, sede
   // Sin await antes de abrir: Safari bloquea la pestaña si hay algo asincrónico
   // entre el click y la apertura (el logo y la firma ya se precargaron).
   const abrirPDF = () => {
+    if (!confirmarPendientes()) return
+    if (!ASSETS_PDF.firma) { setMensaje('Todavía se están cargando el logo y la firma: probá de nuevo en un segundo.'); precargarAssetsPDF(); return }
     abrirVentanaPDF(htmlInforme(informe, { headerPDF, footerPDF, fechaCorte: corte.fecha, campNombre: escHtml(camp?.nombre || '') }), setMensaje)
   }
 
   const hayGeminiOEdicion = Object.values(origen).some(o => o !== 'notas')
-  const puedeGenerar = !!informe && !cargando && !error && !redactando
+  const ocupado = redactando || ocupadoWord
+  const puedeGenerar = !!informe && !cargando && !error && !ocupado
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18, fontFamily: F.body }}>
       {/* Semana + acciones */}
       <div style={{ ...panel({ padding: isMobile ? 14 : '16px 20px' }), display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <button aria-label="Semana anterior" onClick={() => setLunes(sumarDias(lunes, -7))} disabled={redactando} className="btn-press" style={flecha}>‹</button>
+          <button aria-label="Semana anterior" onClick={() => setLunes(sumarDias(lunes, -7))} disabled={ocupado} className="btn-press" style={flecha}>‹</button>
           <div style={{ minWidth: isMobile ? 0 : 290, textAlign: 'center' }}>
             <div style={{ ...rotulo, color: C.navy }}>{lunes === lunesHoy ? 'Esta semana' : 'Semana'}</div>
             <div style={{ fontSize: 18, fontWeight: 800, fontStretch: '108%', color: C.ink }}>{etiquetaSemana(semana)}</div>
           </div>
-          <button aria-label="Semana siguiente" onClick={() => setLunes(sumarDias(lunes, 7))} disabled={lunes >= lunesHoy || redactando} className="btn-press" style={{ ...flecha, opacity: lunes >= lunesHoy ? 0.3 : 1 }}>›</button>
+          <button aria-label="Semana siguiente" onClick={() => setLunes(sumarDias(lunes, 7))} disabled={lunes >= lunesHoy || ocupado} className="btn-press" style={{ ...flecha, opacity: lunes >= lunesHoy ? 0.3 : 1 }}>›</button>
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <Boton onClick={bajarWord} disabled={!puedeGenerar || generando}>{generando ? 'Armando…' : 'Descargar Word'}</Boton>
@@ -368,13 +404,14 @@ export default function Informe({ data, historial, campanas, campanaActiva, sede
       <section style={panel({ padding: isMobile ? 14 : 20 })}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 6 }}>
           <h2 style={h2}>Auditorías, reuniones y observaciones</h2>
-          <button onClick={cargar} disabled={cargando || redactando} style={linkBtn}>{cargando ? 'Leyendo la planilla…' : 'Volver a leer la planilla'}</button>
+          <button onClick={cargar} disabled={cargando || ocupado} style={linkBtn}>{cargando ? 'Leyendo la planilla…' : 'Volver a leer la planilla'}</button>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <ImportarWord semana={semana} sedes={listaSedes} existentes={items} disabled={cargando || redactando || !bitacora}
-              onAgregadas={(n) => { setMensaje(`Se agregaron ${n} anotaciones a la bitácora.`); cargar() }} />
-            {hayGeminiOEdicion && <Boton tono="secundario" onClick={volverANotas} disabled={redactando}>Volver a mis notas</Boton>}
-            <Boton tono="claude" onClick={conGemini} disabled={!items.length || redactando || cargando}>
-              {redactando ? 'Gemini está redactando…' : 'Redactar con Gemini'}
+              onOcupado={setOcupadoWord}
+              onAgregadas={(n, repetido) => { setMensaje(repetido ? `Esas ${n} anotaciones ya se habían guardado: no se duplicaron.` : `Se agregaron ${n} anotaciones a la bitácora.`); cargar() }} />
+            {hayGeminiOEdicion && <Boton tono="secundario" onClick={volverANotas} disabled={ocupado}>Volver a mis notas</Boton>}
+            <Boton tono="claude" onClick={conGemini} disabled={!items.length || ocupado || cargando}>
+              {redactando ? `Gemini está redactando${progreso ? ` (${progreso})` : '…'}` : 'Redactar con Gemini'}
             </Boton>
           </div>
         </div>

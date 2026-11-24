@@ -100,5 +100,16 @@ ok(huellaItem(items[0]) === huellaItem({ ...items[0], id: 'otro', fila: 99 }), '
 igual(['10hs', '10 hs', '8.30', '8:30 hs', '15', '9:05', 'a la tarde', ''].map(normHora), ['10:00', '10:00', '8:30', '8:30', '15:00', '9:05', 'a la tarde', ''], 'hora: normaliza "10hs" y deja lo que no entiende')
 igual(armarInforme({ semana: semanaDe('2026-11-24'), tabla, fechaCorte: '2026-08-14', items: [{ id: 'h', fecha: '2026-11-24', tipo: 'reunion', sede: 'X', hora: '10hs', motivo: 'a', resultado: 'b' }], sedes: data }).reuniones[0].sede, 'X 24/11 10:00 HS', 'reunión con hora "10hs" sale "10:00 HS"')
 
+ok(/no aparece SF/.test(controlarRedaccion({ tipo: 'observacion', resultado: 'pedir usuarios de SF para la sede' }, { texto: 'pedido de usuarios para la sede' })), 'IA: sigla de la nota que desaparece se marca')
+ok(/más corta/.test(controlarRedaccion({ tipo: 'observacion', resultado: 'reunión con la coordinadora por la campaña de verano, se revisaron los folletos y se pidió reforzar las redes' }, { texto: 'reunión con la coordinadora.' })), 'IA: versión mucho más corta se marca')
+igual(controlarRedaccion({ tipo: 'observacion', resultado: 'confeccion de banner y folleteria para la expo' }, { texto: 'confección del banner y la folletería para la expo.' }), null, 'IA: corrección normal no se marca')
+{
+  const { partirTexto, docxXmlATexto } = await import('../src/lib/leerWord.js')
+  const t = Array.from({ length: 50 }, (_, i) => `renglón ${i} ` + 'x'.repeat(300)).join('\n')
+  const p = partirTexto(t, 7000)
+  ok(p.length > 1 && p.every(x => x.length <= 7000) && p.join('\n') === t, 'Word largo: se parte sin perder ni cortar renglones')
+  igual(docxXmlATexto('<w:body><w:p><w:r><w:t>Hola &amp; chau</w:t></w:r></w:p><w:tbl><w:tr><w:tc><w:p><w:r><w:t>a</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>b</w:t></w:r></w:p></w:tc></w:tr></w:tbl></w:body>'), 'Hola & chau\na | b', 'Word: párrafos y tablas')
+}
+
 if (fallas) { console.log(`\n${fallas} prueba(s) fallaron`); process.exit(1) }
 console.log('\nTodo OK')

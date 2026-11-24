@@ -216,5 +216,12 @@ export function controlarRedaccion(entrada, salida) {
   if (entrada.tipo === 'auditoria' && String(entrada.acciones || '').trim() && !(salida.acciones || []).length) return 'la IA dejó las acciones vacías'
   const a = numeros(textoIn), b = numeros(textoOut)
   if (a.join('|') !== b.join('|')) return `cambiaron las cifras u horas (nota: ${a.join(', ') || 'ninguna'} · IA: ${b.join(', ') || 'ninguna'})`
+  // Siglas de la nota (SF, UCASAL, CEM…) que no aparecen en la versión de la IA
+  const siglas = [...new Set(String(textoIn).match(/\b[A-ZÁÉÍÓÚÑ]{2,}\b/g) || [])]
+  const faltanSiglas = siglas.filter(x => !new RegExp(`\\b${x}\\b`, 'i').test(textoOut))
+  if (faltanSiglas.length) return `no aparece ${faltanSiglas.join(', ')} de la nota`
+  // Mucho más corta que la nota: puede haber dejado algo afuera
+  const largoIn = textoIn.replace(/\s+/g, ' ').trim().length, largoOut = textoOut.replace(/\s+/g, ' ').trim().length
+  if (largoIn >= 60 && largoOut < largoIn * 0.5) return 'quedó mucho más corta que la nota: puede faltar algo'
   return null
 }

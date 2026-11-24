@@ -918,8 +918,8 @@ export function interpretarNotas(texto, desde, hasta) {
   return post({ action: 'interpretar_notas', texto, desde, hasta })
 }
 // Filas revisadas por Cele → pestaña 'bitacora'
-export function agregarBitacora(filas) {
-  return post({ action: 'agregar_bitacora', filas })
+export function agregarBitacora(filas, idLote) {
+  return post({ action: 'agregar_bitacora', filas, idLote })
 }
 
 export { post, jsonp }
