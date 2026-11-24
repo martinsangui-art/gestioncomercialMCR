@@ -2,10 +2,11 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { C, F, panel, rotulo, cifra } from '../lib/theme'
 import { hoyIso, fmtFecha } from '../lib/formato'
 import { useIsMobile } from '../hooks/useIsMobile'
-import { obtenerBitacora, redactarInforme } from '../hooks/useSheets'
+import { obtenerBitacora } from '../hooks/useSheets'
 import {
   semanaDe, sumarDias, etiquetaSemana, corteDeLaSemana, tablaComoVamos, armarInforme,
   redaccionBase, huellaNotas, huellaItem, avisosNotas, tituloAnotacion, ddmm, fmtPct, controlarRedaccion,
+  pedidoParaClaude, leerRespuestaClaude,
 } from '../lib/informe'
 import { descargarDocx, htmlInforme } from '../lib/informeDocx'
 import { headerPDF, footerPDF, abrirVentanaPDF } from '../components/InformesPDF'
@@ -161,8 +162,12 @@ export default function Informe({ data, historial, campanas, campanaActiva, sede
   const [textos, setTextos] = useState({})    // id → { campo: texto }
   const [origen, setOrigen] = useState({})    // id → 'notas' | 'claude' | 'editado' | 'faltante' | 'revisar'
   const [revisar, setRevisar] = useState({})  // id → por qué revisar lo de Claude
-  const [redactando, setRedactando] = useState(false)
+  const redactando = false
   const [errorClaude, setErrorClaude] = useState(null)
+  const [pegando, setPegando] = useState(false)       // panel para pegar la respuesta abierto
+  const [respuesta, setRespuesta] = useState('')
+  const [pedidoHuella, setPedidoHuella] = useState(null) // notas que se mandaron a Claude
+  const [copiado, setCopiado] = useState(false)
   const [generando, setGenerando] = useState(false)
   const [mensaje, setMensaje] = useState(null)
   const [verTabla, setVerTabla] = useState(false)
@@ -254,38 +259,60 @@ export default function Informe({ data, historial, campanas, campanaActiva, sede
     setOrigen(o => ({ ...o, [id]: 'editado' }))
   }
 
-  const conClaude = async () => {
-    if (Object.values(origen).some(o => o === 'editado') &&
-      !window.confirm('Claude va a reescribir todas las anotaciones y se pierden los cambios que hiciste acá. ¿Seguimos?')) return
-    const pedida = lunes, huellaPedida = huella
-    const entradas = Object.fromEntries(items.map(it => [it.id, entradaClaude(it)]))
-    setRedactando(true); setErrorClaude(null)
+  const entradasClaude = () => items.map(it => ({ id: it.id, sede: tituloAnotacion(it.sede, listaSedes), ...entradaClaude(it) }))
+
+  // 1. Copiar el pedido para pegarlo en claude.ai (o ChatGPT)
+  const copiarPedido = async () => {
+    setErrorClaude(null); setCopiado(false)
+    const texto = pedidoParaClaude(entradasClaude())
     try {
-      const r = await redactarInforme(items.map(it => ({ id: it.id, sede: tituloAnotacion(it.sede, listaSedes), ...entradas[it.id] })))
-      // Cambió la semana o las notas mientras Claude redactaba: no se aplica
-      if (vigente.current !== pedida || huellaRef.current !== huellaPedida) return
-      const nuevosT = {}, nuevosO = {}, nuevosR = {}
-      ;(r?.items || []).forEach(x => {
-        const it = items.find(i => i.id === x.id)
-        if (!it) return
-        if (x.faltante) { nuevosO[x.id] = 'faltante'; return }
-        const t = tipoDe(it)
-        const salida = t === 'reunion' ? { motivo: x.motivo, resultado: x.resultado }
-          : t === 'auditoria' ? { resultado: x.resultado, acciones: x.acciones }
-          : { texto: x.texto }
-        const problema = controlarRedaccion(entradas[x.id], salida)
-        nuevosT[x.id] = aTexto(salida)
-        nuevosO[x.id] = problema ? 'revisar' : 'claude'
-        if (problema) nuevosR[x.id] = problema
-      })
-      setTextos(prev => ({ ...prev, ...nuevosT }))
-      setOrigen(prev => ({ ...prev, ...nuevosO }))
-      setRevisar(nuevosR); setRedaccionVieja(false)
-    } catch (e) {
-      setErrorClaude(e.message === 'SIN_API_KEY'
-        ? 'Todavía no está cargada la clave de Claude en la planilla. Mientras tanto podés armar el informe con tus notas tal cual.'
-        : `No se pudo redactar con Claude: ${e.message}`)
-    } finally { setRedactando(false) }
+      await navigator.clipboard.writeText(texto)
+    } catch {
+      // Sin permiso de portapapeles: se copia con un textarea oculto
+      const ta = document.createElement('textarea')
+      ta.value = texto; ta.style.position = 'fixed'; ta.style.opacity = '0'
+      document.body.appendChild(ta); ta.select()
+      const ok = document.execCommand('copy'); document.body.removeChild(ta)
+      if (!ok) { setErrorClaude('No se pudo copiar automáticamente. Probá de nuevo o desde otro navegador.'); return }
+    }
+    setPedidoHuella(huella); setCopiado(true); setPegando(true); setRespuesta('')
+  }
+
+  // 2. Pegar la respuesta: se reparte en cada anotación y se controla
+  const aplicarRespuesta = () => {
+    setErrorClaude(null)
+    if (pedidoHuella && pedidoHuella !== huella) {
+      setErrorClaude('Las anotaciones cambiaron desde que copiaste el pedido. Copiá el pedido de nuevo y volvé a pegárselo a Claude.')
+      return
+    }
+    if (Object.values(origen).some(o => o === 'editado') &&
+      !window.confirm('La respuesta de Claude reemplaza lo que editaste acá en las anotaciones que trae. ¿Seguimos?')) return
+    let r
+    try { r = leerRespuestaClaude(respuesta, items.map(it => it.id)) }
+    catch (e) { setErrorClaude(e.message); return }
+    const entradas = Object.fromEntries(items.map(it => [it.id, entradaClaude(it)]))
+    const nuevosT = {}, nuevosO = {}, nuevosR = {}
+    r.items.forEach(x => {
+      const it = items.find(i => i.id === x.id)
+      if (x.faltante) { nuevosO[x.id] = 'faltante'; return }
+      const t = tipoDe(it)
+      const salida = t === 'reunion' ? { motivo: x.motivo, resultado: x.resultado }
+        : t === 'auditoria' ? { resultado: x.resultado, acciones: x.acciones }
+        : { texto: x.texto }
+      const problema = controlarRedaccion(entradas[x.id], salida)
+      nuevosT[x.id] = aTexto(salida)
+      nuevosO[x.id] = problema ? 'revisar' : 'claude'
+      if (problema) nuevosR[x.id] = problema
+    })
+    setTextos(prev => ({ ...prev, ...nuevosT }))
+    setOrigen(prev => ({ ...prev, ...nuevosO }))
+    setRevisar(nuevosR); setRedaccionVieja(false)
+    setPegando(false); setRespuesta(''); setCopiado(false)
+    const faltan = r.items.filter(x => x.faltante).length
+    const aRevisar = Object.keys(nuevosR).length
+    setMensaje(`Listo: se aplicó la redacción a ${r.items.length - faltan} anotaciones.` +
+      (faltan ? ` ${faltan} no vinieron en la respuesta y quedan con tus notas.` : '') +
+      (aRevisar ? ` ${aRevisar} quedaron marcadas para revisar.` : ''))
   }
 
   const volverANotas = () => {
@@ -370,16 +397,39 @@ export default function Informe({ data, historial, campanas, campanaActiva, sede
           <button onClick={cargar} disabled={cargando || redactando} style={linkBtn}>{cargando ? 'Leyendo la planilla…' : 'Volver a leer la planilla'}</button>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {hayClaudeOEdicion && <Boton tono="secundario" onClick={volverANotas} disabled={redactando}>Volver a mis notas</Boton>}
-            <Boton tono="claude" onClick={conClaude} disabled={!items.length || redactando || cargando}>
-              {redactando ? 'Claude está redactando…' : 'Redactar con Claude'}
+            <Boton tono="claude" onClick={copiarPedido} disabled={!items.length || cargando}
+              title="Copia las reglas y las notas de la semana para pegarlas en claude.ai">
+              Copiar para Claude
+            </Boton>
+            <Boton tono="secundario" onClick={() => { setPegando(p => !p); setErrorClaude(null) }} disabled={!items.length || cargando}>
+              Pegar respuesta
             </Boton>
           </div>
         </div>
         <p style={{ margin: '0 0 14px', fontSize: 13.5, color: C.inkSoft, lineHeight: 1.5 }}>
-          Salen de la pestaña <b>bitacora</b> de la planilla. Claude solo pule la redacción: no agrega datos ni toca los números. Revisá y corregí acá antes de bajar el Word.
+          Salen de la pestaña <b>bitacora</b> de la planilla. Para pulir la redacción: <b>Copiar para Claude</b>, pegarlo en claude.ai y traer la respuesta con <b>Pegar respuesta</b>. Si Claude cambia una cifra u hora, la anotación queda marcada. Los números de la tabla nunca pasan por Claude.
         </p>
 
         {error && <Aviso tono="error">No se pudieron leer las anotaciones: {error}</Aviso>}
+        {pegando && (
+          <div style={{ ...panel({ padding: 14 }), background: C.celesteSoft, marginBottom: 14 }}>
+            {copiado && (
+              <ol style={{ margin: '0 0 10px', paddingLeft: 20, fontSize: 13.5, lineHeight: 1.6, color: C.ink }}>
+                <li><b>Pedido copiado.</b> Abrí <a href="https://claude.ai/new" target="_blank" rel="noopener noreferrer" style={{ color: C.navy, fontWeight: 700 }}>claude.ai</a> (o ChatGPT), pegalo y mandalo.</li>
+                <li>Copiá la respuesta con el botón de copiar del bloque de código.</li>
+                <li>Pegala acá abajo y tocá <b>Aplicar</b>.</li>
+              </ol>
+            )}
+            <textarea value={respuesta} onChange={e => setRespuesta(e.target.value)} rows={6}
+              placeholder='Pegá acá la respuesta de Claude (empieza con {"items": …)'
+              aria-label="Respuesta de Claude"
+              style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.rule}`, fontFamily: F.mono, fontSize: 12.5, background: '#fff' }} />
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              <Boton onClick={aplicarRespuesta} disabled={!respuesta.trim()}>Aplicar</Boton>
+              <Boton tono="secundario" onClick={() => { setPegando(false); setRespuesta(''); setErrorClaude(null) }}>Cancelar</Boton>
+            </div>
+          </div>
+        )}
         {errorClaude && <div style={{ marginBottom: 12 }}><Aviso tono="error">{errorClaude}</Aviso></div>}
         {redaccionVieja && <div style={{ marginBottom: 12 }}><Aviso tono="info">Algunas anotaciones cambiaron en la planilla desde la última redacción: esas vuelven a tus notas tal cual (el resto conserva lo que ya estaba). Si querés, volvé a redactar con Claude.</Aviso></div>}
         {avisos.length > 0 && (

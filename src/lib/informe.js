@@ -208,3 +208,59 @@ export function controlarRedaccion(entrada, salida) {
   if (a.join('|') !== b.join('|')) return `cambiaron las cifras u horas (nota: ${a.join(', ') || 'ninguna'} · Claude: ${b.join(', ') || 'ninguna'})`
   return null
 }
+
+// ── Redacción con Claude por copiar y pegar (sin API, con la suscripción) ───
+// La app arma el pedido completo; Cele lo pega en claude.ai (o ChatGPT),
+// copia la respuesta y la app la reparte en cada anotación.
+const REGLAS_REDACCION = [
+  'Sos el asistente de la Coordinación Zonal Buenos Aires de UCASAL (universidad). Redactá las anotaciones de la coordinadora para el informe semanal que lee su jefa.',
+  '',
+  'Reglas que no se negocian:',
+  '- No agregues hechos, nombres, cifras, fechas, compromisos ni conclusiones que no estén en la nota. Si algo es ambiguo, dejalo tal cual en lugar de interpretarlo.',
+  '- No omitas nada de lo anotado: cada dato de la nota tiene que aparecer en tu versión.',
+  '- Respetá exactamente nombres propios, sedes, cifras, horarios y siglas.',
+  '- Corregí ortografía, puntuación y redacción. Español rioplatense profesional, claro, sin frases vacías ni adjetivos de relleno.',
+  '',
+  'Estilo:',
+  '- motivo (reuniones): temas tratados como frases nominales cortas, una por viñeta, con mayúscula inicial y punto final. Ej.: "Participación en ferias y expos educativas."',
+  '- resultado (reuniones) y resultado/acciones (auditorías): una viñeta por acuerdo o acción, en impersonal y pasado. Ej.: "Se acordó retomar con mayor continuidad el planner de publicaciones."',
+  '- texto (observaciones y "semana"): una o dos oraciones que empiezan en minúscula (van después de "Sede:"), en sustantivo o impersonal. Ej.: "confección del banner institucional y de los dos modelos de folletería personalizados para la sede. El material ya fue enviado a imprenta."',
+  '',
+  'Usá solo los campos que corresponden al tipo: reunion → motivo y resultado; auditoria → resultado y acciones; observacion o semana → texto.',
+  'Incluí TODOS los id que recibís, sin cambiarlos.',
+  'Respondé ÚNICAMENTE con un bloque de código JSON, sin comentarios, con esta forma:',
+  '{"items":[{"id":"f2","motivo":["..."],"resultado":["..."],"acciones":["..."],"texto":"..."}]}',
+].join('\n')
+
+// entradas: [{ id, tipo, sede, motivo, resultado, acciones }]
+export function pedidoParaClaude(entradas) {
+  const datos = entradas.map(e => ({
+    id: e.id, tipo: e.tipo, sede_o_tema: e.sede || '',
+    motivo: e.motivo || '', resultado: e.resultado || '', acciones: e.acciones || '',
+  }))
+  return `${REGLAS_REDACCION}\n\nAnotaciones de la semana:\n${JSON.stringify({ items: datos }, null, 1)}`
+}
+
+// Lee la respuesta pegada: acepta el bloque de código con o sin ```json, o
+// con texto alrededor. Devuelve un ítem por id esperado (faltante si no vino).
+export function leerRespuestaClaude(texto, idsEsperados) {
+  const t = String(texto || '').replace(/```(?:json)?/gi, '')
+  const a = t.indexOf('{'), z = t.lastIndexOf('}')
+  if (a === -1 || z <= a) throw new Error('No encuentro el bloque de respuesta. Copiá la respuesta completa de Claude (el bloque de código) y pegala acá.')
+  let parsed
+  try { parsed = JSON.parse(t.slice(a, z + 1)) }
+  catch { throw new Error('La respuesta está incompleta o cortada. Copiala de nuevo entera (el botón de copiar del bloque de código).') }
+  const lista = Array.isArray(parsed) ? parsed : parsed.items
+  if (!Array.isArray(lista)) throw new Error('La respuesta no tiene el formato esperado. Volvé a copiar el pedido y pegáselo a Claude tal cual.')
+  const porId = {}
+  lista.forEach(x => { if (x && x.id != null) porId[String(x.id)] = x })
+  const aLista = (v) => Array.isArray(v) ? v.map(String).map(s => s.trim()).filter(Boolean) : (v ? [String(v).trim()] : [])
+  const items = idsEsperados.map(id => {
+    const x = porId[String(id)]
+    if (!x) return { id, faltante: true }
+    return { id, motivo: aLista(x.motivo), resultado: aLista(x.resultado), acciones: aLista(x.acciones), texto: String(x.texto || '').trim() }
+  })
+  const desconocidos = Object.keys(porId).filter(id => !idsEsperados.includes(id))
+  if (!items.some(i => !i.faltante)) throw new Error('Ninguna anotación de la respuesta coincide con las de esta semana. ¿Es la respuesta al pedido de esta semana?')
+  return { items, desconocidos }
+}
