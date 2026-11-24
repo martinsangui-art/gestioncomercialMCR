@@ -225,3 +225,43 @@ export function controlarRedaccion(entrada, salida) {
   if (largoIn >= 60 && largoOut < largoIn * 0.5) return 'quedó mucho más corta que la nota: puede faltar algo'
   return null
 }
+
+// ── Notas de la ficha de cada sede → anotaciones del informe ────────────────
+// Las notas que Cele carga en la ficha de una sede (pestaña notas_sede:
+// fecha "AAAA-MM-DD HH:mm", cod_sede, nota) entran al informe de esa semana
+// como observaciones de esa sede. Si la misma nota ya está en la bitácora
+// (porque también la pasó al Word), no se repite.
+const normNota = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim()
+export function notasDeSedeComoItems(notas, desde, hasta, sedes = [], existentes = []) {
+  const nombre = {}
+  ;(sedes || []).forEach(s => { nombre[String(Number(s.cod_sede))] = s.sede })
+  const yaEstan = new Set()
+  ;(existentes || []).forEach(it => [it.motivo, it.resultado, it.acciones].forEach(t => { const n = normNota(t); if (n) yaEstan.add(n) }))
+  const vistos = new Set()
+  const out = []
+  ;(notas || []).forEach(n => {
+    const fecha = String(n.fecha || '').replace(/^'/, '').slice(0, 10)
+    const texto = String(n.nota || '').trim()
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha) || !texto) return
+    if (fecha < desde || fecha > hasta) return
+    const norm = normNota(texto)
+    if (yaEstan.has(norm)) return
+    const cod = String(Number(n.cod_sede))
+    const clave = fecha + '|' + cod + '|' + norm
+    if (vistos.has(clave)) return
+    vistos.add(clave)
+    out.push({
+      id: 'n' + huella(clave),
+      fecha,
+      tipo: 'observacion',
+      tipoOriginal: 'Nota de la sede',
+      sede: nombre[cod] || String(n.cod_sede || ''),
+      hora: '',
+      motivo: texto,
+      resultado: '',
+      acciones: '',
+      fuente: 'ficha',
+    })
+  })
+  return out.sort((a, b) => a.fecha.localeCompare(b.fecha))
+}

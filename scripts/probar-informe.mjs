@@ -6,6 +6,7 @@ import {
   semanaDe, etiquetaSemana, corteDeLaSemana, tablaComoVamos, aVinetas, tituloAnotacion,
   armarInforme, redaccionBase, encabezadoObservacion, fechaColumna, avisosNotas, huellaNotas, nombrePropio,
   porcentaje, controlarRedaccion, huellaItem, normHora,
+  notasDeSedeComoItems,
 } from '../src/lib/informe.js'
 
 let fallas = 0
@@ -109,6 +110,25 @@ igual(controlarRedaccion({ tipo: 'observacion', resultado: 'confeccion de banner
   const p = partirTexto(t, 7000)
   ok(p.length > 1 && p.every(x => x.length <= 7000) && p.join('\n') === t, 'Word largo: se parte sin perder ni cortar renglones')
   igual(docxXmlATexto('<w:body><w:p><w:r><w:t>Hola &amp; chau</w:t></w:r></w:p><w:tbl><w:tr><w:tc><w:p><w:r><w:t>a</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>b</w:t></w:r></w:p></w:tc></w:tr></w:tbl></w:body>'), 'Hola & chau\na | b', 'Word: párrafos y tablas')
+}
+
+// Notas de la ficha de cada sede → observaciones del informe
+{
+  const sedesN = [{ cod_sede: '57', sede: 'MORÓN - BUENOS AIRES' }, { cod_sede: '22', sede: 'PILAR - BUENOS AIRES' }]
+  const notas = [
+    { fecha: '2026-11-24 10:15', cod_sede: '57', nota: 'Llamé al coordinador, pide folletos' },
+    { fecha: "'2026-11-25 09:00", cod_sede: '022', nota: 'Visita a colegio' },
+    { fecha: '2026-11-21 18:00', cod_sede: '57', nota: 'De la semana anterior' },
+    { fecha: '2026-11-26 12:00', cod_sede: '57', nota: '' },
+    { fecha: '2026-11-26 12:00', cod_sede: '22', nota: 'Ya está en la bitácora' },
+    { fecha: '2026-11-24 11:00', cod_sede: '57', nota: 'Llamé al coordinador, pide folletos' },
+  ]
+  const ya = [{ motivo: 'ya esta en la bitacora' }]
+  const r = notasDeSedeComoItems(notas, '2026-11-23', '2026-11-29', sedesN, ya)
+  igual(r.length, 2, 'notas de sede: solo las de la semana, sin vacías, repetidas ni las que ya están en la bitácora')
+  igual(r.map(x => x.sede), ['MORÓN - BUENOS AIRES', 'PILAR - BUENOS AIRES'], 'notas de sede: nombre de la sede por código (022 = 22)')
+  ok(r.every(x => x.tipo === 'observacion' && x.fuente === 'ficha' && x.id.startsWith('n')), 'notas de sede: entran como observación marcada')
+  igual(notasDeSedeComoItems(notas, '2026-11-23', '2026-11-29', sedesN, ya)[0].id, r[0].id, 'notas de sede: id estable')
 }
 
 if (fallas) { console.log(`\n${fallas} prueba(s) fallaron`); process.exit(1) }

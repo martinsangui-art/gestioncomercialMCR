@@ -2,10 +2,10 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { C, F, panel, rotulo, cifra } from '../lib/theme'
 import { hoyIso, fmtFecha } from '../lib/formato'
 import { useIsMobile } from '../hooks/useIsMobile'
-import { obtenerBitacora, redactarInforme } from '../hooks/useSheets'
+import { obtenerBitacora, redactarInforme, obtenerNotasTodas } from '../hooks/useSheets'
 import {
   semanaDe, sumarDias, etiquetaSemana, corteDeLaSemana, tablaComoVamos, armarInforme,
-  redaccionBase, huellaNotas, huellaItem, avisosNotas, tituloAnotacion, ddmm, fmtPct, controlarRedaccion,
+  redaccionBase, huellaNotas, huellaItem, avisosNotas, tituloAnotacion, ddmm, fmtPct, controlarRedaccion, notasDeSedeComoItems,
 } from '../lib/informe'
 import { descargarDocx, htmlInforme } from '../lib/informeDocx'
 import ImportarWord from '../components/ImportarWord'
@@ -114,6 +114,7 @@ function Anotacion({ it, titulo, txt, origen, motivoRevisar, bloqueado, onCambio
         <span style={{ fontWeight: 800, fontSize: 15, color: C.ink }}>
           {tipo === 'semana' ? 'Durante la semana' : ddmm(it.fecha)}{it.hora ? ` · ${it.hora} HS` : ''}{titulo ? ` — ${titulo}` : ''}
         </span>
+        {it.fuente === 'ficha' && <span style={{ fontSize: 11, fontWeight: 700, color: C.navy, background: 'rgba(27,42,107,.08)', borderRadius: 999, padding: '2px 8px' }}>De la ficha de la sede</span>}
         <span style={{ marginLeft: 'auto', fontSize: 11.5, fontWeight: 700, color: etiquetaOrigen[1], fontFamily: F.mono }}>{etiquetaOrigen[0]}</span>
       </div>
       {origen === 'revisar' && motivoRevisar && (
@@ -183,11 +184,23 @@ export default function Informe({ data, historial, campanas, campanaActiva, sede
   // planilla o de Gemini) para otra semana se descarta, no pisa esta.
   const vigente = useRef(lunes)
   vigente.current = lunes
+  const listaSedesRef = useRef([])
+  listaSedesRef.current = sedes?.length ? sedes : data
   const cargar = useCallback(() => {
     const pedida = semana.lunes
     setCargando(true); setError(null); setErrorGemini(null); setBitacora(null)
-    obtenerBitacora(semana.lunes, semana.domingo)
-      .then(b => { if (vigente.current === pedida) setBitacora({ items: b?.items || [], sinFecha: b?.sinFecha || [] }) })
+    // Bitácora + notas de la ficha de cada sede. Si las notas fallan, el
+    // informe sale igual con la bitácora (y avisa).
+    Promise.all([
+      obtenerBitacora(semana.lunes, semana.domingo),
+      obtenerNotasTodas().then(n => ({ ok: true, n }), () => ({ ok: false, n: [] })),
+    ])
+      .then(([b, notas]) => {
+        if (vigente.current !== pedida) return
+        const deBitacora = b?.items || []
+        const deFichas = notasDeSedeComoItems(notas.n, semana.lunes, semana.domingo, listaSedesRef.current, deBitacora)
+        setBitacora({ items: [...deBitacora, ...deFichas], sinFecha: b?.sinFecha || [], notasFallaron: !notas.ok })
+      })
       .catch(e => { if (vigente.current === pedida) { setBitacora(null); setError(e.message) } })
       .finally(() => { if (vigente.current === pedida) setCargando(false) })
   }, [semana.lunes, semana.domingo])
@@ -423,7 +436,7 @@ export default function Informe({ data, historial, campanas, campanaActiva, sede
           </div>
         </div>
         <p style={{ margin: '0 0 14px', fontSize: 13.5, color: C.inkSoft, lineHeight: 1.5 }}>
-          Salen de la pestaña <b>bitacora</b> de la planilla, o del Word con tus notas (<b>Subir Word con notas</b>: Gemini las ordena y vos confirmás antes de guardar). Gemini solo pule la redacción: no agrega datos ni toca los números (si cambia una cifra u hora, la anotación queda marcada). Revisá y corregí acá antes de bajar el Word.
+          Salen de la pestaña <b>bitacora</b> de la planilla, de las <b>notas que cargás en la ficha de cada sede</b>, o del Word con tus notas (<b>Subir Word con notas</b>: Gemini las ordena y vos confirmás antes de guardar). Gemini solo pule la redacción: no agrega datos ni toca los números (si cambia una cifra u hora, la anotación queda marcada). Revisá y corregí acá antes de bajar el Word.
         </p>
 
         {error && <Aviso tono="error">No se pudieron leer las anotaciones: {error}</Aviso>}
@@ -436,6 +449,9 @@ export default function Informe({ data, historial, campanas, campanaActiva, sede
           </Aviso></div>
         )}
 
+        {bitacora?.notasFallaron && (
+          <div role="status" style={{ fontSize: 12.5, color: C.warn, margin: '6px 0' }}>No se pudieron leer las notas de las fichas de las sedes: el informe muestra solo la bitácora. Tocá «Volver a leer la planilla».</div>
+        )}
         {bitacora && !items.length && !error && (
           <Aviso tono="info">
             No hay anotaciones del {fmtFecha(semana.lunes)} al {fmtFecha(semana.domingo)}. La forma más fácil: juntá tus notas de la semana en un Word y tocá <b>Subir Word con notas</b>. También se pueden cargar a mano en la pestaña <b>bitacora</b>, una fila por actividad:
