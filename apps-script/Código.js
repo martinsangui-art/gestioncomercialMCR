@@ -87,6 +87,7 @@ function err(msg) {
 //   historial&campana=C2 → historial filtrado (todas las fechas)
 //   semana_actual&campana=C2 → solo la semana más reciente
 //   semanas&campana=C2  → lista de fechas disponibles
+//   bitacora&desde=AAAA-MM-DD&hasta=AAAA-MM-DD → anotaciones de Cele en ese rango
 // ════════════════════════════════════════════════════════════════════════
 function doGet(e) {
   try {
@@ -141,6 +142,9 @@ function doGet(e) {
     }
     else if (action === 'notas_sede') {
       result = okData(getNotasSede(e.parameter.cod_sede));
+    }
+    else if (action === 'bitacora') {
+      result = okData(getBitacora(e.parameter.desde, e.parameter.hasta));
     }
     else if (action === 'resumen_cele') {
       var itemsParsed = JSON.parse(e.parameter.items || '[]');
@@ -203,6 +207,8 @@ function okData(data) { return { ok: true, data: data }; }
 //     { cod, campana, fecha }   (fecha = la del corte)
 //   desmarcar_por_fuera → saca esa marca (las filas 'por fuera' de ese corte)
 //     { cod, campana, fecha }
+//   redactar_informe → Claude pule el texto de las anotaciones de la bitácora
+//     { items: [{ id, tipo, sede, motivo, resultado, acciones }] }
 // ════════════════════════════════════════════════════════════════════════
 function doPost(e) {
   try {
@@ -229,6 +235,7 @@ function doPost(e) {
     if (action === 'deshacer') return ok(deshacerUltimo(body));
     if (action === 'restaurar_backup') return ok(restaurarBackup(body));
     if (action === 'set_objetivo') return ok(setObjetivo(body));
+    if (action === 'redactar_informe') return ok(redactarInforme(body));
     // Envío por POST (el front nuevo): el HTML del mail ya no viaja en la URL.
     // Las mismas acciones siguen por GET para el front viejo.
     if (action === 'enviar_email') {
@@ -301,7 +308,7 @@ function setPassword(body) {
 // no poder pisar AUTH_SECRET/AUTH_PASSWORD_* por error desde acá. Pensado
 // para que el propio usuario lo corra desde la consola del navegador (nunca
 // pasando el valor por el chat con el asistente).
-var SECRETOS_PERMITIDOS = ['MAKE_API_TOKEN', 'MAKE_SCENARIO_ID', 'MAKE_ZONE', 'ALERTA_EMAIL'];
+var SECRETOS_PERMITIDOS = ['MAKE_API_TOKEN', 'MAKE_SCENARIO_ID', 'MAKE_ZONE', 'ALERTA_EMAIL', 'ANTHROPIC_API_KEY'];
 function setSecretProp(body) {
   if (!body.clave || body.valor === undefined) throw new Error('Falta clave o valor');
   if (SECRETOS_PERMITIDOS.indexOf(body.clave) === -1) throw new Error('Clave no permitida: ' + body.clave);

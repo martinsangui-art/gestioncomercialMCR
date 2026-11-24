@@ -24,7 +24,7 @@ function fmtFecha(iso) {
 // Mismo sistema visual que la app ("señalética"): Archivo para texto y
 // cifras expandidas, Chivo Mono para datos, navy + rojo UCASAL, estado en
 // verde/ámbar/rojo. Pensado para imprimir en A4 en blanco y negro también.
-function estilosPDF() {
+export function estilosPDF() {
   return `<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=Chivo+Mono:wght@400;600&display=swap" rel="stylesheet">
   <style>
     @page{size:A4;margin:16mm 15mm}
@@ -63,7 +63,7 @@ function estilosPDF() {
   </style>`
 }
 
-function headerPDF(fecha, campNombre, titulo = 'Informe de cumplimiento') {
+export function headerPDF(fecha, campNombre, titulo = 'Informe de cumplimiento') {
   return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>${titulo} · ${campNombre}</title>${estilosPDF()}</head><body>
     <div class="header">
       <div class="marca">${ASSETS_PDF.logo ? `<img src="${ASSETS_PDF.logo}" alt="UCASAL">` : '<strong>UCASAL</strong>'}<span>Gestión comercial<br>Zona Buenos Aires</span></div>
@@ -75,7 +75,7 @@ function headerPDF(fecha, campNombre, titulo = 'Informe de cumplimiento') {
     </div>`
 }
 
-function footerPDF(fecha) {
+export function footerPDF(fecha) {
   return `<div class="footer" style="margin-top:32px;border-top:3px solid #C8102E;padding-top:14px">
       <img src="${ASSETS_PDF.firma}" alt="Firma Ing. Maria Celeste Rossi" style="max-width:480px;width:100%;display:block;margin-bottom:10px">
       <div style="display:flex;justify-content:space-between;font-family:'Chivo Mono',monospace;font-size:8.5px;color:#5A6480;margin-top:6px">
@@ -113,7 +113,7 @@ function miniChartPDF(historialSede, totalActual, obj) {
 // bloquean como popup (sobre todo si hay algo async entre el click y el open).
 // Un <a> con blob: URL y target="_blank" es navegación normal, no popup — no
 // pide permisos y sigue abriendo la vista previa en una pestaña para Ctrl+P.
-function abrirVentanaPDF(html, onToast) {
+export function abrirVentanaPDF(html, onToast) {
   try {
     const blob = new Blob([html], { type: 'text/html' })
     const url = URL.createObjectURL(blob)

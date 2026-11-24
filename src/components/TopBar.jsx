@@ -8,6 +8,7 @@ const NAV = [
   { id: 'sedes',     label: 'Sedes' },
   { id: 'historial', label: 'Historial' },
   { id: 'envio',     label: 'Envío' },
+  { id: 'informe',   label: 'Informe' },
 ]
 
 // Selector de campaña: la campaña es el contexto de toda la app, así que
