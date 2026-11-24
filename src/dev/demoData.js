@@ -127,6 +127,7 @@ export function demoInterpretar({ desde }) {
     { fecha: dia(1), fechaDeducida: true, tipo: 'reunion', sede: 'LANÚS', hora: '10:00', motivo: 'baja de consultas\nredes de la sede', resultado: 'retomar publicaciones 3 veces por semana', acciones: '', cita: 'martes 10hs reunion lanus por baja de consultas...' },
     { fecha: dia(3), fechaDeducida: false, tipo: 'auditoria', sede: 'QUILMES', hora: '', motivo: '', resultado: 'atencion correcta, falta folleteria', acciones: 'reponer folletos', cita: 'auditoria quilmes...' },
     { fecha: '', fechaDeducida: false, tipo: 'observacion', sede: 'Salesforce', hora: '', motivo: '', resultado: 'pedido de usuarios nuevos', acciones: '', cita: 'pedir usuarios salesforce' },
+    { fecha: dia(1), fechaDeducida: true, tipo: 'reunion', sede: 'LANÚS', hora: '10:00', motivo: 'baja de consultas\nredes de la sede', resultado: 'retomar publicaciones 3 veces por semana', acciones: '', cita: '(repetida en el Word)' },
     { fecha: dia(0), fechaDeducida: false, tipo: 'observacion', sede: 'GONZALEZ CATÁN', hora: '', motivo: '', resultado: 'banner + 2 folletos personalizados, ya en imprenta', acciones: '', cita: 'gonzalez catan banner' },
   ] }), 900))
 }
