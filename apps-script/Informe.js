@@ -1,10 +1,10 @@
 // ═══════════════════════════════════════════════════════════════════════
-// INFORME SEMANAL — bitácora de Cele + redacción con Claude
+// INFORME SEMANAL — bitácora de Cele + redacción con Gemini
 // ═══════════════════════════════════════════════════════════════════════
 // Cele anota durante la semana en la pestaña 'bitacora' de esta planilla
 // (una fila por actividad). La app lee las filas de la semana, arma la
-// tabla "Cómo vamos" con los cortes y le pide a Claude solo que pula la
-// redacción. Los números nunca pasan por Claude.
+// tabla "Cómo vamos" con los cortes y le pide a Gemini solo que pula la
+// redacción. Los números nunca pasan por la IA.
 
 var BITACORA_HOJA = 'bitacora';
 var BITACORA_COLUMNAS = ['fecha', 'tipo', 'sede', 'hora', 'motivo', 'resultado', 'acciones_mejora'];
@@ -14,14 +14,15 @@ var BITACORA_AYUDA = {
   tipo: 'Reunión · Auditoría · Observación · Toda la semana. Define en qué parte del informe aparece.',
   sede: 'Sede (elegila de la lista) o el tema si no es de una sede: "Salesforce", "Reunión con Fernando Gamarra"…',
   hora: 'Solo para reuniones (ej. 8:30). Opcional.',
-  motivo: 'Reuniones: los temas que se trataron. Uno por renglón (Alt+Enter) o separados por ";". Pueden ser notas sueltas: Claude las redacta.',
+  motivo: 'Reuniones: los temas que se trataron. Uno por renglón (Alt+Enter) o separados por ";". Pueden ser notas sueltas: la IA las redacta.',
   resultado: 'Reuniones: qué se acordó o se hizo. Auditorías: el resultado. Observaciones: qué pasó. Notas sueltas está bien.',
   acciones_mejora: 'Solo auditorías: las acciones de mejora.'
 };
 
-// Modelo para redactar: texto corto en español con criterio, Sonnet alcanza
-// y sobra (unos centavos de dólar por informe).
-var INFORME_MODELO = 'claude-sonnet-5-5';
+// Redacción con Gemini (Google). La clave va en Propiedades del script como
+// GEMINI_API_KEY. El modelo se puede cambiar sin tocar código con la
+// propiedad GEMINI_MODEL (si Google retira el de abajo).
+var INFORME_MODELO_DEFECTO = 'gemini-3.8-flash';
 
 function getBitacoraSheet() {
   var h = SS.getSheetByName(BITACORA_HOJA);
@@ -144,7 +145,7 @@ function getBitacora(desde, hasta) {
   return { items: items, sinFecha: sinFecha, hoja: true };
 }
 
-// ── Redacción con Claude ────────────────────────────────────────────────────
+// ── Redacción con IA ──────────────────────────────────────────────────────
 var INFORME_SISTEMA = [
   'Sos el asistente de la Coordinación Zonal Buenos Aires de UCASAL (universidad).',
   'Redactás las anotaciones de la coordinadora para el informe semanal que lee su jefa.',
@@ -171,8 +172,10 @@ var INFORME_SISTEMA = [
 var INFORME_TANDA = 12;
 
 function redactarInforme(body) {
-  var key = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
+  var props = PropertiesService.getScriptProperties();
+  var key = props.getProperty('GEMINI_API_KEY');
   if (!key) throw new Error('SIN_API_KEY');
+  var modelo = props.getProperty('GEMINI_MODEL') || INFORME_MODELO_DEFECTO;
   var items = body.items || [];
   if (!items.length) return { items: [] };
   if (items.length > 120) throw new Error('Demasiadas anotaciones para una semana (' + items.length + ')');
@@ -186,16 +189,15 @@ function redactarInforme(body) {
   for (var i = 0; i < entrada.length; i += INFORME_TANDA) tandas.push(entrada.slice(i, i + INFORME_TANDA));
   var pedidos = tandas.map(function(t) {
     return {
-      url: 'https://api.anthropic.com/v1/messages',
+      url: 'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(modelo) + ':generateContent',
       method: 'post',
       contentType: 'application/json',
-      headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01' },
+      headers: { 'x-goog-api-key': key },
       muteHttpExceptions: true,
       payload: JSON.stringify({
-        model: INFORME_MODELO,
-        max_tokens: 8000,
-        system: INFORME_SISTEMA,
-        messages: [{ role: 'user', content: 'Anotaciones de la semana:\n' + JSON.stringify(t, null, 1) }]
+        systemInstruction: { parts: [{ text: INFORME_SISTEMA }] },
+        contents: [{ role: 'user', parts: [{ text: 'Anotaciones de la semana:\n' + JSON.stringify(t, null, 1) }] }],
+        generationConfig: { responseMimeType: 'application/json', temperature: 0.2, maxOutputTokens: 8192 }
       })
     };
   });
@@ -203,22 +205,25 @@ function redactarInforme(body) {
   UrlFetchApp.fetchAll(pedidos).forEach(function(resp) {
     var code = resp.getResponseCode();
     var txt = resp.getContentText();
-    if (code === 401) throw new Error('La clave de Claude (ANTHROPIC_API_KEY) no es válida');
-    if (code === 404) throw new Error('Claude no reconoce el modelo ' + INFORME_MODELO + ': hay que actualizarlo en apps-script/Informe.js');
-    if (code === 429 || code === 529) throw new Error('Claude está saturado: probá de nuevo en un minuto');
-    if (code !== 200) throw new Error('Claude respondió ' + code + ': ' + txt.slice(0, 200));
+    if (code === 400 && /API key/i.test(txt)) throw new Error('La clave de Gemini (GEMINI_API_KEY) no es válida');
+    if (code === 401 || code === 403) throw new Error('La clave de Gemini (GEMINI_API_KEY) no es válida o no tiene permiso');
+    if (code === 404) throw new Error('Google no reconoce el modelo ' + modelo + ': cargá otro en la propiedad GEMINI_MODEL');
+    if (code === 429) throw new Error('Se alcanzó el límite de uso de Gemini: probá de nuevo en un rato');
+    if (code === 503 || code === 500) throw new Error('Gemini está saturado: probá de nuevo en un minuto');
+    if (code !== 200) throw new Error('Gemini respondió ' + code + ': ' + txt.slice(0, 200));
     var data = JSON.parse(txt);
-    if (data.stop_reason === 'max_tokens') throw new Error('La respuesta de Claude salió cortada: probá de nuevo');
-    var salida = (data.content || []).filter(function(b) { return b.type === 'text'; })
-      .map(function(b) { return b.text; }).join('');
+    var cand = (data.candidates || [])[0];
+    if (!cand) throw new Error('Gemini no devolvió respuesta' + (data.promptFeedback && data.promptFeedback.blockReason ? ' (' + data.promptFeedback.blockReason + ')' : ''));
+    if (cand.finishReason === 'MAX_TOKENS') throw new Error('La respuesta de Gemini salió cortada: probá de nuevo');
+    var salida = ((cand.content && cand.content.parts) || []).map(function(p) { return p.text || ''; }).join('');
     var a = salida.indexOf('{'), z = salida.lastIndexOf('}');
-    if (a === -1 || z === -1) throw new Error('Claude no devolvió el formato esperado');
+    if (a === -1 || z === -1) throw new Error('Gemini no devolvió el formato esperado');
     var parsed = JSON.parse(salida.slice(a, z + 1));
     (parsed.items || []).forEach(function(x) { if (x && x.id) porId[String(x.id)] = x; });
   });
   var lista = function(v) { return Array.isArray(v) ? v.map(String).filter(function(s) { return s.trim(); }) : (v ? [String(v)] : []); };
   return {
-    modelo: INFORME_MODELO,
+    modelo: modelo,
     items: items.map(function(it) {
       var x = porId[String(it.id)];
       if (!x) return { id: String(it.id), faltante: true };

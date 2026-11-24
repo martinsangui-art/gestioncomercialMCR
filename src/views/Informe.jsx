@@ -21,7 +21,7 @@ const CAMPOS = {
 const ETIQUETA_TIPO = { reunion: 'Reunión', auditoria: 'Auditoría', observacion: 'Observación', semana: 'Toda la semana' }
 const tipoDe = (it) => (CAMPOS[it.tipo] ? it.tipo : 'observacion')
 const unir = (...xs) => xs.map(x => String(x || '').trim()).filter(Boolean).join('\n')
-function entradaClaude(it) {
+function entradaGemini(it) {
   const t = tipoDe(it)
   if (t === 'reunion') return { tipo: t, motivo: it.motivo, resultado: unir(it.resultado, it.acciones), acciones: '' }
   if (t === 'auditoria') return { tipo: t, motivo: '', resultado: unir(it.motivo, it.resultado), acciones: it.acciones }
@@ -105,7 +105,7 @@ function TablaSedes({ tabla, columnaObjetivo, columnaCorte }) {
 function Anotacion({ it, titulo, txt, origen, motivoRevisar, bloqueado, onCambio }) {
   const tipo = tipoDe(it)
   const notaOriginal = [['Motivo', it.motivo], ['Resultado', it.resultado], ['Acciones', it.acciones]].filter(([, v]) => v)
-  const etiquetaOrigen = { claude: ['Redactado por Claude', C.ink], editado: ['Editado', C.navy], notas: ['Tus notas', C.inkSoft], faltante: ['Claude no lo devolvió: quedan tus notas', C.crimson], revisar: ['Revisá contra la nota original', C.crimson] }[origen] || ['Tus notas', C.inkSoft]
+  const etiquetaOrigen = { claude: ['Redactado por Gemini', C.ink], editado: ['Editado', C.navy], notas: ['Tus notas', C.inkSoft], faltante: ['Gemini no lo devolvió: quedan tus notas', C.crimson], revisar: ['Revisá contra la nota original', C.crimson] }[origen] || ['Tus notas', C.inkSoft]
   return (
     <div style={{ ...panel({ padding: 16 }), borderLeft: `4px solid ${tipo === 'reunion' ? C.navy : tipo === 'auditoria' ? C.warn : C.celeste}` }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
@@ -160,9 +160,9 @@ export default function Informe({ data, historial, campanas, campanaActiva, sede
   const [error, setError] = useState(null)
   const [textos, setTextos] = useState({})    // id → { campo: texto }
   const [origen, setOrigen] = useState({})    // id → 'notas' | 'claude' | 'editado' | 'faltante' | 'revisar'
-  const [revisar, setRevisar] = useState({})  // id → por qué revisar lo de Claude
+  const [revisar, setRevisar] = useState({})  // id → por qué revisar lo de Gemini
   const [redactando, setRedactando] = useState(false)
-  const [errorClaude, setErrorClaude] = useState(null)
+  const [errorGemini, setErrorGemini] = useState(null)
   const [generando, setGenerando] = useState(false)
   const [mensaje, setMensaje] = useState(null)
   const [verTabla, setVerTabla] = useState(false)
@@ -170,12 +170,12 @@ export default function Informe({ data, historial, campanas, campanaActiva, sede
   useEffect(() => { precargarAssetsPDF() }, [])
 
   // Semana que se está mirando ahora: una respuesta que llega tarde (de la
-  // planilla o de Claude) para otra semana se descarta, no pisa esta.
+  // planilla o de Gemini) para otra semana se descarta, no pisa esta.
   const vigente = useRef(lunes)
   vigente.current = lunes
   const cargar = useCallback(() => {
     const pedida = semana.lunes
-    setCargando(true); setError(null); setErrorClaude(null); setBitacora(null)
+    setCargando(true); setError(null); setErrorGemini(null); setBitacora(null)
     obtenerBitacora(semana.lunes, semana.domingo)
       .then(b => { if (vigente.current === pedida) setBitacora({ items: b?.items || [], sinFecha: b?.sinFecha || [] }) })
       .catch(e => { if (vigente.current === pedida) { setBitacora(null); setError(e.message) } })
@@ -254,15 +254,15 @@ export default function Informe({ data, historial, campanas, campanaActiva, sede
     setOrigen(o => ({ ...o, [id]: 'editado' }))
   }
 
-  const conClaude = async () => {
+  const conGemini = async () => {
     if (Object.values(origen).some(o => o === 'editado') &&
-      !window.confirm('Claude va a reescribir todas las anotaciones y se pierden los cambios que hiciste acá. ¿Seguimos?')) return
+      !window.confirm('Gemini va a reescribir todas las anotaciones y se pierden los cambios que hiciste acá. ¿Seguimos?')) return
     const pedida = lunes, huellaPedida = huella
-    const entradas = Object.fromEntries(items.map(it => [it.id, entradaClaude(it)]))
-    setRedactando(true); setErrorClaude(null)
+    const entradas = Object.fromEntries(items.map(it => [it.id, entradaGemini(it)]))
+    setRedactando(true); setErrorGemini(null)
     try {
       const r = await redactarInforme(items.map(it => ({ id: it.id, sede: tituloAnotacion(it.sede, listaSedes), ...entradas[it.id] })))
-      // Cambió la semana o las notas mientras Claude redactaba: no se aplica
+      // Cambió la semana o las notas mientras Gemini redactaba: no se aplica
       if (vigente.current !== pedida || huellaRef.current !== huellaPedida) return
       const nuevosT = {}, nuevosO = {}, nuevosR = {}
       ;(r?.items || []).forEach(x => {
@@ -282,14 +282,14 @@ export default function Informe({ data, historial, campanas, campanaActiva, sede
       setOrigen(prev => ({ ...prev, ...nuevosO }))
       setRevisar(nuevosR); setRedaccionVieja(false)
     } catch (e) {
-      setErrorClaude(e.message === 'SIN_API_KEY'
-        ? 'Todavía no está cargada la clave de Claude en la planilla. Mientras tanto podés armar el informe con tus notas tal cual.'
-        : `No se pudo redactar con Claude: ${e.message}`)
+      setErrorGemini(e.message === 'SIN_API_KEY'
+        ? 'Todavía no está cargada la clave de Gemini en el Apps Script (GEMINI_API_KEY). Mientras tanto podés armar el informe con tus notas tal cual.'
+        : `No se pudo redactar con Gemini: ${e.message}`)
     } finally { setRedactando(false) }
   }
 
   const volverANotas = () => {
-    if (!window.confirm('Se descarta la redacción de Claude y tus cambios: vuelven tus notas tal cual. ¿Seguimos?')) return
+    if (!window.confirm('Se descarta la redacción de Gemini y tus cambios: vuelven tus notas tal cual. ¿Seguimos?')) return
     const base = {}, org = {}
     items.forEach(it => { base[it.id] = aTexto(redaccionBase({ ...it, tipo: tipoDe(it) })); org[it.id] = 'notas' })
     setTextos(base); setOrigen(org); setRevisar({})
@@ -311,7 +311,7 @@ export default function Informe({ data, historial, campanas, campanaActiva, sede
     abrirVentanaPDF(htmlInforme(informe, { headerPDF, footerPDF, fechaCorte: corte.fecha, campNombre: escHtml(camp?.nombre || '') }), setMensaje)
   }
 
-  const hayClaudeOEdicion = Object.values(origen).some(o => o !== 'notas')
+  const hayGeminiOEdicion = Object.values(origen).some(o => o !== 'notas')
   const puedeGenerar = !!informe && !cargando && !error && !redactando
 
   return (
@@ -369,19 +369,19 @@ export default function Informe({ data, historial, campanas, campanaActiva, sede
           <h2 style={h2}>Auditorías, reuniones y observaciones</h2>
           <button onClick={cargar} disabled={cargando || redactando} style={linkBtn}>{cargando ? 'Leyendo la planilla…' : 'Volver a leer la planilla'}</button>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {hayClaudeOEdicion && <Boton tono="secundario" onClick={volverANotas} disabled={redactando}>Volver a mis notas</Boton>}
-            <Boton tono="claude" onClick={conClaude} disabled={!items.length || redactando || cargando}>
-              {redactando ? 'Claude está redactando…' : 'Redactar con Claude'}
+            {hayGeminiOEdicion && <Boton tono="secundario" onClick={volverANotas} disabled={redactando}>Volver a mis notas</Boton>}
+            <Boton tono="claude" onClick={conGemini} disabled={!items.length || redactando || cargando}>
+              {redactando ? 'Gemini está redactando…' : 'Redactar con Gemini'}
             </Boton>
           </div>
         </div>
         <p style={{ margin: '0 0 14px', fontSize: 13.5, color: C.inkSoft, lineHeight: 1.5 }}>
-          Salen de la pestaña <b>bitacora</b> de la planilla. Claude solo pule la redacción: no agrega datos ni toca los números. Revisá y corregí acá antes de bajar el Word.
+          Salen de la pestaña <b>bitacora</b> de la planilla. Gemini solo pule la redacción: no agrega datos ni toca los números (si cambia una cifra u hora, la anotación queda marcada). Revisá y corregí acá antes de bajar el Word.
         </p>
 
         {error && <Aviso tono="error">No se pudieron leer las anotaciones: {error}</Aviso>}
-        {errorClaude && <div style={{ marginBottom: 12 }}><Aviso tono="error">{errorClaude}</Aviso></div>}
-        {redaccionVieja && <div style={{ marginBottom: 12 }}><Aviso tono="info">Algunas anotaciones cambiaron en la planilla desde la última redacción: esas vuelven a tus notas tal cual (el resto conserva lo que ya estaba). Si querés, volvé a redactar con Claude.</Aviso></div>}
+        {errorGemini && <div style={{ marginBottom: 12 }}><Aviso tono="error">{errorGemini}</Aviso></div>}
+        {redaccionVieja && <div style={{ marginBottom: 12 }}><Aviso tono="info">Algunas anotaciones cambiaron en la planilla desde la última redacción: esas vuelven a tus notas tal cual (el resto conserva lo que ya estaba). Si querés, volvé a redactar con Gemini.</Aviso></div>}
         {avisos.length > 0 && (
           <div style={{ marginBottom: 12 }}><Aviso>
             <b>Revisá en la planilla:</b>
@@ -393,7 +393,7 @@ export default function Informe({ data, historial, campanas, campanaActiva, sede
           <Aviso tono="info">
             No hay anotaciones del {fmtFecha(semana.lunes)} al {fmtFecha(semana.domingo)}. En la pestaña <b>bitacora</b> va una fila por actividad:
             <b> fecha</b>, <b>tipo</b> (Reunión, Auditoría, Observación o Toda la semana), <b>sede</b> (o el tema), <b>hora</b> (reuniones),
-            <b> motivo</b>, <b>resultado</b> y <b>acciones_mejora</b> (auditorías). Pueden ser notas sueltas: Claude las redacta. Sin anotaciones, el informe sale igual con la tabla y las secciones vacías.
+            <b> motivo</b>, <b>resultado</b> y <b>acciones_mejora</b> (auditorías). Pueden ser notas sueltas: Gemini las redacta. Sin anotaciones, el informe sale igual con la tabla y las secciones vacías.
           </Aviso>
         )}
 

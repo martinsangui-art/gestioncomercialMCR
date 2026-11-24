@@ -193,18 +193,18 @@ export function nombreArchivo(inf) {
   return `Informe semanal Zona Buenos Aires ${inf.periodo}`.replace(/[\\/:*?"<>|]/g, '-')
 }
 
-// Control de lo que devuelve Claude: nada que estaba en la nota puede quedar
+// Control de lo que devuelve la IA: nada que estaba en la nota puede quedar
 // vacío, y las cifras y horas tienen que ser las mismas (ni cambiadas ni
 // inventadas). Devuelve el motivo para revisar, o null si está bien.
 const numeros = (s) => (String(s || '').match(/\d+(?:[.,:]\d+)?/g) || []).map(n => n.replace(',', '.')).sort()
 export function controlarRedaccion(entrada, salida) {
   const textoIn = [entrada.motivo, entrada.resultado, entrada.acciones].join(' ')
   const textoOut = [salida.motivo, salida.resultado, salida.acciones, salida.texto].flat().join(' ')
-  if (textoIn.trim() && !textoOut.trim()) return 'Claude la devolvió vacía'
-  if (entrada.tipo === 'reunion' && String(entrada.motivo || '').trim() && !(salida.motivo || []).length) return 'Claude dejó el motivo vacío'
-  if (entrada.tipo === 'reunion' && String(entrada.resultado || '').trim() && !(salida.resultado || []).length) return 'Claude dejó el resultado vacío'
-  if (entrada.tipo === 'auditoria' && String(entrada.acciones || '').trim() && !(salida.acciones || []).length) return 'Claude dejó las acciones vacías'
+  if (textoIn.trim() && !textoOut.trim()) return 'la IA la devolvió vacía'
+  if (entrada.tipo === 'reunion' && String(entrada.motivo || '').trim() && !(salida.motivo || []).length) return 'la IA dejó el motivo vacío'
+  if (entrada.tipo === 'reunion' && String(entrada.resultado || '').trim() && !(salida.resultado || []).length) return 'la IA dejó el resultado vacío'
+  if (entrada.tipo === 'auditoria' && String(entrada.acciones || '').trim() && !(salida.acciones || []).length) return 'la IA dejó las acciones vacías'
   const a = numeros(textoIn), b = numeros(textoOut)
-  if (a.join('|') !== b.join('|')) return `cambiaron las cifras u horas (nota: ${a.join(', ') || 'ninguna'} · Claude: ${b.join(', ') || 'ninguna'})`
+  if (a.join('|') !== b.join('|')) return `cambiaron las cifras u horas (nota: ${a.join(', ') || 'ninguna'} · IA: ${b.join(', ') || 'ninguna'})`
   return null
 }

@@ -91,10 +91,10 @@ igual(tx.fueraDeLista, [{ cod: '2', sede: 'DESACTIVADA', total: 5 }], 'tabla: av
 igual(redaccionBase({ tipo: 'reunion', motivo: 'a', resultado: 'b', acciones: 'c' }).resultado, ['b', 'c'], 'reunión: las acciones no se pierden')
 igual(redaccionBase({ tipo: 'auditoria', motivo: 'm', resultado: 'r', acciones: 'x' }).resultado, ['m', 'r'], 'auditoría: el motivo no se pierde')
 igual(encabezadoObservacion(armarInforme({ semana: semanaDe('2026-08-14'), tabla, fechaCorte: '2026-08-14', items: [{ id: 'z', fecha: '2026-08-11', tipo: 'observacion', sede: '', hora: '10:00', resultado: 'x' }], sedes: data }).observaciones[0]), '11/08 10:00 HS:', 'observación: la hora no se pierde')
-igual(controlarRedaccion({ tipo: 'reunion', motivo: 'ferias', resultado: 'de 10 a 17 h' }, { motivo: ['Ferias.'], resultado: ['Entre las 10 y las 17 h.'] }), null, 'Claude: mismas cifras, ok')
-ok(/cifras/.test(controlarRedaccion({ tipo: 'observacion', resultado: '2 folletos' }, { texto: 'tres folletos' })), 'Claude: cifra cambiada se marca')
-ok(/cifras/.test(controlarRedaccion({ tipo: 'observacion', resultado: 'banner' }, { texto: 'banner para 40 alumnos' })), 'Claude: cifra inventada se marca')
-ok(/vac/.test(controlarRedaccion({ tipo: 'reunion', motivo: 'a', resultado: 'b' }, { motivo: ['A.'], resultado: [] })), 'Claude: resultado vacío se marca')
+igual(controlarRedaccion({ tipo: 'reunion', motivo: 'ferias', resultado: 'de 10 a 17 h' }, { motivo: ['Ferias.'], resultado: ['Entre las 10 y las 17 h.'] }), null, 'IA: mismas cifras, ok')
+ok(/cifras/.test(controlarRedaccion({ tipo: 'observacion', resultado: '2 folletos' }, { texto: 'tres folletos' })), 'IA: cifra cambiada se marca')
+ok(/cifras/.test(controlarRedaccion({ tipo: 'observacion', resultado: 'banner' }, { texto: 'banner para 40 alumnos' })), 'IA: cifra inventada se marca')
+ok(/vac/.test(controlarRedaccion({ tipo: 'reunion', motivo: 'a', resultado: 'b' }, { motivo: ['A.'], resultado: [] })), 'IA: resultado vacío se marca')
 ok(huellaItem(items[0]) === huellaItem({ ...items[0], id: 'otro', fila: 99 }), 'huella por ítem: no depende de la fila')
 
 if (fallas) { console.log(`\n${fallas} prueba(s) fallaron`); process.exit(1) }
