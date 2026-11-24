@@ -121,8 +121,13 @@ export default function ImportarWord({ semana, sedes, existentes, onAgregadas, d
         todas = todas.concat(r?.filas || [])
       }
       const propuestas = todas.map(f => {
+        // "Toda la semana" no tiene día: va el lunes de la semana (así lo
+        // pide la bitácora) en vez de dejarla sin fecha
+        const sinDia = f.tipo === 'semana' && !f.fecha
         const fila = {
           ...f,
+          fecha: sinDia ? semana.lunes : f.fecha,
+          fechaDeducida: sinDia || f.fechaDeducida,
           hora: normHora(f.hora),
           // En observaciones el motivo no tiene casillero: se suma al texto
           resultado: f.tipo === 'reunion' || f.tipo === 'auditoria' ? f.resultado : [f.motivo, f.resultado].filter(Boolean).join(' '),
