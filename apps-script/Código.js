@@ -1718,3 +1718,17 @@ function menuDesbloquearLogin() {
   CacheService.getScriptCache().remove('login_fallos');
   SpreadsheetApp.getUi().alert('Listo: se puede volver a entrar.');
 }
+
+// Manda a Make un pedido de muestra (sin destinatario) para que el webhook
+// aprenda el campo "clave" ("Detect new values" en Make). Correr desde el
+// editor solo cuando Make está escuchando: si el escenario lo procesara, el
+// mail no sale porque no tiene destinatario.
+function enviarMuestraMake() {
+  var r = UrlFetchApp.fetch(MAKE_WEBHOOK, {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify({ to: '', subject: '', html: '', sede: '', cod: '', fecha: '', tipo: 'muestra', clave: claveMake_() }),
+    muteHttpExceptions: true
+  });
+  Logger.log('Make respondió ' + r.getResponseCode());
+}
