@@ -164,11 +164,11 @@ export function useAuth() {
     })
   }, [])
 
-  const login = useCallback(async (password) => {
+  const login = useCallback(async (password, recordar = true) => {
     setLoading(true)
     setError(null)
     try {
-      const data = await jsonp('login', { password })
+      const data = await jsonp('login', recordar ? { password, recordar: '1' } : { password })
       setToken(data.token)
       setAuthed(true)
       setSessionExpired(false)
