@@ -78,61 +78,36 @@ function traducirError(msg) {
   return m
 }
 
-// JSONP helper — única forma confiable de llamar Apps Script desde el browser
-function jsonp(action, params = {}) {
+// Lecturas. Antes iban por JSONP (GET) y el token —o la contraseña, en el
+// login— quedaba en la URL: historial del navegador, logs de Google y
+// extensiones. Ahora van por POST como las escrituras; el nombre jsonp() se
+// mantiene para no tocar cada llamada.
+const TIMEOUT_LECTURA_MS = 30000
+async function jsonp(action, params = {}) {
   if (DEMO) return import('../dev/demoData').then(m => m.demoJsonp(action, params))
-  return new Promise((resolve, reject) => {
-    const cb = '_cb_' + Date.now() + '_' + Math.random().toString(36).slice(2)
-    let url = `${API}?action=${action}&callback=${cb}`
-    // El login no manda token (todavía no lo tiene); el resto sí
-    if (action !== 'login') url += `&token=${encodeURIComponent(getToken())}`
-    Object.entries(params).forEach(([k, v]) => { url += `&${k}=${encodeURIComponent(v)}` })
-
-    const timeout = setTimeout(() => {
-      cleanup()
-      reject(new Error('Timeout al conectar con Google Sheets'))
-    }, 20000)
-
-    window[cb] = (data) => {
-      cleanup()
-      if (data?.ok) resolve(data.data)
-      else if (data?.error === 'AUTH_REQUIRED') {
-        setToken('')
-        notifyAuthExpired()
-        reject(new Error('AUTH_REQUIRED'))
-      }
-      else reject(new Error(traducirError(data?.error) || 'Error en la API'))
-    }
-
-    function cleanup() {
-      clearTimeout(timeout)
-      delete window[cb]
-      if (el?.parentNode) el.parentNode.removeChild(el)
-    }
-
-    const el = document.createElement('script')
-    el.src = url
-    el.onerror = () => { cleanup(); reject(new Error('Error de red')) }
-    document.head.appendChild(el)
-  })
+  return post({ action, ...params }, TIMEOUT_LECTURA_MS)
 }
 
 // Escrituras por POST. Si la planilla no contesta en 90 segundos se corta el
 // pedido (antes quedaba colgado sin aviso); puede haberse guardado igual.
 const TIMEOUT_POST_MS = 90000
-async function post(body) {
+async function post(body, timeoutMs = TIMEOUT_POST_MS) {
   if (DEMO && body.action === 'redactar_informe') return import('../dev/demoData').then(m => m.demoRedactar(body))
   if (DEMO && body.action === 'interpretar_notas') return import('../dev/demoData').then(m => m.demoInterpretar(body))
   if (DEMO && body.action === 'agregar_bitacora') return Promise.resolve({ agregadas: body.filas.length })
   if (DEMO) throw new Error('Modo demo: no se guardan cambios')
+  const segs = Math.round(timeoutMs / 1000)
   const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_POST_MS)
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
   let t
   try {
     const resp = await fetch(API, { method: 'POST', body: JSON.stringify({ ...body, token: getToken() }), signal: ctrl.signal })
     t = await resp.text()
   } catch {
-    if (ctrl.signal.aborted) throw new Error('La planilla no respondió en 90 segundos. Puede haberse guardado igual: recargá y revisá antes de reintentar')
+    if (ctrl.signal.aborted) {
+      if (body.action !== 'login' && timeoutMs < TIMEOUT_POST_MS) throw new Error('Timeout al conectar con Google Sheets')
+      throw new Error(`La planilla no respondió en ${segs} segundos. Puede haberse guardado igual: recargá y revisá antes de reintentar`)
+    }
     throw new Error('Sin conexión con la planilla: revisá internet y probá de nuevo')
   } finally {
     clearTimeout(timer)
@@ -142,7 +117,7 @@ async function post(body) {
     throw new Error('La planilla respondió algo inesperado (puede estar con demora): probá de nuevo en un minuto')
   }
   if (!r.ok) {
-    if (r.error === 'AUTH_REQUIRED') { setToken(''); notifyAuthExpired() }
+    if (r.error === 'AUTH_REQUIRED') { setToken(''); notifyAuthExpired(); throw new Error('AUTH_REQUIRED') }
     throw new Error(traducirError(r.error))
   }
   return r.data
@@ -174,7 +149,7 @@ export function useAuth() {
       setSessionExpired(false)
     } catch (e) {
       // Mensajes de Apps Script que se muestran tal cual; cualquier otro es de conexión
-      setError(e.message === 'Contraseña incorrecta' || /^Demasiados intentos/.test(e.message) ? e.message : 'Error al conectar. Intentá de nuevo.')
+      setError(e.message === 'Contraseña incorrecta' || /^(Demasiados intentos|La planilla|Sin conexión)/.test(e.message) ? e.message : 'Error al conectar. Intentá de nuevo.')
     }
     setLoading(false)
   }, [])

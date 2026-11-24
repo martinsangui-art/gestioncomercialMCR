@@ -23,7 +23,7 @@ igual(etiquetaSemana(semanaDe('2026-12-31')), '28 de diciembre de 2026 al 1 de e
 igual(fechaColumna('2026-08-14'), '14/8/26', 'columna del corte como el modelo')
 
 // Corte de la semana: el último ≤ viernes
-const modelo = JSON.parse(readFileSync(new URL('./fixture-informe-agosto.json', import.meta.url)))
+const modelo = JSON.parse(readFileSync(new URL('./fixture-informe.json', import.meta.url)))
 const data = modelo.map(m => ({ cod_sede: m.cod_sede, sede: m.sede, objetivo: m.objetivo }))
 const historial = [
   ...modelo.map(m => ({ fecha: '2026-08-07', cod_sede: m.cod_sede, total: Math.max(0, m.total - 2) })),
@@ -37,11 +37,11 @@ igual(corteDeLaSemana(historial, semanaDe('2026-07-01')), { fecha: null, deEstaS
 
 // Tabla: idéntica al Word de la jefa
 const tabla = tablaComoVamos(data, historial, '2026-08-14')
-igual(tabla.totales, { objetivo: 270, total: 231, pct: 86 }, 'tabla: totales 270 · 231 · 86% como el modelo')
+igual(tabla.totales, { objetivo: 521, total: 377, pct: 72 }, 'tabla: totales (datos inventados)')
 igual(tabla.filas.length, 37, 'tabla: 37 sedes')
 igual(tabla.faltan, [], 'tabla: no falta ninguna sede en el corte')
-const pctModelo = { 22: 38, 33: 70, 41: 233, 89: 27, 112: 0, 180: 243, 213: 167 }
-ok(Object.entries(pctModelo).every(([c, p]) => tabla.filas.find(f => f.cod === c).pct === p), 'tabla: % por sede como el modelo')
+const pctModelo = { 22: 44, 33: 153, 41: 83, 89: 116, 112: 0, 180: 8, 213: 36 }
+ok(Object.entries(pctModelo).every(([c, p]) => tabla.filas.find(f => f.cod === c).pct === p), 'tabla: % por sede')
 igual(tabla.filas.map(f => f.cod).slice(0, 4), ['22', '33', '41', '42'], 'tabla: ordenada por código')
 const sinUna = tablaComoVamos([...data, { cod_sede: '999', sede: 'NUEVA', objetivo: 2 }], historial, '2026-08-14')
 igual(sinUna.faltan, ['NUEVA'], 'tabla: avisa la sede que no está en el corte')
