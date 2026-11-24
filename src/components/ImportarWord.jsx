@@ -14,12 +14,18 @@ const TIPOS = [['reunion', 'Reunión'], ['auditoria', 'Auditoría'], ['observaci
 const norm = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
 
 // ¿Ya está en la bitácora? Misma fecha, mismo tipo y el texto empieza igual
+const claveFila = (f) => `${f.fecha}|${f.tipo}|${norm(`${f.motivo} ${f.resultado} ${f.acciones}`).slice(0, 40)}`
 function pareceDuplicada(f, existentes) {
-  const clave = norm(`${f.motivo} ${f.resultado} ${f.acciones}`).slice(0, 40)
-  if (!clave) return false
-  return existentes.some(e => e.fecha === f.fecha && e.tipo === f.tipo &&
-    norm(`${e.motivo} ${e.resultado} ${e.acciones}`).slice(0, 40) === clave)
+  if (!norm(`${f.motivo} ${f.resultado} ${f.acciones}`)) return false
+  const clave = claveFila(f)
+  return existentes.some(e => claveFila(e) === clave)
 }
+
+// Revisión a medio hacer: queda guardada en este navegador hasta que se
+// confirma o se cancela (si la sesión se cae o se cierra la pestaña, no se pierde)
+const CLAVE_PENDIENTE = 'informe-word-pendiente'
+const leerPendiente = () => { try { return JSON.parse(localStorage.getItem(CLAVE_PENDIENTE) || 'null') } catch { return null } }
+const guardarPendiente = (v) => { try { v ? localStorage.setItem(CLAVE_PENDIENTE, JSON.stringify(v)) : localStorage.removeItem(CLAVE_PENDIENTE) } catch { /* sin almacenamiento */ } }
 
 const input = {
   width: '100%', boxSizing: 'border-box', padding: '6px 8px', borderRadius: 6, border: `1px solid ${C.rule}`,
@@ -69,11 +75,12 @@ function Fila({ f, i, semana, sedes, onCambio }) {
           </label>
         )}
       </div>
-      {(f.duplicada || fuera || (!f.fecha && f.incluir)) && (
+      {(f.duplicada || f.repetidaEnWord || fuera || (!f.fecha && f.incluir)) && (
         <div style={{ fontSize: 12.5, color: C.crimson, fontWeight: 700, marginBottom: 8 }}>
           {!f.fecha && f.incluir && 'Falta la fecha: completala o destildá la fila. '}
           {fuera && `Esta fecha no es de la semana del ${fmtFecha(semana.lunes)}: va a aparecer en el informe de su semana. `}
           {f.duplicada && 'Parece que ya está en la bitácora (por eso quedó destildada).'}
+          {f.repetidaEnWord && 'Se repite en el Word: es igual a otra fila de arriba (por eso quedó destildada).'}
         </div>
       )}
       <div style={{ display: 'grid', gap: 8, gridTemplateColumns: f.tipo === 'reunion' || f.tipo === 'auditoria' ? 'repeat(auto-fit, minmax(220px, 1fr))' : '1fr' }}>
@@ -103,6 +110,19 @@ export default function ImportarWord({ semana, sedes, existentes, onAgregadas, d
   // Mientras se lee o se guarda, la pantalla de atrás no se puede usar
   useEffect(() => { onOcupado?.(paso === 'leyendo' || paso === 'guardando') }, [paso]) // eslint-disable-line
 
+  // Al entrar a una semana: si quedó una revisión sin terminar de esa semana, se retoma
+  const [recuperada, setRecuperada] = useState(false)
+  useEffect(() => {
+    const p = leerPendiente()
+    if (p && p.lunes === semana.lunes && Array.isArray(p.filas) && p.filas.length && !paso) {
+      idLote.current = p.idLote; setArchivo(p.archivo || 'Word'); setFilas(p.filas); setPaso('revisar'); setRecuperada(true)
+    }
+  }, [semana.lunes]) // eslint-disable-line
+  useEffect(() => {
+    if (paso === 'revisar' && filas.length) guardarPendiente({ lunes: semana.lunes, archivo, filas, idLote: idLote.current })
+  }, [filas, paso]) // eslint-disable-line
+  const cerrarRevision = () => { setPaso(null); setFilas([]); setRecuperada(false); guardarPendiente(null) }
+
   const elegir = async (file) => {
     if (!file) return
     setError(null); setArchivo(file.name); setPaso('leyendo')
@@ -120,6 +140,7 @@ export default function ImportarWord({ semana, sedes, existentes, onAgregadas, d
         const r = await interpretarNotas(partes[k], semana.lunes, semana.domingo)
         todas = todas.concat(r?.filas || [])
       }
+      const vistas = new Set()
       const propuestas = todas.map(f => {
         // "Toda la semana" no tiene día: va el lunes de la semana (así lo
         // pide la bitácora) en vez de dejarla sin fecha
@@ -135,7 +156,10 @@ export default function ImportarWord({ semana, sedes, existentes, onAgregadas, d
         }
         if (f.tipo === 'auditoria' && f.motivo) { fila.resultado = [f.motivo, f.resultado].filter(Boolean).join('\n'); fila.motivo = '' }
         const duplicada = pareceDuplicada(fila, existentes)
-        return { ...fila, duplicada, incluir: !duplicada }
+        const clave = claveFila(fila)
+        const repetidaEnWord = !duplicada && norm(`${fila.motivo} ${fila.resultado} ${fila.acciones}`) !== '' && vistas.has(clave)
+        vistas.add(clave)
+        return { ...fila, duplicada, repetidaEnWord, incluir: !duplicada && !repetidaEnWord }
       })
       if (!propuestas.length) throw new Error('Gemini no encontró actividades en el Word. Revisá que sea el archivo de notas.')
       idLote.current = (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`)
@@ -162,7 +186,7 @@ export default function ImportarWord({ semana, sedes, existentes, onAgregadas, d
     try {
       const r = await agregarBitacora(elegidas.map(({ fecha, tipo, sede, hora, motivo, resultado, acciones }) =>
         ({ fecha, tipo, sede, hora: tipo === 'reunion' ? hora : '', motivo, resultado, acciones: tipo === 'auditoria' ? acciones : '' })), idLote.current)
-      setPaso(null); setFilas([])
+      cerrarRevision()
       onAgregadas?.(r?.agregadas ?? elegidas.length, !!r?.repetido)
     } catch (e) {
       setPaso('revisar')
@@ -191,13 +215,14 @@ export default function ImportarWord({ semana, sedes, existentes, onAgregadas, d
         </div>
       )}
       {(paso === 'revisar' || paso === 'guardando') && (
-        <ModalShell onClose={() => { if (paso !== 'guardando') { setPaso(null); setFilas([]) } }} cerrable={paso !== 'guardando'}
+        <ModalShell onClose={() => { if (paso !== 'guardando' && window.confirm('¿Descartar esta revisión? No se guarda nada en la bitácora.')) cerrarRevision() }} cerrable={paso !== 'guardando'}
           title="Notas del Word" sub={`${archivo} · revisá cada fila antes de guardarla en la bitácora`} maxWidth={920}>
           <div style={{ overflow: 'auto', padding: 18, display: 'flex', flexDirection: 'column', gap: 10, fontFamily: F.body }}>
             <div style={{ fontSize: 13.5, color: C.inkSoft, lineHeight: 1.5 }}>
               Gemini ordenó el Word en <b style={{ color: C.ink }}>{filas.length}</b> actividades, con las palabras de tus notas. Corregí lo que haga falta y destildá lo que no va.
               Nada se guarda hasta que toques el botón de abajo.
             </div>
+            {recuperada && <div role="status" style={{ borderLeft: `4px solid ${C.navy}`, background: C.celesteSoft, padding: '10px 14px', borderRadius: '0 8px 8px 0', fontSize: 13.5 }}>Retomamos la revisión que había quedado sin terminar. Nada se guardó todavía.</div>}
             {error && <div role="alert" style={{ borderLeft: `4px solid ${C.crimson}`, background: '#FBE7EA', padding: '10px 14px', borderRadius: '0 8px 8px 0', fontSize: 13.5 }}>{error}</div>}
             {filas.map((f, i) => <Fila key={i} f={f} i={i} semana={semana} sedes={sedes} onCambio={(c, v) => cambiar(i, c, v)} />)}
           </div>
