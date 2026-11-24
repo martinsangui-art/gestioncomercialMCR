@@ -1732,3 +1732,21 @@ function enviarMuestraMake() {
   });
   Logger.log('Make respondió ' + r.getResponseCode());
 }
+
+// Prueba del filtro de Make: manda dos mails a Martín, uno con una clave
+// equivocada (Make lo tiene que frenar: NO debe llegar) y otro con la clave
+// correcta (tiene que llegar). Correr desde el editor.
+function probarFiltroMake() {
+  var base = { to: 'martinsangui@gmail.com', sede: 'PRUEBA', cod: '0', fecha: '', tipo: 'email' };
+  function mandar(asunto, clave) {
+    var p = JSON.parse(JSON.stringify(base));
+    p.subject = asunto;
+    p.html = '<p>' + asunto + '</p><p>Prueba del filtro de seguridad de Make — Cómo vamos.</p>';
+    p.clave = clave;
+    var r = UrlFetchApp.fetch(MAKE_WEBHOOK, { method: 'post', contentType: 'application/json', payload: JSON.stringify(p), muteHttpExceptions: true });
+    Logger.log(asunto + ' → Make respondió ' + r.getResponseCode());
+  }
+  mandar('PRUEBA 1 (clave falsa) — este mail NO debería llegar', 'clave-falsa');
+  Utilities.sleep(3000);
+  mandar('PRUEBA 2 (clave correcta) — este mail SÍ debería llegar', claveMake_());
+}
