@@ -148,7 +148,14 @@ function Anotacion({ it, titulo, txt, origen, motivoRevisar, bloqueado, onCambio
   )
 }
 
-export default function Informe({ data, historial, campanas, campanaActiva, sedes }) {
+export default function Informe({ data, historial, campanas, campanaActiva, sedes, irABitacora }) {
+  // Pestaña "Bitácora" de la barra: misma pantalla, pero arranca en las anotaciones
+  const refBitacora = useRef(null)
+  useEffect(() => {
+    if (!irABitacora) return
+    const t = setTimeout(() => refBitacora.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 150)
+    return () => clearTimeout(t)
+  }, [irABitacora])
   const isMobile = useIsMobile()
   const hoy = hoyIso()
   const lunesHoy = semanaDe(hoy).lunes
@@ -400,10 +407,10 @@ export default function Informe({ data, historial, campanas, campanaActiva, sede
         {tabla && verTabla && <div style={{ marginTop: 14 }}><TablaSedes tabla={tabla} columnaObjetivo={informe.columnaObjetivo} columnaCorte={informe.columnaCorte} /></div>}
       </section>
 
-      {/* 2–4. Anotaciones */}
-      <section style={panel({ padding: isMobile ? 14 : 20 })}>
+      {/* 2–4. Anotaciones (la "Bitácora") */}
+      <section ref={refBitacora} id="bitacora" style={{ ...panel({ padding: isMobile ? 14 : 20 }), scrollMarginTop: 80 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 6 }}>
-          <h2 style={h2}>Auditorías, reuniones y observaciones</h2>
+          <h2 style={h2}>Bitácora: auditorías, reuniones y observaciones</h2>
           <button onClick={cargar} disabled={cargando || ocupado} style={linkBtn}>{cargando ? 'Leyendo la planilla…' : 'Volver a leer la planilla'}</button>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <ImportarWord semana={semana} sedes={listaSedes} existentes={items} disabled={cargando || redactando || !bitacora}
