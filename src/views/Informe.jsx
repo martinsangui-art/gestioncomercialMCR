@@ -8,6 +8,7 @@ import {
   redaccionBase, huellaNotas, huellaItem, avisosNotas, tituloAnotacion, ddmm, fmtPct, controlarRedaccion,
 } from '../lib/informe'
 import { descargarDocx, htmlInforme } from '../lib/informeDocx'
+import ImportarWord from '../components/ImportarWord'
 import { headerPDF, footerPDF, abrirVentanaPDF } from '../components/InformesPDF'
 import { precargarAssetsPDF } from '../lib/assetsPDF'
 
@@ -369,6 +370,8 @@ export default function Informe({ data, historial, campanas, campanaActiva, sede
           <h2 style={h2}>Auditorías, reuniones y observaciones</h2>
           <button onClick={cargar} disabled={cargando || redactando} style={linkBtn}>{cargando ? 'Leyendo la planilla…' : 'Volver a leer la planilla'}</button>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <ImportarWord semana={semana} sedes={listaSedes} existentes={items} disabled={cargando || redactando || !bitacora}
+              onAgregadas={(n) => { setMensaje(`Se agregaron ${n} anotaciones a la bitácora.`); cargar() }} />
             {hayGeminiOEdicion && <Boton tono="secundario" onClick={volverANotas} disabled={redactando}>Volver a mis notas</Boton>}
             <Boton tono="claude" onClick={conGemini} disabled={!items.length || redactando || cargando}>
               {redactando ? 'Gemini está redactando…' : 'Redactar con Gemini'}
@@ -376,7 +379,7 @@ export default function Informe({ data, historial, campanas, campanaActiva, sede
           </div>
         </div>
         <p style={{ margin: '0 0 14px', fontSize: 13.5, color: C.inkSoft, lineHeight: 1.5 }}>
-          Salen de la pestaña <b>bitacora</b> de la planilla. Gemini solo pule la redacción: no agrega datos ni toca los números (si cambia una cifra u hora, la anotación queda marcada). Revisá y corregí acá antes de bajar el Word.
+          Salen de la pestaña <b>bitacora</b> de la planilla, o del Word con tus notas (<b>Subir Word con notas</b>: Gemini las ordena y vos confirmás antes de guardar). Gemini solo pule la redacción: no agrega datos ni toca los números (si cambia una cifra u hora, la anotación queda marcada). Revisá y corregí acá antes de bajar el Word.
         </p>
 
         {error && <Aviso tono="error">No se pudieron leer las anotaciones: {error}</Aviso>}
@@ -391,7 +394,7 @@ export default function Informe({ data, historial, campanas, campanaActiva, sede
 
         {bitacora && !items.length && !error && (
           <Aviso tono="info">
-            No hay anotaciones del {fmtFecha(semana.lunes)} al {fmtFecha(semana.domingo)}. En la pestaña <b>bitacora</b> va una fila por actividad:
+            No hay anotaciones del {fmtFecha(semana.lunes)} al {fmtFecha(semana.domingo)}. La forma más fácil: juntá tus notas de la semana en un Word y tocá <b>Subir Word con notas</b>. También se pueden cargar a mano en la pestaña <b>bitacora</b>, una fila por actividad:
             <b> fecha</b>, <b>tipo</b> (Reunión, Auditoría, Observación o Toda la semana), <b>sede</b> (o el tema), <b>hora</b> (reuniones),
             <b> motivo</b>, <b>resultado</b> y <b>acciones_mejora</b> (auditorías). Pueden ser notas sueltas: Gemini las redacta. Sin anotaciones, el informe sale igual con la tabla y las secciones vacías.
           </Aviso>

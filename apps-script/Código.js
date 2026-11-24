@@ -236,6 +236,8 @@ function doPost(e) {
     if (action === 'restaurar_backup') return ok(restaurarBackup(body));
     if (action === 'set_objetivo') return ok(setObjetivo(body));
     if (action === 'redactar_informe') return ok(redactarInforme(body));
+    if (action === 'interpretar_notas') return ok(interpretarNotas(body));
+    if (action === 'agregar_bitacora') return ok(agregarBitacora(body));
     // Envío por POST (el front nuevo): el HTML del mail ya no viaja en la URL.
     // Las mismas acciones siguen por GET para el front viejo.
     if (action === 'enviar_email') {

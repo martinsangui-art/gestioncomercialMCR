@@ -231,3 +231,130 @@ function redactarInforme(body) {
     })
   };
 }
+
+// ── Notas en Word → filas de la bitácora ────────────────────────────────────
+// Cele junta sus notas de la semana (WhatsApp, Word, lo que sea) en un Word y
+// lo sube en la app. Gemini solo las ORDENA en filas; Cele las revisa en la
+// app y recién ahí se guardan (agregar_bitacora).
+var INFORME_INTERPRETAR = [
+  'Sos el asistente de la Coordinación Zonal Buenos Aires de UCASAL (universidad).',
+  'Recibís las notas sueltas que la coordinadora juntó durante una semana y las tenés que ORDENAR en filas para su bitácora. No redactes ni pulas: eso se hace después.',
+  '',
+  'Reglas que no se negocian:',
+  '- Una fila por actividad (una reunión, una auditoría, una gestión o novedad). Si una nota habla de dos cosas distintas, son dos filas.',
+  '- No inventes nada. Copiá el contenido con las palabras de la nota (podés quitar muletillas y repeticiones, nada más). No agregues datos, conclusiones ni compromisos.',
+  '- No pierdas nada: todo lo que dice el texto tiene que quedar en alguna fila.',
+  '- fecha: AAAA-MM-DD. Si la nota da el día ("lunes", "el 12", "ayer" con referencia clara) calculalo dentro de la semana indicada y marcá fecha_deducida = true. Si no hay forma de saberlo, dejala vacía "". Nunca la inventes.',
+  '- tipo: "reunion", "auditoria", "observacion" (gestión o novedad puntual) o "semana" (algo que se hizo a lo largo de toda la semana, sin día).',
+  '- sede: si es de una sede, escribí el nombre EXACTO de la lista de sedes que te paso. Si es otro tema (una persona, Salesforce, un evento), poné ese tema corto. Si no se sabe, "".',
+  '- hora: solo si la nota la dice (ej. "8:30"). Si no, "".',
+  '- motivo: en reuniones, los temas tratados, uno por renglón (separados con \\n).',
+  '- resultado: en reuniones, lo acordado o hecho (uno por renglón); en auditorías, el resultado; en observaciones, qué pasó.',
+  '- acciones: solo auditorías, las acciones de mejora.',
+  '- cita: el fragmento literal del texto original del que sale la fila (hasta 200 caracteres), para poder verificarla.',
+  '',
+  'Respondé SOLO con JSON: {"filas":[{"fecha":"","fecha_deducida":false,"tipo":"","sede":"","hora":"","motivo":"","resultado":"","acciones":"","cita":""}]}'
+].join('\n');
+
+function llamarGemini(sistema, texto) {
+  var props = PropertiesService.getScriptProperties();
+  var key = props.getProperty('GEMINI_API_KEY');
+  if (!key) throw new Error('SIN_API_KEY');
+  var modelo = props.getProperty('GEMINI_MODEL') || INFORME_MODELO_DEFECTO;
+  var resp = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(modelo) + ':generateContent', {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { 'x-goog-api-key': key },
+    muteHttpExceptions: true,
+    payload: JSON.stringify({
+      systemInstruction: { parts: [{ text: sistema }] },
+      contents: [{ role: 'user', parts: [{ text: texto }] }],
+      generationConfig: { responseMimeType: 'application/json', temperature: 0.1, maxOutputTokens: 16384 }
+    })
+  });
+  var code = resp.getResponseCode();
+  var txt = resp.getContentText();
+  if (code === 400 && /API key/i.test(txt)) throw new Error('La clave de Gemini (GEMINI_API_KEY) no es válida');
+  if (code === 401 || code === 403) throw new Error('La clave de Gemini (GEMINI_API_KEY) no es válida o no tiene permiso');
+  if (code === 404) throw new Error('Google no reconoce el modelo ' + modelo + ': cargá otro en la propiedad GEMINI_MODEL');
+  if (code === 429) throw new Error('Se alcanzó el límite de uso de Gemini: probá de nuevo en un rato');
+  if (code === 503 || code === 500) throw new Error('Gemini está saturado: probá de nuevo en un minuto');
+  if (code !== 200) throw new Error('Gemini respondió ' + code + ': ' + txt.slice(0, 200));
+  var data = JSON.parse(txt);
+  var cand = (data.candidates || [])[0];
+  if (!cand) throw new Error('Gemini no devolvió respuesta');
+  if (cand.finishReason === 'MAX_TOKENS') throw new Error('Las notas son demasiado largas para leerlas de una vez: dividí el Word en dos');
+  var salida = ((cand.content && cand.content.parts) || []).map(function(p) { return p.text || ''; }).join('');
+  var a = salida.indexOf('{'), z = salida.lastIndexOf('}');
+  if (a === -1 || z === -1) throw new Error('Gemini no devolvió el formato esperado');
+  return JSON.parse(salida.slice(a, z + 1));
+}
+
+// { texto, desde, hasta } → { filas: [...] } (nada se guarda acá)
+function interpretarNotas(body) {
+  var texto = String(body.texto || '').trim();
+  if (!texto) throw new Error('El Word no tiene texto');
+  if (texto.length > 60000) throw new Error('El Word es demasiado largo (' + texto.length + ' caracteres): dividilo en partes');
+  var sedes = getSedes().map(function(s) { return String(s.sede); }).filter(String);
+  var pedido = 'Semana: del ' + body.desde + ' (lunes) al ' + body.hasta + ' (domingo).\n' +
+    'Sedes (nombres exactos): ' + JSON.stringify(sedes) + '\n\nNotas de la semana:\n"""\n' + texto + '\n"""';
+  var r = llamarGemini(INFORME_INTERPRETAR, pedido);
+  var tipos = { reunion: 1, auditoria: 1, observacion: 1, semana: 1 };
+  var filas = (r.filas || []).map(function(f) {
+    var fecha = String(f.fecha || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) fecha = '';
+    var tipo = normTipo(f.tipo);
+    return {
+      fecha: fecha, fechaDeducida: !!f.fecha_deducida && !!fecha,
+      tipo: tipos[tipo] ? tipo : 'observacion',
+      sede: String(f.sede || '').trim(), hora: String(f.hora || '').trim(),
+      motivo: String(f.motivo || '').trim(), resultado: String(f.resultado || '').trim(),
+      acciones: String(f.acciones || '').trim(), cita: String(f.cita || '').trim().slice(0, 300)
+    };
+  }).filter(function(f) { return f.motivo || f.resultado || f.acciones; });
+  return { filas: filas };
+}
+
+// Guarda en la bitácora las filas que Cele revisó y confirmó en la app
+var TIPO_ETIQUETA = { reunion: 'Reunión', auditoria: 'Auditoría', observacion: 'Observación', semana: 'Toda la semana' };
+function agregarBitacora(body) {
+  var filas = body.filas || [];
+  if (!filas.length) throw new Error('No hay filas para agregar');
+  if (filas.length > 200) throw new Error('Demasiadas filas de una vez');
+  var tz = SS.getSpreadsheetTimeZone();
+  var valores = filas.map(function(f, i) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(f.fecha || ''))) throw new Error('La fila ' + (i + 1) + ' no tiene fecha');
+    if (!TIPO_ETIQUETA[f.tipo]) throw new Error('La fila ' + (i + 1) + ' tiene un tipo inválido');
+    if (!String(f.motivo || '').trim() && !String(f.resultado || '').trim() && !String(f.acciones || '').trim()) throw new Error('La fila ' + (i + 1) + ' está vacía');
+    var porCol = {
+      fecha: Utilities.parseDate(f.fecha, tz, 'yyyy-MM-dd'),
+      tipo: TIPO_ETIQUETA[f.tipo],
+      sede: String(f.sede || ''),
+      hora: f.hora ? "'" + String(f.hora) : '', // como texto: Sheets no la corre de huso
+      motivo: String(f.motivo || ''),
+      resultado: String(f.resultado || ''),
+      acciones_mejora: String(f.acciones || '')
+    };
+    return porCol;
+  });
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var h = getBitacoraSheet();
+    var enc = h.getRange(1, 1, 1, h.getLastColumn()).getValues()[0]
+      .map(function(k) { return normTexto(k).replace(/\s+/g, '_'); });
+    var faltan = BITACORA_COLUMNAS.filter(function(c) { return enc.indexOf(c) === -1; });
+    if (faltan.length) throw new Error('En la pestaña bitacora faltan las columnas: ' + faltan.join(', '));
+    var matriz = valores.map(function(v) { return enc.map(function(k) { return v.hasOwnProperty(k) ? v[k] : ''; }); });
+    // Primera fila libre mirando la columna de fecha y la de tipo (las
+    // validaciones de 1000 filas hacen que getLastRow no sirva)
+    var datos = h.getRange(1, 1, Math.max(h.getLastRow(), 1), enc.length).getValues();
+    var ultima = 1;
+    for (var i = datos.length - 1; i >= 1; i--) {
+      if (datos[i].join('').trim()) { ultima = i + 1; break; }
+    }
+    h.getRange(ultima + 1, 1, matriz.length, enc.length).setValues(matriz);
+    SpreadsheetApp.flush();
+    return { agregadas: matriz.length, desdeFila: ultima + 1 };
+  } finally { lock.releaseLock(); }
+}
