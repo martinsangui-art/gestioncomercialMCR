@@ -91,6 +91,16 @@ export function tablaComoVamos(data, historial, fechaCorte) {
 // coma flotante: 23/40 daba 57% en vez de 58%)
 export const porcentaje = (total, objetivo) => objetivo > 0 ? Math.round(total * 100 / objetivo) : null
 
+// "10hs", "10 hs", "10", "8.30", "8:30 hs" → "10:00" / "8:30" (lo que no se
+// entiende queda como está)
+export function normHora(h) {
+  const t = String(h || '').trim()
+  if (!t) return ''
+  const m = t.toLowerCase().replace(/\s*(hs?|horas?)\.?$/, '').trim().match(/^(\d{1,2})(?:[:.](\d{2}))?$/)
+  if (!m || Number(m[1]) > 23 || (m[2] && Number(m[2]) > 59)) return t
+  return `${Number(m[1])}:${m[2] || '00'}`
+}
+
 export const fmtPct = (p) => p === null || p === undefined ? '—' : `${p}%`
 
 // ── 2–4. Anotaciones de la bitácora ─────────────────────────────────────────
@@ -165,12 +175,12 @@ export function armarInforme({ semana, campanaNombre, tabla, fechaCorte, items, 
   }))
   const reuniones = items.filter(it => tipo(it) === 'reunion').map(it => ({
     id: it.id,
-    sede: [tituloAnotacion(it.sede, sedes), ddmm(it.fecha), it.hora ? `${it.hora} HS` : ''].filter(Boolean).join(' '),
+    sede: [tituloAnotacion(it.sede, sedes), ddmm(it.fecha), it.hora ? `${normHora(it.hora)} HS` : ''].filter(Boolean).join(' '),
     motivo: red(it).motivo || [], resultado: red(it).resultado || [],
   }))
   const porFecha = (a, b) => (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0)
   const obs = items.filter(it => tipo(it) === 'observacion').sort(porFecha).map(it => ({
-    id: it.id, cuando: [ddmm(it.fecha), it.hora ? `${it.hora} HS` : ''].filter(Boolean).join(' '), titulo: tituloAnotacion(it.sede, sedes), texto: red(it).texto || '',
+    id: it.id, cuando: [ddmm(it.fecha), it.hora ? `${normHora(it.hora)} HS` : ''].filter(Boolean).join(' '), titulo: tituloAnotacion(it.sede, sedes), texto: red(it).texto || '',
   }))
   const semanaEntera = items.filter(it => tipo(it) === 'semana').map(it => ({
     id: it.id, cuando: 'Durante la semana', titulo: tituloAnotacion(it.sede, sedes), texto: red(it).texto || '',

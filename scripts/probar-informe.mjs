@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 import {
   semanaDe, etiquetaSemana, corteDeLaSemana, tablaComoVamos, aVinetas, tituloAnotacion,
   armarInforme, redaccionBase, encabezadoObservacion, fechaColumna, avisosNotas, huellaNotas, nombrePropio,
-  porcentaje, controlarRedaccion, huellaItem,
+  porcentaje, controlarRedaccion, huellaItem, normHora,
 } from '../src/lib/informe.js'
 
 let fallas = 0
@@ -96,6 +96,9 @@ ok(/cifras/.test(controlarRedaccion({ tipo: 'observacion', resultado: '2 folleto
 ok(/cifras/.test(controlarRedaccion({ tipo: 'observacion', resultado: 'banner' }, { texto: 'banner para 40 alumnos' })), 'IA: cifra inventada se marca')
 ok(/vac/.test(controlarRedaccion({ tipo: 'reunion', motivo: 'a', resultado: 'b' }, { motivo: ['A.'], resultado: [] })), 'IA: resultado vacío se marca')
 ok(huellaItem(items[0]) === huellaItem({ ...items[0], id: 'otro', fila: 99 }), 'huella por ítem: no depende de la fila')
+
+igual(['10hs', '10 hs', '8.30', '8:30 hs', '15', '9:05', 'a la tarde', ''].map(normHora), ['10:00', '10:00', '8:30', '8:30', '15:00', '9:05', 'a la tarde', ''], 'hora: normaliza "10hs" y deja lo que no entiende')
+igual(armarInforme({ semana: semanaDe('2026-11-24'), tabla, fechaCorte: '2026-08-14', items: [{ id: 'h', fecha: '2026-11-24', tipo: 'reunion', sede: 'X', hora: '10hs', motivo: 'a', resultado: 'b' }], sedes: data }).reuniones[0].sede, 'X 24/11 10:00 HS', 'reunión con hora "10hs" sale "10:00 HS"')
 
 if (fallas) { console.log(`\n${fallas} prueba(s) fallaron`); process.exit(1) }
 console.log('\nTodo OK')
