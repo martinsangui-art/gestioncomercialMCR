@@ -8,6 +8,7 @@ const NAV = [
   { id: 'sedes',     label: 'Sedes' },
   { id: 'historial', label: 'Historial' },
   { id: 'envio',     label: 'Envío' },
+  { id: 'bitacora',  label: 'Bitácora' },
   { id: 'informe',   label: 'Informe' },
 ]
 
