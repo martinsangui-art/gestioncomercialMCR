@@ -20,9 +20,16 @@ var BITACORA_AYUDA = {
 };
 
 // Redacción con Gemini (Google). La clave va en Propiedades del script como
-// GEMINI_API_KEY. El modelo se puede cambiar sin tocar código con la
-// propiedad GEMINI_MODEL (si Google retira el de abajo).
-var INFORME_MODELO_DEFECTO = 'gemini-3.8-flash';
+// GEMINI_API_KEY. Se prueban los modelos en orden: si Google contesta que uno
+// está saturado (pasa seguido con el más nuevo) o ya no existe, se usa el
+// siguiente. Con la propiedad GEMINI_MODEL se puede poner otro primero.
+var INFORME_MODELOS = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.8-flash'];
+function modelosGemini() {
+  var preferido = PropertiesService.getScriptProperties().getProperty('GEMINI_MODEL');
+  var lista = INFORME_MODELOS.slice();
+  if (preferido) lista = [preferido].concat(lista.filter(function(m) { return m !== preferido; }));
+  return lista;
+}
 
 function getBitacoraSheet() {
   var h = SS.getSheetByName(BITACORA_HOJA);
@@ -167,15 +174,11 @@ var INFORME_SISTEMA = [
   '- reunion: motivo y resultado.  - auditoria: resultado y acciones.  - observacion o semana: texto.'
 ].join('\n');
 
-// Las anotaciones van en tandas de hasta 12, todas a la vez (fetchAll): una
-// semana cargada no se corta por largo ni hace esperar de más.
+// Las anotaciones van en tandas de hasta 12: una semana cargada no se corta
+// por largo.
 var INFORME_TANDA = 12;
 
 function redactarInforme(body) {
-  var props = PropertiesService.getScriptProperties();
-  var key = props.getProperty('GEMINI_API_KEY');
-  if (!key) throw new Error('SIN_API_KEY');
-  var modelo = props.getProperty('GEMINI_MODEL') || INFORME_MODELO_DEFECTO;
   var items = body.items || [];
   if (!items.length) return { items: [] };
   if (items.length > 120) throw new Error('Demasiadas anotaciones para una semana (' + items.length + ')');
@@ -185,42 +188,12 @@ function redactarInforme(body) {
       motivo: it.motivo || '', resultado: it.resultado || '', acciones: it.acciones || ''
     };
   });
-  var tandas = [];
-  for (var i = 0; i < entrada.length; i += INFORME_TANDA) tandas.push(entrada.slice(i, i + INFORME_TANDA));
-  var pedidos = tandas.map(function(t) {
-    return {
-      url: 'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(modelo) + ':generateContent',
-      method: 'post',
-      contentType: 'application/json',
-      headers: { 'x-goog-api-key': key },
-      muteHttpExceptions: true,
-      payload: JSON.stringify({
-        systemInstruction: { parts: [{ text: INFORME_SISTEMA }] },
-        contents: [{ role: 'user', parts: [{ text: 'Anotaciones de la semana:\n' + JSON.stringify(t, null, 1) }] }],
-        generationConfig: { responseMimeType: 'application/json', temperature: 0.2, maxOutputTokens: 8192 }
-      })
-    };
-  });
-  var porId = {};
-  UrlFetchApp.fetchAll(pedidos).forEach(function(resp) {
-    var code = resp.getResponseCode();
-    var txt = resp.getContentText();
-    if (code === 400 && /API key/i.test(txt)) throw new Error('La clave de Gemini (GEMINI_API_KEY) no es válida');
-    if (code === 401 || code === 403) throw new Error('La clave de Gemini (GEMINI_API_KEY) no es válida o no tiene permiso');
-    if (code === 404) throw new Error('Google no reconoce el modelo ' + modelo + ': cargá otro en la propiedad GEMINI_MODEL');
-    if (code === 429) throw new Error('Se alcanzó el límite de uso de Gemini: probá de nuevo en un rato');
-    if (code === 503 || code === 500) throw new Error('Gemini está saturado: probá de nuevo en un minuto');
-    if (code !== 200) throw new Error('Gemini respondió ' + code + ': ' + txt.slice(0, 200));
-    var data = JSON.parse(txt);
-    var cand = (data.candidates || [])[0];
-    if (!cand) throw new Error('Gemini no devolvió respuesta' + (data.promptFeedback && data.promptFeedback.blockReason ? ' (' + data.promptFeedback.blockReason + ')' : ''));
-    if (cand.finishReason === 'MAX_TOKENS') throw new Error('La respuesta de Gemini salió cortada: probá de nuevo');
-    var salida = ((cand.content && cand.content.parts) || []).map(function(p) { return p.text || ''; }).join('');
-    var a = salida.indexOf('{'), z = salida.lastIndexOf('}');
-    if (a === -1 || z === -1) throw new Error('Gemini no devolvió el formato esperado');
-    var parsed = JSON.parse(salida.slice(a, z + 1));
-    (parsed.items || []).forEach(function(x) { if (x && x.id) porId[String(x.id)] = x; });
-  });
+  var porId = {}, modelo = '';
+  for (var i = 0; i < entrada.length; i += INFORME_TANDA) {
+    var r = llamarGemini(INFORME_SISTEMA, 'Anotaciones de la semana:\n' + JSON.stringify(entrada.slice(i, i + INFORME_TANDA), null, 1), 8192);
+    modelo = r._modelo;
+    (r.items || []).forEach(function(x) { if (x && x.id) porId[String(x.id)] = x; });
+  }
   var lista = function(v) { return Array.isArray(v) ? v.map(String).filter(function(s) { return s.trim(); }) : (v ? [String(v)] : []); };
   return {
     modelo: modelo,
@@ -256,38 +229,43 @@ var INFORME_INTERPRETAR = [
   'Respondé SOLO con JSON: {"filas":[{"fecha":"","fecha_deducida":false,"tipo":"","sede":"","hora":"","motivo":"","resultado":"","acciones":"","cita":""}]}'
 ].join('\n');
 
-function llamarGemini(sistema, texto) {
-  var props = PropertiesService.getScriptProperties();
-  var key = props.getProperty('GEMINI_API_KEY');
+function llamarGemini(sistema, texto, maxTokens) {
+  var key = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
   if (!key) throw new Error('SIN_API_KEY');
-  var modelo = props.getProperty('GEMINI_MODEL') || INFORME_MODELO_DEFECTO;
-  var resp = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(modelo) + ':generateContent', {
-    method: 'post',
-    contentType: 'application/json',
-    headers: { 'x-goog-api-key': key },
-    muteHttpExceptions: true,
-    payload: JSON.stringify({
-      systemInstruction: { parts: [{ text: sistema }] },
-      contents: [{ role: 'user', parts: [{ text: texto }] }],
-      generationConfig: { responseMimeType: 'application/json', temperature: 0.1, maxOutputTokens: 16384 }
-    })
-  });
-  var code = resp.getResponseCode();
-  var txt = resp.getContentText();
-  if (code === 400 && /API key/i.test(txt)) throw new Error('La clave de Gemini (GEMINI_API_KEY) no es válida');
-  if (code === 401 || code === 403) throw new Error('La clave de Gemini (GEMINI_API_KEY) no es válida o no tiene permiso');
-  if (code === 404) throw new Error('Google no reconoce el modelo ' + modelo + ': cargá otro en la propiedad GEMINI_MODEL');
-  if (code === 429) throw new Error('Se alcanzó el límite de uso de Gemini: probá de nuevo en un rato');
-  if (code === 503 || code === 500) throw new Error('Gemini está saturado: probá de nuevo en un minuto');
-  if (code !== 200) throw new Error('Gemini respondió ' + code + ': ' + txt.slice(0, 200));
-  var data = JSON.parse(txt);
-  var cand = (data.candidates || [])[0];
-  if (!cand) throw new Error('Gemini no devolvió respuesta');
-  if (cand.finishReason === 'MAX_TOKENS') throw new Error('Las notas son demasiado largas para leerlas de una vez: dividí el Word en dos');
-  var salida = ((cand.content && cand.content.parts) || []).map(function(p) { return p.text || ''; }).join('');
-  var a = salida.indexOf('{'), z = salida.lastIndexOf('}');
-  if (a === -1 || z === -1) throw new Error('Gemini no devolvió el formato esperado');
-  return JSON.parse(salida.slice(a, z + 1));
+  var intentos = [];
+  var modelos = modelosGemini();
+  for (var k = 0; k < modelos.length; k++) {
+    var modelo = modelos[k];
+    var resp = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(modelo) + ':generateContent', {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { 'x-goog-api-key': key },
+      muteHttpExceptions: true,
+      payload: JSON.stringify({
+        systemInstruction: { parts: [{ text: sistema }] },
+        contents: [{ role: 'user', parts: [{ text: texto }] }],
+        generationConfig: { responseMimeType: 'application/json', temperature: 0.1, maxOutputTokens: maxTokens || 16384 }
+      })
+    });
+    var code = resp.getResponseCode();
+    var txt = resp.getContentText();
+    if (code === 400 && /API key/i.test(txt)) throw new Error('La clave de Gemini (GEMINI_API_KEY) no es válida');
+    if (code === 401 || code === 403) throw new Error('La clave de Gemini (GEMINI_API_KEY) no es válida o no tiene permiso');
+    // Saturado, sin cupo o retirado: probar con el modelo siguiente
+    if (code === 503 || code === 500 || code === 429 || code === 404) { intentos.push(modelo + ' ' + code); continue; }
+    if (code !== 200) throw new Error('Gemini respondió ' + code + ': ' + txt.slice(0, 200));
+    var data = JSON.parse(txt);
+    var cand = (data.candidates || [])[0];
+    if (!cand) throw new Error('Gemini no devolvió respuesta');
+    if (cand.finishReason === 'MAX_TOKENS') throw new Error('Las notas son demasiado largas para procesarlas de una vez: dividilas en dos');
+    var salida = ((cand.content && cand.content.parts) || []).map(function(p) { return p.text || ''; }).join('');
+    var a = salida.indexOf('{'), z = salida.lastIndexOf('}');
+    if (a === -1 || z === -1) throw new Error('Gemini no devolvió el formato esperado');
+    var json = JSON.parse(salida.slice(a, z + 1));
+    json._modelo = modelo;
+    return json;
+  }
+  throw new Error('Gemini está saturado en este momento (' + intentos.join(', ') + '): probá de nuevo en unos minutos');
 }
 
 // { texto, desde, hasta } → { filas: [...] } (nada se guarda acá)
