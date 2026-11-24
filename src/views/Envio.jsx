@@ -149,8 +149,7 @@ function EditorPlantillaModal({ template, sedeEjemplo, campNombre, onClose, onGu
               Vista previa {sedeEjemplo ? `· ${sedeEjemplo.sede}` : ''}
             </div>
             {sedeEjemplo ? (
-              <div style={{ border: `1px solid ${C.rule}`, borderRadius: 8, padding: 16, fontSize: 13, lineHeight: 1.7, color: '#222', background: '#fff' }}
-                dangerouslySetInnerHTML={{ __html: preview }} />
+              <VistaMail html={preview} style={{ border: `1px solid ${C.rule}`, borderRadius: 8 }} />
             ) : (
               <div style={{ fontSize: 12, color: C.inkSoft }}>No hay datos de sedes todavía para previsualizar.</div>
             )}
@@ -223,8 +222,7 @@ function PreviewModal({ sede, destinos = [], yaRecibieron = [], campNombre, temp
     <ModalShell onClose={onClose} cerrable={!enviando} maxWidth={640} title={`Mail para ${sede.sede}`} sub={destinos.length ? `Para: ${destinos.join(', ')}${yaRecibieron.length ? ` (ya lo recibió ${yaRecibieron.join(', ')})` : ''}` : 'Para: sin email cargado'}>
       <div style={{ flex: 1, overflow: 'auto', padding: '18px 20px', fontFamily: F.body }}>
         <div style={{ fontSize: 12, fontWeight: 600, color: C.inkSoft, marginBottom: 8 }}>Así le llega</div>
-        <div style={{ border: `1px solid ${C.rule}`, borderRadius: 10, padding: 18, fontSize: 13.5, lineHeight: 1.7, color: '#222', background: '#fff', boxShadow: '0 1px 0 rgba(14,23,51,.04)' }}
-          dangerouslySetInnerHTML={{ __html: htmlBase }} />
+        <VistaMail html={htmlBase} style={{ border: `1px solid ${C.rule}`, borderRadius: 10, boxShadow: '0 1px 0 rgba(14,23,51,.04)' }} />
       </div>
       <div style={{ padding: '14px 20px', borderTop: `1px solid ${C.rule}`, display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center', flexShrink: 0, flexWrap: 'wrap' }}>
         {errorEnvio && <div role="alert" style={{ marginRight: 'auto', fontSize: 13, color: C.danger }}>No salió: {errorEnvio}</div>}
@@ -921,5 +919,18 @@ export default function Envio({ data, copied, dirEnviadas = {}, envio, lanzarTan
         />
       )}
     </div>
+  )
+}
+
+// Vista previa del mail en un iframe sandbox sin allow-scripts: la
+// plantilla es HTML editable y, si alguien metiera un <script> o un onerror,
+// acá no corre ni puede leer la sesión de la app.
+function VistaMail({ html, style }) {
+  const [alto, setAlto] = useState(320)
+  const doc = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{margin:0;padding:16px;font-family:Arial,sans-serif;font-size:13px;line-height:1.7;color:#222;background:#fff}</style></head><body>${html}</body></html>`
+  return (
+    <iframe title="Vista previa del mail" sandbox="allow-same-origin" srcDoc={doc}
+      onLoad={e => { try { setAlto(Math.min(900, e.target.contentDocument.body.scrollHeight + 4)) } catch { /* sin acceso */ } }}
+      style={{ width: '100%', height: alto, display: 'block', background: '#fff', ...style }} />
   )
 }

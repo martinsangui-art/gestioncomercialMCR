@@ -3,6 +3,7 @@ import { ASSETS_PDF, precargarAssetsPDF } from '../lib/assetsPDF'
 import { C, F } from '../lib/theme'
 import ModalShell from './ModalShell'
 import { hoyIso, estadoSede, nombreCorto } from '../lib/formato'
+import { esc } from '../lib/envio'
 
 // Estado de cada sede con la misma regla que el resto de la app (lib/formato)
 const ORDEN_ESTADO = { ok: 0, prog: 1, cero: 2 }
@@ -64,12 +65,12 @@ export function estilosPDF() {
 }
 
 export function headerPDF(fecha, campNombre, titulo = 'Informe de cumplimiento') {
-  return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>${titulo} · ${campNombre}</title>${estilosPDF()}</head><body>
+  return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>${esc(titulo)} · ${esc(campNombre)}</title>${estilosPDF()}</head><body>
     <div class="header">
       <div class="marca">${ASSETS_PDF.logo ? `<img src="${ASSETS_PDF.logo}" alt="UCASAL">` : '<strong>UCASAL</strong>'}<span>Gestión comercial<br>Zona Buenos Aires</span></div>
       <div class="header-txt">
-        <h1>${titulo}</h1>
-        <p>${campNombre ? campNombre + ' · ' : ''}Coordinación Zonal Buenos Aires · Dirección Operativa SEAD</p>
+        <h1>${esc(titulo)}</h1>
+        <p>${campNombre ? esc(campNombre) + ' · ' : ''}Coordinación Zonal Buenos Aires · Dirección Operativa SEAD</p>
       </div>
       <div class="fecha-badge"><div class="n">${fmtFecha(fecha)}</div><div class="l">Corte</div></div>
     </div>`
@@ -153,7 +154,7 @@ function generarPDFGeneral(data, campNombre, fecha, onToast) {
     const diff = d.var
     const varStr = diff !== null ? (diff > 0 ? '+' + diff : diff === 0 ? '=' : String(diff)) : '—'
     const varColor = diff > 0 ? '#16a34a' : diff < 0 ? '#be123c' : '#9ca3af'
-    return `<tr><td>${d.cod_sede}</td><td>${d.sede}</td><td style="text-align:center">${d.objetivo}</td>
+    return `<tr><td>${esc(d.cod_sede)}</td><td>${esc(d.sede)}</td><td style="text-align:center">${d.objetivo}</td>
       <td style="text-align:center;font-weight:700">${d.total}</td>
       <td style="text-align:center;font-weight:700;color:${varColor}">${varStr}</td>
       <td style="text-align:center;font-weight:700">${ps}</td><td>${tag}</td></tr>`
@@ -205,7 +206,7 @@ function cuerpoSede(d, historial, campNombre, conHist) {
 
   const kpiClass = { ok: 'ok', prog: 'warn', cero: 'bad' }[estadoSede(d)]
   const parts = []
-  parts.push(`<div class="sede-title"><h2>${d.sede}</h2><p>Código: ${d.cod_sede} - ${campNombre}</p></div>`)
+  parts.push(`<div class="sede-title"><h2>${esc(d.sede)}</h2><p>Código: ${esc(d.cod_sede)} - ${esc(campNombre)}</p></div>`)
   parts.push('<div class="kpi-grid">')
   parts.push(`<div class="kpi ${kpiClass}"><div class="n">${pct}</div><div class="l">Cumplimiento</div></div>`)
   parts.push(`<div class="kpi bl"><div class="n">${d.objetivo}</div><div class="l">Objetivo</div></div>`)
@@ -287,7 +288,7 @@ export function generarInformeCierre({ camp, data, historial, porSede = false, o
   const filas = ranking.map((d, i) => {
     const tag = TAG_ESTADO[estadoSede(d)]
     const c = crec(d)
-    return `<tr><td style="text-align:center;font-weight:700">${i + 1}</td><td>${corto(d.sede)}</td>
+    return `<tr><td style="text-align:center;font-weight:700">${i + 1}</td><td>${esc(corto(d.sede))}</td>
       <td style="text-align:center">${d.objetivo}</td><td style="text-align:center;font-weight:700">${d.total}</td>
       <td style="text-align:center;font-weight:700">${d.pct}%</td>
       <td style="text-align:center;color:${c > 0 ? '#16a34a' : '#9ca3af'}">${c > 0 ? '+' + c : c === 0 ? '=' : c}</td><td>${tag}</td></tr>`
@@ -298,7 +299,7 @@ export function generarInformeCierre({ camp, data, historial, porSede = false, o
 
   const parts = []
   parts.push(headerPDF(fecha, campNombre, cerrada ? 'Informe de cierre de campaña' : 'Informe de campaña (parcial)'))
-  parts.push(`<div class="sede-title"><h2>${campNombre}</h2><p>${camp?.inicio ? 'Inicio ' + fmtFecha(camp.inicio) + ' · ' : ''}Último corte ${fmtFecha(fecha)}${camp?.fecha_cierre ? ' · Cerrada el ' + fmtFecha(camp.fecha_cierre) : ''} · ${fechas.length} cortes</p></div>`)
+  parts.push(`<div class="sede-title"><h2>${esc(campNombre)}</h2><p>${camp?.inicio ? 'Inicio ' + fmtFecha(camp.inicio) + ' · ' : ''}Último corte ${fmtFecha(fecha)}${camp?.fecha_cierre ? ' · Cerrada el ' + fmtFecha(camp.fecha_cierre) : ''} · ${fechas.length} cortes</p></div>`)
   parts.push('<div class="kpi-grid">')
   parts.push(`<div class="kpi ${pctGlobal >= 50 ? 'ok' : 'warn'}"><div class="n">${pctGlobal}%</div><div class="l">Cumplimiento global</div></div>`)
   parts.push(`<div class="kpi bl"><div class="n">${totIng}</div><div class="l">Inscriptos de ${totObj}</div></div>`)
@@ -308,11 +309,11 @@ export function generarInformeCierre({ camp, data, historial, porSede = false, o
   if (evolSvg) { parts.push('<h3>Evolución del cumplimiento por corte</h3>'); parts.push(evolSvg) }
   if (topCrec.length) {
     parts.push('<h3>Mayor crecimiento en la campaña</h3><table><tr><th>Sede</th><th>Primer corte</th><th>Final</th><th>Crecimiento</th></tr>')
-    topCrec.forEach(d => parts.push(`<tr><td>${corto(d.sede)}</td><td style="text-align:center">${primerTotal[String(d.cod_sede)]}</td><td style="text-align:center;font-weight:700">${d.total}</td><td style="text-align:center;font-weight:700;color:#16a34a">+${crec(d)}</td></tr>`))
+    topCrec.forEach(d => parts.push(`<tr><td>${esc(corto(d.sede))}</td><td style="text-align:center">${primerTotal[String(d.cod_sede)]}</td><td style="text-align:center;font-weight:700">${d.total}</td><td style="text-align:center;font-weight:700;color:#16a34a">+${crec(d)}</td></tr>`))
     parts.push('</table>')
   }
   if (bajo.length) {
-    parts.push(`<div class="alert"><strong>${bajo.length} sedes</strong> cerraron por debajo del 50%: ${bajo.map(d => corto(d.sede) + ' (' + d.pct + '%)').join(', ')}.</div>`)
+    parts.push(`<div class="alert"><strong>${bajo.length} sedes</strong> cerraron por debajo del 50%: ${bajo.map(d => esc(corto(d.sede)) + ' (' + d.pct + '%)').join(', ')}.</div>`)
   }
   parts.push('<h3>Ranking final</h3>')
   parts.push(`<table><tr><th>#</th><th>Sede</th><th>Objetivo</th><th>Inscriptos</th><th>Cumpl.</th><th>Crec.</th><th>Estado</th></tr>${filas}
@@ -372,7 +373,7 @@ function generarPDFComparacion(sedesSeleccionadas, campNombre, fecha, historial,
       tend = delta > 0 ? `+${delta} acum.` : delta < 0 ? `${delta} acum.` : 'Estable'
     }
     return `<tr>
-      <td>${nombreCorto(d.sede)}</td>
+      <td>${esc(nombreCorto(d.sede))}</td>
       <td style="text-align:center">${d.objetivo}</td>
       <td style="text-align:center;font-weight:700">${d.total}</td>
       <td style="text-align:center;font-weight:700;color:${col}">${ps}</td>
@@ -400,7 +401,7 @@ function generarPDFComparacion(sedesSeleccionadas, campNombre, fecha, historial,
     const medalla = i === 0 ? 'Mejor cumplimiento' : ''
     const col = { ok: '#16a34a', prog: '#d97706', cero: '#be123c' }[estadoSede(d)]
     parts.push(`<tr><td style="text-align:center;font-weight:700">${i + 1}</td>
-      <td>${nombreCorto(d.sede)}</td>
+      <td>${esc(nombreCorto(d.sede))}</td>
       <td style="text-align:center;font-weight:700;color:${col}">${ps}</td>
       <td>${medalla}</td></tr>`)
   })

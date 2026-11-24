@@ -110,7 +110,7 @@ const totalDe = (r, cod) => r.sedes.find(s => s.cod === String(cod))?.total
   check('ninguna sede de la red → error explicativo', /ninguna de las sedes/.test(msg), msg)
 }
 
-// 9. Réplica del formato del Excel nacional REAL (corte 23/10/2026): dos filas
+// 9. Réplica del formato del Excel nacional (números inventados) (corte 23/10/2026): dos filas
 //    de títulos, la fecha del corte como fecha nativa en la segunda, columna
 //    "Obj 1er Ingreso", "Año Anterior Misma Fecha", %, #DIV/0!, sedes con
 //    varias modalidades donde solo la primera fila trae código, y TOTALES.
@@ -118,28 +118,28 @@ const totalDe = (r, cod) => r.sedes.find(s => s.cod === String(cod))?.total
   const aoa = [
     [null, null, null, 'Total acumulado', 'Año Anterior Misma Fecha', '% sobre Año anterior', '% Cumplimiento objetivo'],
     ['Cod Sede', 'Sede', 'Obj 1er Ingreso', fecha],
-    [1, 'SALTA - CASTAÑARES PRESENCIAL', 5921, 1676, 1599, '5%', '28%'],
+    [1, 'SALTA - CASTAÑARES PRESENCIAL', 5000, 1500, 1400, '5%', '28%'],
     [2, 'UCASAL - PELLEGRINI 790', null, null, null, '#DIV/0!', '#DIV/0!'],
-    [10, 'DELEGACION S S DE JUJUY - JUJUY Modo 1', 487, 46, 49, '-6%', '9%'],
-    [null, 'DELEGACION S S DE JUJUY - JUJUY Modo 7', 398, 37, 42, '-12%', '9%'],
-    [null, 'DELEGACION S S DE JUJUY - JUJUY Modo 2', 127, 9, 17, '-47%', '7%'],
-    [22, 'PILAR - BUENOS AIRES', 26, 2, 4, '-50%', '8%'],
-    [33, 'DELEGACIÓN SAN MIGUEL - BUENOS AIRES Modo 7', 70, 10, 14, '-29%', '14%'],
-    [42, 'DELEGACIÓN BAHIA BLANCA - BUENOS AIRES', 93, 10, 17, '-41%', '11%'],
-    [87, '87-JUNIN - BS AS ', 84, 15, 8, '88%', '18%'],
-    [151, 'TRENQUE LAUQUEN - BUENOS AIRES', 40, 5, 3, '67%', '13%'],
+    [10, 'DELEGACION S S DE JUJUY - JUJUY Modo 1', 400, 40, 50, '-6%', '9%'],
+    [null, 'DELEGACION S S DE JUJUY - JUJUY Modo 7', 300, 30, 40, '-12%', '9%'],
+    [null, 'DELEGACION S S DE JUJUY - JUJUY Modo 2', 100, 8, 16, '-47%', '7%'],
+    [22, 'PILAR - BUENOS AIRES', 20, 2, 4, '-50%', '8%'],
+    [33, 'DELEGACIÓN SAN MIGUEL - BUENOS AIRES Modo 7', 60, 10, 14, '-29%', '14%'],
+    [42, 'DELEGACIÓN BAHIA BLANCA - BUENOS AIRES', 80, 10, 17, '-41%', '11%'],
+    [87, '87-JUNIN - BS AS ', 70, 15, 8, '88%', '18%'],
+    [151, 'TRENQUE LAUQUEN - BUENOS AIRES', 30, 5, 3, '67%', '13%'],
     ...OTRAS.map(([c, n]) => [c, n, 30, 4, 3, '33%', '13%']),
     [null, 'TOTALES', 20000, 3000, 2900, '3%', '15%'],
   ]
   const r = parseCorte(libro([['Como Vamos SEDES 1 Ingreso 2027', aoa]]), XLSX, { codigosRed })
   check('real: fecha del corte 23/10/2026 desde la 2ª fila de títulos', r.meta.fechaCorte === '2026-10-23' && !r.meta.fechaAmbigua, r.meta.fechaCorte)
   check('real: toma las 5 de la red con sus totales', r.sedes.length === 5 && totalDe(r, 42) === 10 && totalDe(r, 87) === 15)
-  check('real: reconoce "Obj 1er Ingreso" como objetivo', r.sedes.find(s => s.cod === '87').objetivoExcel === 84)
+  check('real: reconoce "Obj 1er Ingreso" como objetivo', r.sedes.find(s => s.cod === '87').objetivoExcel === 70)
   check('real: lee "Año Anterior Misma Fecha"', r.sedes.find(s => s.cod === '42').anioAnterior === 17)
   check('real: informa la fila del Excel', r.sedes.find(s => s.cod === '22').filas[0] === 8, JSON.stringify(r.sedes.find(s => s.cod === '22')))
   check('real: es nacional y no lista otras zonas', r.meta.esNacional)
   const conJujuy = parseCorte(libro([['H', aoa]]), XLSX, { codigosRed: [...codigosRed, '10'] })
-  check('real: suma las modalidades sin código (Jujuy 46+37+9)', totalDe(conJujuy, 10) === 92 && conJujuy.sedes.find(s => s.cod === '10').filas.length === 3)
+  check('real: suma las modalidades sin código (Jujuy 40+30+8)', totalDe(conJujuy, 10) === 78 && conJujuy.sedes.find(s => s.cod === '10').filas.length === 3)
   check('real: una sede de varias modalidades no cuenta como repetido', conJujuy.meta.sumadas.includes('10'), JSON.stringify(conJujuy.meta.sumadas))
 }
 
@@ -172,7 +172,7 @@ const totalDe = (r, cod) => r.sedes.find(s => s.cod === String(cod))?.total
   const aoa = [
     [null, null, null, 'Total acumulado', 'Año Anterior Misma Fecha'],
     ['Cod Sede', 'Sede', 'Obj 1er Ingreso', fecha],
-    [10, 'JUJUY Modo 1', 487, 46, 49], [null, 'JUJUY Modo 7', 398, 37, 42],
+    [10, 'JUJUY Modo 1', 400, 40, 50], [null, 'JUJUY Modo 7', 300, 30, 40],
     ...Object.entries(RED).map(([c, n], i) => [Number(c), n, 20, 3 + i, 1]),
     ...OTRAS.map(([c, n]) => [c, n, 30, 4, 3]), [null, 'TOTALES', 1, 1, 1],
   ]
@@ -180,7 +180,7 @@ const totalDe = (r, cod) => r.sedes.find(s => s.cod === String(cod))?.total
   const cods = [...codigosRed, '10']
   const r = parseCorte(buf, XLSX, { codigosRed: cods })
   const v = verificarCorte(buf, XLSX, r, cods)
-  check('doble lectura OK en lectura correcta', v.ok && v.sedes === 6 && v.total === 83 + 3 + 4 + 5 + 6 + 7, JSON.stringify(v))
+  check('doble lectura OK en lectura correcta', v.ok && v.sedes === 6 && v.total === 70 + 3 + 4 + 5 + 6 + 7, JSON.stringify(v))
   const adulterado = { ...r, sedes: r.sedes.map(s => s.cod === '42' ? { ...s, total: s.total + 1 } : s) }
   const v2 = verificarCorte(buf, XLSX, adulterado, cods)
   check('doble lectura detecta un número distinto', !v2.ok && v2.problemas.some(p => /42/.test(p)), JSON.stringify(v2.problemas))

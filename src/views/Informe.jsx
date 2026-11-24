@@ -344,7 +344,7 @@ export default function Informe({ data, historial, campanas, campanaActiva, sede
   const abrirPDF = () => {
     if (!confirmarPendientes()) return
     if (!ASSETS_PDF.firma) { setMensaje('Todavía se están cargando el logo y la firma: probá de nuevo en un segundo.'); precargarAssetsPDF(); return }
-    abrirVentanaPDF(htmlInforme(informe, { headerPDF, footerPDF, fechaCorte: corte.fecha, campNombre: escHtml(camp?.nombre || '') }), setMensaje)
+    abrirVentanaPDF(htmlInforme(informe, { headerPDF, footerPDF, fechaCorte: corte.fecha, campNombre: camp?.nombre || '' }), setMensaje)
   }
 
   const hayGeminiOEdicion = Object.values(origen).some(o => o !== 'notas')
@@ -457,7 +457,6 @@ export default function Informe({ data, historial, campanas, campanaActiva, sede
   )
 }
 
-const escHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 const h2 = { margin: 0, fontFamily: F.display, fontSize: 19, fontWeight: 800, fontStretch: '108%', color: C.ink }
 const flecha = {
   width: 38, height: 38, borderRadius: 8, border: `1px solid ${C.rule}`, background: '#fff', color: C.navy,

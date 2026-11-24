@@ -11,10 +11,10 @@ var SS = SpreadsheetApp.getActiveSpreadsheet();
 var AUTH_PASSWORD_SALT = PropertiesService.getScriptProperties().getProperty('AUTH_PASSWORD_SALT');
 var AUTH_PASSWORD_HASH = PropertiesService.getScriptProperties().getProperty('AUTH_PASSWORD_HASH');
 var AUTH_SECRET = PropertiesService.getScriptProperties().getProperty('AUTH_SECRET');
-var SESSION_HOURS = 4; // sesión común — corta a propósito: el token viaja en URLs (JSONP) y queda en logs/historial
+var SESSION_HOURS = 4; // sesión común (sin "recordar")
 // "Recordar este dispositivo": la contraseña se pide una vez por compu/celu y
-// la sesión dura un año. Para cerrar TODAS las sesiones recordadas (p. ej. si
-// se pierde un celu), cambiar AUTH_SECRET en Propiedades del script.
+// la sesión dura un año. Para cerrar TODAS las sesiones (p. ej. si se pierde
+// un celu): menú "Cómo vamos → Cerrar todas las sesiones" de la planilla.
 var SESSION_HOURS_RECORDAR = 24 * 365;
 
 function sha256(text) {
@@ -25,27 +25,43 @@ function sha256(text) {
   }).join('');
 }
 
-// Genera un token: base64(expiry) + '.' + hash(expiry + secret)
+// Token: base64(expiry.gen) + '.' + HMAC-SHA256(expiry.gen, AUTH_SECRET).
+// "gen" es TOKEN_GEN (Propiedades del script): al cambiar la contraseña o usar
+// "Cerrar todas las sesiones" desde el menú de la planilla se incrementa y
+// todos los tokens emitidos antes dejan de valer.
+function hex_(bytes) {
+  return bytes.map(function(b) {
+    var v = (b < 0 ? b + 256 : b).toString(16);
+    return v.length === 1 ? '0' + v : v;
+  }).join('');
+}
+function tokenGen_() {
+  return PropertiesService.getScriptProperties().getProperty('TOKEN_GEN') || '1';
+}
+function firmar_(texto) {
+  return hex_(Utilities.computeHmacSha256Signature(texto, AUTH_SECRET, Utilities.Charset.UTF_8));
+}
 function generarToken(horas) {
   var expiry = Date.now() + (horas || SESSION_HOURS) * 60 * 60 * 1000;
-  var expiryStr = String(expiry);
-  var firma = sha256(expiryStr + AUTH_SECRET);
-  return Utilities.base64EncodeWebSafe(expiryStr) + '.' + firma;
+  var carga = String(expiry) + '.' + tokenGen_();
+  return Utilities.base64EncodeWebSafe(carga) + '.' + firmar_(carga);
 }
 
-// Valida que el token no esté vencido ni manipulado
+// Valida que el token no esté vencido, manipulado ni revocado
 function validarToken(token) {
   // Sin secreto configurado cualquiera podría armar un token válido
   if (!AUTH_SECRET) return false;
-  if (!token || token.indexOf('.') === -1) return false;
+  if (!token || typeof token !== 'string' || token.length > 400) return false;
   var partes = token.split('.');
   if (partes.length !== 2) return false;
-  var expiryStr;
-  try { expiryStr = Utilities.newBlob(Utilities.base64DecodeWebSafe(partes[0])).getDataAsString(); }
+  var carga;
+  try { carga = Utilities.newBlob(Utilities.base64DecodeWebSafe(partes[0])).getDataAsString(); }
   catch(e) { return false; }
-  var firmaEsperada = sha256(expiryStr + AUTH_SECRET);
-  if (firmaEsperada !== partes[1]) return false; // token manipulado
-  var expiry = Number(expiryStr);
+  var c = carga.split('.');
+  if (c.length !== 2) return false;
+  if (firmar_(carga) !== partes[1]) return false; // token manipulado
+  if (c[1] !== tokenGen_()) return false;         // sesión revocada
+  var expiry = Number(c[0]);
   if (isNaN(expiry) || Date.now() > expiry) return false; // vencido
   return true;
 }
@@ -56,16 +72,30 @@ var LOGIN_MAX_FALLOS = 10;
 var LOGIN_VENTANA_SEG = 900;
 
 function login(password, recordar) {
-  var cache = CacheService.getScriptCache();
-  var fallos = Number(cache.get('login_fallos')) || 0;
-  if (fallos >= LOGIN_MAX_FALLOS) throw new Error('Demasiados intentos. Probá de nuevo en 15 minutos.');
   if (!password) throw new Error('Falta la contraseña');
-  var hash = sha256(password + AUTH_PASSWORD_SALT);
-  if (hash !== AUTH_PASSWORD_HASH) {
-    cache.put('login_fallos', String(fallos + 1), LOGIN_VENTANA_SEG);
+  // El lock hace que el contador de fallos no se pueda saltear mandando
+  // muchos intentos en paralelo.
+  var lock = LockService.getDocumentLock();
+  lock.waitLock(10000);
+  var cache = CacheService.getScriptCache();
+  var fallo = false;
+  try {
+    var fallos = Number(cache.get('login_fallos')) || 0;
+    if (fallos >= LOGIN_MAX_FALLOS) throw new Error('Demasiados intentos. Probá de nuevo en 15 minutos.');
+    var hash = sha256(String(password) + AUTH_PASSWORD_SALT);
+    if (hash !== AUTH_PASSWORD_HASH) {
+      cache.put('login_fallos', String(fallos + 1), LOGIN_VENTANA_SEG);
+      fallo = true;
+    } else {
+      cache.remove('login_fallos');
+    }
+  } finally {
+    lock.releaseLock();
+  }
+  if (fallo) {
+    Utilities.sleep(800); // frena la fuerza bruta (fuera del lock)
     throw new Error('Contraseña incorrecta');
   }
-  cache.remove('login_fallos');
   var horas = recordar ? SESSION_HOURS_RECORDAR : SESSION_HOURS;
   return { token: generarToken(horas), expiraEnHoras: horas };
 }
@@ -94,95 +124,56 @@ function err(msg) {
 //   semanas&campana=C2  → lista de fechas disponibles
 //   bitacora&desde=AAAA-MM-DD&hasta=AAAA-MM-DD → anotaciones de Cele en ese rango
 // ════════════════════════════════════════════════════════════════════════
+// Lecturas: las usa doPost (el front actual, nada viaja en la URL) y doGet
+// (compatibilidad). Devuelve null si la acción no es de lectura.
+function leer_(action, p) {
+  var campana = p.campana || null;
+  if (action === 'campanas')      return okData(getCampanas());
+  if (action === 'sedes')         return okData(getSedes());
+  if (action === 'sedes_todas')   return okData(getSedesTodas());
+  if (action === 'objetivos')     return okData(getObjetivos(campana));
+  if (action === 'historial')     return okData(getHistorial(campana));
+  if (action === 'semana_actual') return okData(getSemanaActual(campana));
+  if (action === 'semanas')       return okData(getSemanas(campana));
+  if (action === 'log_envios')    return okData(getLogEnvios(Number(p.limite) || 200));
+  if (action === 'config')        return okData(getConfig());
+  if (action === 'ultimo_deshacer') return okData(getUltimoDeshacer());
+  if (action === 'backup')        return okData(getBackup());
+  if (action === 'notas_sede')    return okData(getNotasSede(p.cod_sede));
+  if (action === 'bitacora')      return okData(getBitacora(p.desde, p.hasta));
+  return null;
+}
+
+// El nombre de la función JSONP se valida: sin esto, ?callback=<código> haría
+// que la respuesta ejecute JavaScript arbitrario.
+function callbackValido_(cb) {
+  return cb && /^[A-Za-z_$][\w$]{0,80}$/.test(cb) ? cb : null;
+}
+
 function doGet(e) {
+  var callback = null;
   try {
-    var action   = e.parameter.action;
-    var campana  = e.parameter.campana || null;
-    var callback = e.parameter.callback || null;  // JSONP support
-    var token    = e.parameter.token || null;
-
+    var p = (e && e.parameter) || {};
+    callback = callbackValido_(p.callback);
     var result;
-
-    // Login es la única acción pública — no requiere token
-    if (action === 'login') {
-      result = okData(login(e.parameter.password, e.parameter.recordar === '1'));
-    }
-    else if (!validarToken(token)) {
-      result = { ok: false, error: 'AUTH_REQUIRED' };
-    }
-    else if (action === 'campanas')      result = okData(getCampanas());
-    else if (action === 'sedes')    result = okData(getSedes());
-    else if (action === 'sedes_todas') result = okData(getSedesTodas());
-    else if (action === 'objetivos') result = okData(getObjetivos(campana));
-    else if (action === 'historial') result = okData(getHistorial(campana));
-    else if (action === 'semana_actual') result = okData(getSemanaActual(campana));
-    else if (action === 'semanas')  result = okData(getSemanas(campana));
-    else if (action === 'enviar_email' && !destinatarioPermitido(e.parameter.to)) {
-      result = { ok: false, error: 'Ese destinatario no está cargado en Sedes: ' + e.parameter.to };
-    }
-    else if (action === 'enviar_email') {
-      result = okData(enviarEmailMake({
-        to:      e.parameter.to,
-        subject: e.parameter.subject,
-        html:    e.parameter.html,
-        sede:    e.parameter.sede,
-        cod:     e.parameter.cod,
-        fecha:   e.parameter.fecha,
-        campana: e.parameter.campana,
-        idempotente: e.parameter.idempotente,
-        reenvio:     e.parameter.reenvio,
-      }));
-    }
-    else if (action === 'log_envios') {
-      result = okData(getLogEnvios(Number(e.parameter.limite) || 200));
-    }
-    else if (action === 'config') {
-      result = okData(getConfig());
-    }
-    else if (action === 'ultimo_deshacer') {
-      result = okData(getUltimoDeshacer());
-    }
-    else if (action === 'backup') {
-      result = okData(getBackup());
-    }
-    else if (action === 'notas_sede') {
-      result = okData(getNotasSede(e.parameter.cod_sede));
-    }
-    else if (action === 'bitacora') {
-      result = okData(getBitacora(e.parameter.desde, e.parameter.hasta));
-    }
-    else if (action === 'resumen_cele') {
-      var itemsParsed = JSON.parse(e.parameter.items || '[]');
-      result = okData(enviarResumenCele({
-        campana: e.parameter.campana,
-        fecha:   e.parameter.fecha,
-        items:   itemsParsed,
-      }));
-    }
-    else result = { ok: false, error: 'action no reconocida: ' + action };
-
-    var json = JSON.stringify(result);
-    if (callback) {
-      // JSONP — envolver en la función callback
-      return ContentService
-        .createTextOutput(callback + '(' + json + ')')
-        .setMimeType(ContentService.MimeType.JAVASCRIPT);
-    }
-    return ContentService
-      .createTextOutput(json)
-      .setMimeType(ContentService.MimeType.JSON);
+    // El login ya no va por GET: la contraseña quedaba en la URL (historial,
+    // logs). El front lo hace por POST.
+    if (!validarToken(p.token)) result = { ok: false, error: 'AUTH_REQUIRED' };
+    else result = leer_(p.action, p) || { ok: false, error: 'action no reconocida' };
+    return responder_(result, callback);
   } catch(ex) {
-    var errJson = JSON.stringify({ ok: false, error: ex.message });
-    var callback2 = (e.parameter && e.parameter.callback) || null;
-    if (callback2) {
-      return ContentService
-        .createTextOutput(callback2 + '(' + errJson + ')')
-        .setMimeType(ContentService.MimeType.JAVASCRIPT);
-    }
-    return ContentService
-      .createTextOutput(errJson)
-      .setMimeType(ContentService.MimeType.JSON);
+    return responder_({ ok: false, error: ex.message }, callback);
   }
+}
+
+function responder_(result, callback) {
+  var json = JSON.stringify(result);
+  if (callback) {
+    return ContentService
+      .createTextOutput(callback + '(' + json + ')')
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  }
+  return ContentService.createTextOutput(json).setMimeType(ContentService.MimeType.JSON);
 }
 
 function okData(data) { return { ok: true, data: data }; }
@@ -220,16 +211,24 @@ function doPost(e) {
     var body = JSON.parse(e.postData.contents);
     var action = body.action;
 
+    // Login: única acción sin token. Va por POST para que la contraseña no
+    // quede en ninguna URL.
+    if (action === 'login') return ok(login(body.password, body.recordar === '1' || body.recordar === true));
+
     if (!validarToken(body.token)) return err('AUTH_REQUIRED');
 
+    var lectura = leer_(action, body);
+    if (lectura) return ok(lectura.data);
+
+    // Todo texto que termina en la planilla pasa por acá: un valor que empieza
+    // con = + - @ se guardaría como fórmula (inyección de fórmulas).
+    if (action !== 'redactar_informe' && action !== 'interpretar_notas') body = sanearEntrada_(body);
+
+    // Las acciones administrativas (cambiar contraseña, secretos, chequeos de
+    // Make, borrar cortes) ya no se exponen por la web: se corren desde el
+    // editor de Apps Script o el menú "Cómo vamos" de la planilla. Así un token
+    // robado no alcanza para cambiar la contraseña ni tocar secretos.
     if (action === 'agregar_semana') return ok(agregarSemana(body));
-    if (action === 'eliminar_corte') return ok(eliminarCorte(body));
-    if (action === 'set_password') return ok(setPassword(body));
-    if (action === 'set_secret_prop') return ok(setSecretProp(body));
-    if (action === 'chequear_make') return ok(chequearEstadoMake());
-    if (action === 'chequear_escenario_activo') return ok(chequearEscenarioActivoMake());
-    if (action === 'instalar_chequeo_make') return ok(instalarChequeoMakeDiario());
-    if (action === 'corregir_log_envios') return ok(corregirLogEnvios(body));
     if (action === 'agregar_sede') return ok(agregarSede(body));
     if (action === 'editar_sede') return ok(editarSede(body));
     if (action === 'set_sede_activa') return ok(setSedeActiva(body));
@@ -272,6 +271,18 @@ function doPost(e) {
   }
 }
 
+function sanearEntrada_(v, clave) {
+  if (clave === 'token') return v;
+  if (typeof v === 'string') return /^[=+\-@\t\r]/.test(v) && !/^-?\d+([.,]\d+)?$/.test(v) ? "'" + v : v;
+  if (Array.isArray(v)) return v.map(function(x) { return sanearEntrada_(x); });
+  if (v && typeof v === 'object') {
+    var r = {};
+    Object.keys(v).forEach(function(k) { r[k] = sanearEntrada_(v[k], k); });
+    return r;
+  }
+  return v;
+}
+
 // Corrige filas de log_envios marcadas 'enviado' que en realidad fallaron
 // (ej: escenario de Make caído silenciosamente) — las pasa a 'error' para
 // que la app las vuelva a mostrar como pendientes de envío.
@@ -298,29 +309,6 @@ function corregirLogEnvios(body) {
   }
   if (corregidas) SpreadsheetApp.flush();
   return { corregidas: corregidas };
-}
-
-// Cambia la contraseña de acceso (autenticado — requiere una sesión ya
-// válida). Recibe el salt+hash ya calculados, nunca la contraseña en claro.
-function setPassword(body) {
-  if (!body.salt || !body.hash) throw new Error('Falta salt o hash');
-  PropertiesService.getScriptProperties().setProperties({
-    AUTH_PASSWORD_SALT: body.salt,
-    AUTH_PASSWORD_HASH: body.hash,
-  });
-  return { ok: true };
-}
-
-// Guarda un secreto puntual en PropertiesService — lista blanca cerrada para
-// no poder pisar AUTH_SECRET/AUTH_PASSWORD_* por error desde acá. Pensado
-// para que el propio usuario lo corra desde la consola del navegador (nunca
-// pasando el valor por el chat con el asistente).
-var SECRETOS_PERMITIDOS = ['MAKE_API_TOKEN', 'MAKE_SCENARIO_ID', 'MAKE_ZONE', 'ALERTA_EMAIL', 'ANTHROPIC_API_KEY'];
-function setSecretProp(body) {
-  if (!body.clave || body.valor === undefined) throw new Error('Falta clave o valor');
-  if (SECRETOS_PERMITIDOS.indexOf(body.clave) === -1) throw new Error('Clave no permitida: ' + body.clave);
-  PropertiesService.getScriptProperties().setProperty(body.clave, body.valor);
-  return { ok: true };
 }
 
 // ── Chequeo real del escenario de Make vía su API ───────────────────────────
@@ -466,6 +454,17 @@ function eliminarCorte(body) {
 // ════════════════════════════════════════════════════════════════════════
 var MAKE_WEBHOOK = PropertiesService.getScriptProperties().getProperty('MAKE_WEBHOOK');
 
+// Clave compartida con Make: el escenario solo manda el mail si el pedido trae
+// esta clave (filtro en Make). Si alguien consigue la URL del webhook, sin la
+// clave no puede mandar mails a nombre de Cele. Se genera sola la primera vez;
+// se ve desde el menú "Cómo vamos → Ver clave de Make" de la planilla.
+function claveMake_() {
+  var props = PropertiesService.getScriptProperties();
+  var c = props.getProperty('MAKE_CLAVE');
+  if (!c) { c = Utilities.getUuid().replace(/-/g, ''); props.setProperty('MAKE_CLAVE', c); }
+  return c;
+}
+
 // params.fecha es la fecha del CORTE (queda en log_envios como fecha_corte).
 // Con idempotente=1 (lo manda el front nuevo), si ese mail ya figura enviado
 // para la misma sede, campaña, corte y dirección, no se vuelve a mandar y se
@@ -492,7 +491,8 @@ function enviarEmailMake(params) {
           sede:    String(params.sede || ''),
           cod:     String(params.cod || ''),
           fecha:   String(params.fecha || ''),
-          tipo:    'email'
+          tipo:    'email',
+          clave:   claveMake_()
         }),
         muteHttpExceptions: true
       };
@@ -578,6 +578,10 @@ function fmtFechaDDMMAAAA(iso) {
   return p[2] + '/' + p[1] + '/' + p[0];
 }
 
+function escH_(v) {
+  return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 function enviarResumenCele(payload) {
   var items    = payload.items || [];
   var fecha    = payload.fecha || '';
@@ -588,12 +592,12 @@ function enviarResumenCele(payload) {
   var filas = items.map(function(it) {
     var color = it.estado === 'enviado' ? '#059669' : '#e11d48';
     var texto = it.estado === 'enviado' ? '✓ Enviado' : '✗ Error';
-    return '<tr><td style="padding:6px 10px;border:1px solid #e5e7eb">' + it.sede + '</td>' +
-      '<td style="padding:6px 10px;border:1px solid #e5e7eb">' + (it.email || '') + '</td>' +
+    return '<tr><td style="padding:6px 10px;border:1px solid #e5e7eb">' + escH_(it.sede) + '</td>' +
+      '<td style="padding:6px 10px;border:1px solid #e5e7eb">' + escH_(it.email) + '</td>' +
       '<td style="padding:6px 10px;border:1px solid #e5e7eb;color:' + color + ';font-weight:700">' + texto + '</td></tr>';
   }).join('');
 
-  var html = '<p>Resumen del envío — <strong>' + campana + '</strong> al ' + fmtFechaDDMMAAAA(fecha) + '</p>' +
+  var html = '<p>Resumen del envío — <strong>' + escH_(campana) + '</strong> al ' + fmtFechaDDMMAAAA(fecha) + '</p>' +
     '<table style="width:100%;border-collapse:collapse;margin:10px 0;font-size:12px">' +
     '<tr style="background:#1a1a2e;color:#fff"><th style="padding:7px 10px;text-align:left;font-size:11px">SEDE</th>' +
     '<th style="padding:7px 10px;text-align:left;font-size:11px">EMAIL</th>' +
@@ -613,7 +617,8 @@ function enviarResumenCele(payload) {
         sede:    '',
         cod:     '',
         fecha:   fecha,
-        tipo:    'email'
+        tipo:    'email',
+        clave:   claveMake_()
       }),
       muteHttpExceptions: true
     });
@@ -1019,6 +1024,18 @@ function editarSede(body) {
   var allRows = h.getDataRange().getValues();
   for (var i = 1; i < allRows.length; i++) {
     if (String(allRows[i][idxCod]) === String(body.cod_sede)) {
+      var idxMail = headers.indexOf('email');
+      var mailViejo = idxMail !== -1 ? String(allRows[i][idxMail] || '') : '';
+      if (idxMail !== -1 && body.email !== undefined && String(body.email) !== mailViejo) {
+        try {
+          MailApp.sendEmail({
+            to: EMAIL_CELE,
+            subject: 'Cómo vamos: cambió el mail de una sede',
+            body: 'Se cambió el mail de la sede ' + body.cod_sede + ' (' + allRows[i][headers.indexOf('sede')] + ').\n\n' +
+              'Antes: ' + mailViejo + '\nAhora: ' + body.email + '\n\nSi no fuiste vos, avisale a Martín.'
+          });
+        } catch (exAviso) { /* el aviso no frena el guardado */ }
+      }
       ['sede', 'email', 'saludo'].forEach(function(campo) {
         var idx = headers.indexOf(campo);
         if (idx !== -1 && body[campo] !== undefined) {
@@ -1629,4 +1646,75 @@ function rowToObj(keys, row) {
     obj[k] = val;
   });
   return obj;
+}
+// ════════════════════════════════════════════════════════════════════════
+// Menú "Cómo vamos" en la planilla — administración sin pasar por la web
+// (solo lo ven quienes tienen acceso de edición a la planilla: Martín y Cele)
+// ════════════════════════════════════════════════════════════════════════
+function onOpen() {
+  SpreadsheetApp.getUi().createMenu('Cómo vamos')
+    .addItem('Cambiar contraseña de la web', 'menuCambiarPassword')
+    .addItem('Cerrar todas las sesiones', 'menuCerrarSesiones')
+    .addItem('Desbloquear el login (demasiados intentos)', 'menuDesbloquearLogin')
+    .addSeparator()
+    .addItem('Ver clave de Make', 'menuVerClaveMake')
+    .addToUi();
+}
+
+function menuCambiarPassword() {
+  var html = HtmlService.createHtmlOutput(
+    '<style>body{font-family:Arial,sans-serif;font-size:13px}input{width:100%;padding:6px;margin:4px 0 10px;box-sizing:border-box}' +
+    'button{padding:7px 14px}#m{color:#C8102E;min-height:18px}</style>' +
+    '<p>Mínimo 12 caracteres. Al guardar se cierran todas las sesiones abiertas (también las recordadas): hay que volver a entrar con la nueva.</p>' +
+    '<label>Nueva contraseña<input id="a" type="password" autocomplete="new-password"></label>' +
+    '<label>Repetila<input id="b" type="password" autocomplete="new-password"></label>' +
+    '<div id="m"></div><button id="g" onclick="g()">Guardar</button>' +
+    '<script>function g(){var a=document.getElementById("a").value,b=document.getElementById("b").value,m=document.getElementById("m");' +
+    'if(a.length<12){m.textContent="Tiene que tener al menos 12 caracteres";return}if(a!==b){m.textContent="No coinciden";return}' +
+    'document.getElementById("g").disabled=true;m.style.color="#333";m.textContent="Guardando…";' +
+    'google.script.run.withSuccessHandler(function(){m.textContent="Listo. Contraseña cambiada y sesiones cerradas.";setTimeout(function(){google.script.host.close()},1800)})' +
+    '.withFailureHandler(function(e){m.style.color="#C8102E";m.textContent=e.message;document.getElementById("g").disabled=false}).guardarPasswordNueva(a)}</script>'
+  ).setWidth(380).setHeight(290);
+  SpreadsheetApp.getUi().showModalDialog(html, 'Cambiar contraseña de la web');
+}
+
+// La llama el diálogo de arriba (google.script.run solo funciona desde HTML
+// servido por este mismo proyecto; la web app no la expone).
+function guardarPasswordNueva(password) {
+  password = String(password || '');
+  if (password.length < 12) throw new Error('Tiene que tener al menos 12 caracteres');
+  var salt = Utilities.getUuid();
+  var props = PropertiesService.getScriptProperties();
+  props.setProperties({
+    AUTH_PASSWORD_SALT: salt,
+    AUTH_PASSWORD_HASH: sha256(password + salt),
+    // Secreto de firma nuevo y aleatorio: el de los comienzos del proyecto
+    // quedó en el historial público del repo.
+    AUTH_SECRET: Utilities.getUuid() + Utilities.getUuid(),
+  });
+  revocarSesiones_();
+  CacheService.getScriptCache().remove('login_fallos');
+  return true;
+}
+
+function revocarSesiones_() {
+  var props = PropertiesService.getScriptProperties();
+  props.setProperty('TOKEN_GEN', String((Number(props.getProperty('TOKEN_GEN')) || 1) + 1));
+}
+
+function menuCerrarSesiones() {
+  var ui = SpreadsheetApp.getUi();
+  var r = ui.alert('Cerrar todas las sesiones', 'Todos los dispositivos (también los recordados) van a tener que volver a poner la contraseña. ¿Seguir?', ui.ButtonSet.YES_NO);
+  if (r !== ui.Button.YES) return;
+  revocarSesiones_();
+  ui.alert('Listo: se cerraron todas las sesiones.');
+}
+
+function menuVerClaveMake() {
+  SpreadsheetApp.getUi().alert('Clave de Make', 'Pegala en el filtro del escenario de Make (campo "clave" del webhook):\n\n' + claveMake_(), SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+function menuDesbloquearLogin() {
+  CacheService.getScriptCache().remove('login_fallos');
+  SpreadsheetApp.getUi().alert('Listo: se puede volver a entrar.');
 }
