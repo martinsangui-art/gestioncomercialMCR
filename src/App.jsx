@@ -19,6 +19,7 @@ import { precargarAssetsPDF } from './lib/assetsPDF'
 const Sedes = lazy(() => import('./views/Sedes'))
 const Historial = lazy(() => import('./views/Historial'))
 const Envio = lazy(() => import('./views/Envio'))
+const Informe = lazy(() => import('./views/Informe'))
 import { ISOTIPO_B64 } from './assets/isotipo'
 
 // Pantalla de carga: la regla vacía que se va llenando de marcas mientras
@@ -85,6 +86,7 @@ const VIEW_META = {
   sedes:     { title: 'Sedes' },
   historial: { title: 'Historial' },
   envio:     { title: 'Envío semanal' },
+  informe:   { title: 'Informe semanal' },
 }
 
 // Aviso breve abajo a la derecha (se va solo)
@@ -197,7 +199,7 @@ function AppShell({ onLogout }) {
       <main style={{ maxWidth: 1320, margin: '0 auto', padding: isMobile ? '20px 14px 56px' : '32px 24px 72px', opacity: recargando ? 0.72 : 1, transition: 'opacity .2s' }}>
         <PageHeader
           title={meta.title}
-          campana={camp?.nombre} fecha={fecha}
+          campana={camp?.nombre} fecha={view === 'informe' ? null : fecha}
           sedes={(view === 'dashboard' || view === 'sedes') && data.length ? data.length : undefined}
           aviso={view === 'dashboard' && vencida ? `La campaña terminó el ${fmtFecha(fin)}: cuando esté todo cargado, cerrala para arrancar la siguiente.` : null}
         >
@@ -273,6 +275,9 @@ function AppShell({ onLogout }) {
           )}
           {view === 'historial' && (
             <Historial historial={historial} data={data} campanas={campanas} campanaActiva={campanaActiva} onSeleccionChange={setSedesComparacion} />
+          )}
+          {view === 'informe' && (
+            <Informe data={data} historial={historial} campanas={campanas} campanaActiva={campanaActiva} sedes={sedes} />
           )}
           {view === 'envio' && (
             <Envio

@@ -89,7 +89,44 @@ export function demoJsonp(action, params) {
     case 'log_envios': return enviosDemo
     case 'ultimo_deshacer': return { id: '1', fecha_hora: '2026-08-21 10:12', accion: 'agregar_semana', descripcion: 'Carga del corte 21/08/2026 · 2do Ingreso 2026' }
     case 'config': return {}
+    case 'bitacora': return bitacoraDemo(params.desde, params.hasta)
     case 'notas_sede': return params.cod_sede ? NOTAS.filter(n => n.cod_sede === String(params.cod_sede)) : NOTAS
     default: return []
   }
+}
+
+// Anotaciones de ejemplo para el informe semanal (pestaña 'bitacora')
+const BITACORA = [
+  { dia: 2, tipo: 'reunion', sede: 'MORÓN', hora: '8:30', motivo: 'acciones comerciales y visibilidad de la sede\nferias y expos\nhorario de atencion (mas movimiento 10 a 17)', resultado: 'lineamientos para ferias; se hizo banner y folleteria con datos de la sede\nla responsable decidio mantener el horario por ahora, seguimos mirando' },
+  { dia: 2, tipo: 'reunion', sede: 'PILAR', hora: '15:00', motivo: 'resultados flojos ultima campaña; meta ads', resultado: 'retomar planner de publicaciones; pedir piezas de meta ads; trabajar desde meta business' },
+  { dia: 0, tipo: 'observacion', sede: 'GONZALEZ CATÁN', hora: '', motivo: '', resultado: 'banner + 2 folletos personalizados, ya en imprenta' },
+  { dia: 3, tipo: 'observacion', sede: 'Reunión con Fernando Gamarra', hora: '', motivo: '', resultado: 'estrategia conjunta para las sedes de Federico Stagnito, armar propuesta con fechas' },
+  { dia: 1, tipo: 'semana', sede: '', hora: '', motivo: '', resultado: 'seguimiento con las sedes para confirmar Encuentro de Sedes' },
+]
+function bitacoraDemo(desde) {
+  const items = BITACORA.map((b, i) => {
+    const d = new Date(desde + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + b.dia)
+    return { id: 'f' + (i + 2), fila: i + 2, fecha: d.toISOString().slice(0, 10), tipoOriginal: b.tipo, acciones: '', ...b }
+  }).sort((a, b) => a.fecha.localeCompare(b.fecha))
+  return { items, sinFecha: [{ id: 'f9', fila: 9, fecha: '', tipo: 'observacion', sede: 'LANÚS', motivo: '', resultado: 'sin fecha' }], hoja: true }
+}
+
+export function demoRedactar({ items }) {
+  return new Promise(res => setTimeout(() => res({ modelo: 'demo', items: items.map(it => ({
+    id: it.id,
+    motivo: String(it.motivo || '').split(/\n|;/).map(s => s.trim()).filter(Boolean).map(s => s[0].toUpperCase() + s.slice(1) + '.'),
+    resultado: String(it.resultado || '').split(/\n|;/).map(s => s.trim()).filter(Boolean).map(s => 'Se ' + s + '.'),
+    acciones: [], texto: String(it.resultado || it.motivo || '') + ' (redactado)',
+  })) }), 900))
+}
+
+// Lo que devolvería Gemini al leer un Word de notas (para probar la pantalla)
+export function demoInterpretar({ desde }) {
+  const dia = (n) => { const d = new Date(desde + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10) }
+  return new Promise(res => setTimeout(() => res({ filas: [
+    { fecha: dia(1), fechaDeducida: true, tipo: 'reunion', sede: 'LANÚS', hora: '10:00', motivo: 'baja de consultas\nredes de la sede', resultado: 'retomar publicaciones 3 veces por semana', acciones: '', cita: 'martes 10hs reunion lanus por baja de consultas...' },
+    { fecha: dia(3), fechaDeducida: false, tipo: 'auditoria', sede: 'QUILMES', hora: '', motivo: '', resultado: 'atencion correcta, falta folleteria', acciones: 'reponer folletos', cita: 'auditoria quilmes...' },
+    { fecha: '', fechaDeducida: false, tipo: 'observacion', sede: 'Salesforce', hora: '', motivo: '', resultado: 'pedido de usuarios nuevos', acciones: '', cita: 'pedir usuarios salesforce' },
+    { fecha: dia(0), fechaDeducida: false, tipo: 'observacion', sede: 'GONZALEZ CATÁN', hora: '', motivo: '', resultado: 'banner + 2 folletos personalizados, ya en imprenta', acciones: '', cita: 'gonzalez catan banner' },
+  ] }), 900))
 }

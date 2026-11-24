@@ -121,6 +121,9 @@ function jsonp(action, params = {}) {
 // pedido (antes quedaba colgado sin aviso); puede haberse guardado igual.
 const TIMEOUT_POST_MS = 90000
 async function post(body) {
+  if (DEMO && body.action === 'redactar_informe') return import('../dev/demoData').then(m => m.demoRedactar(body))
+  if (DEMO && body.action === 'interpretar_notas') return import('../dev/demoData').then(m => m.demoInterpretar(body))
+  if (DEMO && body.action === 'agregar_bitacora') return Promise.resolve({ agregadas: body.filas.length })
   if (DEMO) throw new Error('Modo demo: no se guardan cambios')
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_POST_MS)
@@ -900,6 +903,23 @@ export function obtenerConfig() {
 }
 export function guardarConfig(claves) {
   return post({ action: 'set_config', claves })
+}
+
+// Informe semanal: anotaciones de la pestaña 'bitacora' en un rango de fechas
+// y redacción con Claude (la llamada larga va por POST: puede tardar).
+export function obtenerBitacora(desde, hasta) {
+  return jsonp('bitacora', { desde, hasta })
+}
+export function redactarInforme(items) {
+  return post({ action: 'redactar_informe', items })
+}
+// Word con las notas de la semana → filas propuestas (no guarda nada)
+export function interpretarNotas(texto, desde, hasta) {
+  return post({ action: 'interpretar_notas', texto, desde, hasta })
+}
+// Filas revisadas por Cele → pestaña 'bitacora'
+export function agregarBitacora(filas) {
+  return post({ action: 'agregar_bitacora', filas })
 }
 
 export { post, jsonp }
