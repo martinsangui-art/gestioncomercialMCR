@@ -1,8 +1,8 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { C, F, rotulo } from '../lib/theme'
 import ModalShell from './ModalShell'
 import { cargarXLSX } from '../lib/xlsxLoader'
-import { docxATexto } from '../lib/leerWord'
+import { leerDocx, partirTexto } from '../lib/leerWord'
 import { interpretarNotas, agregarBitacora } from '../hooks/useSheets'
 import { fmtFecha } from '../lib/formato'
 import { normHora } from '../lib/informe'
@@ -90,23 +90,37 @@ function Fila({ f, i, semana, sedes, onCambio }) {
   )
 }
 
-export default function ImportarWord({ semana, sedes, existentes, onAgregadas, disabled }) {
+export default function ImportarWord({ semana, sedes, existentes, onAgregadas, disabled, onOcupado }) {
   const inputRef = useRef(null)
   const [paso, setPaso] = useState(null) // null | 'leyendo' | 'revisar' | 'guardando'
   const [archivo, setArchivo] = useState('')
   const [filas, setFilas] = useState([])
   const [error, setError] = useState(null)
+  const [avance, setAvance] = useState(null)   // 'parte 2 de 3' al leer un Word largo
+  const idLote = useRef(null)                  // mismo id en los reintentos: el servidor no duplica
+  const enCurso = useRef(false)                // guarda contra el doble click
+
+  // Mientras se lee o se guarda, la pantalla de atrás no se puede usar
+  useEffect(() => { onOcupado?.(paso === 'leyendo' || paso === 'guardando') }, [paso]) // eslint-disable-line
 
   const elegir = async (file) => {
     if (!file) return
     setError(null); setArchivo(file.name); setPaso('leyendo')
     try {
       if (!/\.docx$/i.test(file.name)) throw new Error('Tiene que ser un Word .docx. Si es un .doc viejo o un PDF, abrilo en Word y guardalo como .docx.')
-      const XLSX = await cargarXLSX()
-      const texto = docxATexto(await file.arrayBuffer(), XLSX)
+      const texto = await leerDocx(await file.arrayBuffer(), cargarXLSX)
       if (texto.replace(/\s/g, '').length < 10) throw new Error('El Word está vacío o no tiene texto.')
-      const r = await interpretarNotas(texto, semana.lunes, semana.domingo)
-      const propuestas = (r?.filas || []).map(f => {
+      if (texto.length > 40000) throw new Error(`El Word es muy largo (${Math.round(texto.length / 1000)} mil caracteres). Para una semana alcanza con las notas de esa semana: dividilo en partes.`)
+      // Un Word largo va en partes (una llamada a Gemini por parte): cada una
+      // entra holgada en el tiempo y la respuesta no se corta
+      const partes = partirTexto(texto, 7000)
+      let todas = []
+      for (let k = 0; k < partes.length; k++) {
+        setAvance(partes.length > 1 ? `parte ${k + 1} de ${partes.length}` : null)
+        const r = await interpretarNotas(partes[k], semana.lunes, semana.domingo)
+        todas = todas.concat(r?.filas || [])
+      }
+      const propuestas = todas.map(f => {
         const fila = {
           ...f,
           hora: normHora(f.hora),
@@ -119,6 +133,7 @@ export default function ImportarWord({ semana, sedes, existentes, onAgregadas, d
         return { ...fila, duplicada, incluir: !duplicada }
       })
       if (!propuestas.length) throw new Error('Gemini no encontró actividades en el Word. Revisá que sea el archivo de notas.')
+      idLote.current = (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`)
       setFilas(propuestas); setPaso('revisar')
     } catch (e) {
       setPaso(null)
@@ -126,6 +141,7 @@ export default function ImportarWord({ semana, sedes, existentes, onAgregadas, d
         ? 'Todavía no está cargada la clave de Gemini en el Apps Script (GEMINI_API_KEY): sin ella no se puede leer el Word. Mientras tanto, las notas se pueden cargar a mano en la pestaña bitacora.'
         : e.message)
     } finally {
+      setAvance(null)
       if (inputRef.current) inputRef.current.value = ''
     }
   }
@@ -135,16 +151,23 @@ export default function ImportarWord({ semana, sedes, existentes, onAgregadas, d
   const sinFecha = elegidas.filter(f => !f.fecha).length
 
   const guardar = async () => {
+    if (enCurso.current) return
+    enCurso.current = true
     setError(null); setPaso('guardando')
     try {
       const r = await agregarBitacora(elegidas.map(({ fecha, tipo, sede, hora, motivo, resultado, acciones }) =>
-        ({ fecha, tipo, sede, hora: tipo === 'reunion' ? hora : '', motivo, resultado, acciones: tipo === 'auditoria' ? acciones : '' })))
+        ({ fecha, tipo, sede, hora: tipo === 'reunion' ? hora : '', motivo, resultado, acciones: tipo === 'auditoria' ? acciones : '' })), idLote.current)
       setPaso(null); setFilas([])
-      onAgregadas?.(r?.agregadas ?? elegidas.length)
+      onAgregadas?.(r?.agregadas ?? elegidas.length, !!r?.repetido)
     } catch (e) {
       setPaso('revisar')
-      setError(`No se pudo guardar en la planilla: ${e.message}. No se guardó nada; probá de nuevo.`)
-    }
+      // Si no hubo respuesta puede haberse guardado: el reintento usa el mismo
+      // lote, así que el servidor no lo vuelve a escribir
+      const sinRespuesta = /no respondió|Sin conexión|algo inesperado/i.test(e.message)
+      setError(sinRespuesta
+        ? `La planilla no respondió (${e.message.split(':')[0]}). Tocá "Agregar" de nuevo: si ya se había guardado, no se duplica.`
+        : `No se pudo guardar en la planilla: ${e.message}. No se guardó nada; probá de nuevo.`)
+    } finally { enCurso.current = false }
   }
 
   return (
@@ -155,7 +178,7 @@ export default function ImportarWord({ semana, sedes, existentes, onAgregadas, d
         height: 40, padding: '0 16px', borderRadius: 8, fontSize: 14, fontWeight: 800, fontFamily: F.body, whiteSpace: 'nowrap',
         background: '#fff', color: C.navy, border: `1px solid ${C.rule}`, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.45 : 1,
       }}>
-        {paso === 'leyendo' ? 'Leyendo el Word…' : 'Subir Word con notas'}
+        {paso === 'leyendo' ? `Leyendo el Word${avance ? ` (${avance})` : '…'}` : 'Subir Word con notas'}
       </button>
       {error && !paso && (
         <div role="alert" style={{ flexBasis: '100%', borderLeft: `4px solid ${C.crimson}`, background: '#FBE7EA', padding: '10px 14px', borderRadius: '0 8px 8px 0', fontSize: 13.5, color: C.ink }}>

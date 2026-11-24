@@ -254,25 +254,36 @@ function llamarGemini(sistema, texto, maxTokens) {
     // Saturado, sin cupo o retirado: probar con el modelo siguiente
     if (code === 503 || code === 500 || code === 429 || code === 404) { intentos.push(modelo + ' ' + code); continue; }
     if (code !== 200) throw new Error('Gemini respondió ' + code + ': ' + txt.slice(0, 200));
-    var data = JSON.parse(txt);
-    var cand = (data.candidates || [])[0];
-    if (!cand) throw new Error('Gemini no devolvió respuesta');
-    if (cand.finishReason === 'MAX_TOKENS') throw new Error('Las notas son demasiado largas para procesarlas de una vez: dividilas en dos');
-    var salida = ((cand.content && cand.content.parts) || []).map(function(p) { return p.text || ''; }).join('');
-    var a = salida.indexOf('{'), z = salida.lastIndexOf('}');
-    if (a === -1 || z === -1) throw new Error('Gemini no devolvió el formato esperado');
-    var json = JSON.parse(salida.slice(a, z + 1));
+    // Respuesta rara (vacía, cortada o que no es JSON): también se prueba
+    // con el modelo siguiente en vez de cortar todo
+    var json = null, motivo = '';
+    try {
+      var data = JSON.parse(txt);
+      var cand = (data.candidates || [])[0];
+      if (!cand) motivo = 'sin respuesta';
+      else if (cand.finishReason === 'MAX_TOKENS') motivo = 'respuesta cortada';
+      else {
+        var salida = ((cand.content && cand.content.parts) || []).map(function(p) { return p.text || ''; }).join('');
+        var a = salida.indexOf('{'), z = salida.lastIndexOf('}');
+        if (a === -1 || z === -1) motivo = 'formato inesperado';
+        else json = JSON.parse(salida.slice(a, z + 1));
+      }
+    } catch (e) { motivo = 'formato inesperado'; json = null; }
+    if (!json) { intentos.push(modelo + ' ' + motivo); continue; }
     json._modelo = modelo;
     return json;
   }
-  throw new Error('Gemini está saturado en este momento (' + intentos.join(', ') + '): probá de nuevo en unos minutos');
+  var saturado = intentos.every(function(x) { return / (503|500|429|404)$/.test(x); });
+  throw new Error(saturado
+    ? 'Gemini está saturado en este momento (' + intentos.join(', ') + '): probá de nuevo en unos minutos'
+    : 'Gemini no devolvió una respuesta usable (' + intentos.join(', ') + '): probá de nuevo');
 }
 
 // { texto, desde, hasta } → { filas: [...] } (nada se guarda acá)
 function interpretarNotas(body) {
   var texto = String(body.texto || '').trim();
   if (!texto) throw new Error('El Word no tiene texto');
-  if (texto.length > 60000) throw new Error('El Word es demasiado largo (' + texto.length + ' caracteres): dividilo en partes');
+  if (texto.length > 20000) throw new Error('Parte demasiado larga (' + texto.length + ' caracteres)');
   var sedes = getSedes().map(function(s) { return String(s.sede); }).filter(String);
   var pedido = 'Semana: del ' + body.desde + ' (lunes) al ' + body.hasta + ' (domingo).\n' +
     'Sedes (nombres exactos): ' + JSON.stringify(sedes) + '\n\nNotas de la semana:\n"""\n' + texto + '\n"""';
@@ -318,6 +329,14 @@ function agregarBitacora(body) {
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
+    // Mismo lote que ya se guardó (reintento después de un corte): no se
+    // vuelve a escribir. Se recuerda 6 horas.
+    var cache = CacheService.getScriptCache();
+    var claveLote = body.idLote ? 'bitacora_lote_' + String(body.idLote).slice(0, 80) : null;
+    if (claveLote) {
+      var previo = cache.get(claveLote);
+      if (previo) { var p = JSON.parse(previo); p.repetido = true; return p; }
+    }
     var h = getBitacoraSheet();
     var enc = h.getRange(1, 1, 1, h.getLastColumn()).getValues()[0]
       .map(function(k) { return normTexto(k).replace(/\s+/g, '_'); });
@@ -333,6 +352,8 @@ function agregarBitacora(body) {
     }
     h.getRange(ultima + 1, 1, matriz.length, enc.length).setValues(matriz);
     SpreadsheetApp.flush();
-    return { agregadas: matriz.length, desdeFila: ultima + 1 };
+    var resultado = { agregadas: matriz.length, desdeFila: ultima + 1 };
+    if (claveLote) cache.put(claveLote, JSON.stringify(resultado), 21600);
+    return resultado;
   } finally { lock.releaseLock(); }
 }
