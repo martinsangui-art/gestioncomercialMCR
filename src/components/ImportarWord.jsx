@@ -5,6 +5,7 @@ import { cargarXLSX } from '../lib/xlsxLoader'
 import { docxATexto } from '../lib/leerWord'
 import { interpretarNotas, agregarBitacora } from '../hooks/useSheets'
 import { fmtFecha } from '../lib/formato'
+import { normHora } from '../lib/informe'
 
 // Subir el Word con las notas de la semana: Gemini las ordena en filas,
 // Cele las revisa acá y recién al confirmar se guardan en la bitácora.
@@ -108,6 +109,7 @@ export default function ImportarWord({ semana, sedes, existentes, onAgregadas, d
       const propuestas = (r?.filas || []).map(f => {
         const fila = {
           ...f,
+          hora: normHora(f.hora),
           // En observaciones el motivo no tiene casillero: se suma al texto
           resultado: f.tipo === 'reunion' || f.tipo === 'auditoria' ? f.resultado : [f.motivo, f.resultado].filter(Boolean).join(' '),
           motivo: f.tipo === 'reunion' || f.tipo === 'auditoria' ? f.motivo : '',
