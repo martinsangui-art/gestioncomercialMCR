@@ -11,7 +11,11 @@ var SS = SpreadsheetApp.getActiveSpreadsheet();
 var AUTH_PASSWORD_SALT = PropertiesService.getScriptProperties().getProperty('AUTH_PASSWORD_SALT');
 var AUTH_PASSWORD_HASH = PropertiesService.getScriptProperties().getProperty('AUTH_PASSWORD_HASH');
 var AUTH_SECRET = PropertiesService.getScriptProperties().getProperty('AUTH_SECRET');
-var SESSION_HOURS = 4; // duración de la sesión — corta a propósito: el token viaja en URLs (JSONP) y queda en logs/historial
+var SESSION_HOURS = 4; // sesión común — corta a propósito: el token viaja en URLs (JSONP) y queda en logs/historial
+// "Recordar este dispositivo": la contraseña se pide una vez por compu/celu y
+// la sesión dura un año. Para cerrar TODAS las sesiones recordadas (p. ej. si
+// se pierde un celu), cambiar AUTH_SECRET en Propiedades del script.
+var SESSION_HOURS_RECORDAR = 24 * 365;
 
 function sha256(text) {
   var raw = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, text, Utilities.Charset.UTF_8);
@@ -22,8 +26,8 @@ function sha256(text) {
 }
 
 // Genera un token: base64(expiry) + '.' + hash(expiry + secret)
-function generarToken() {
-  var expiry = Date.now() + SESSION_HOURS * 60 * 60 * 1000;
+function generarToken(horas) {
+  var expiry = Date.now() + (horas || SESSION_HOURS) * 60 * 60 * 1000;
   var expiryStr = String(expiry);
   var firma = sha256(expiryStr + AUTH_SECRET);
   return Utilities.base64EncodeWebSafe(expiryStr) + '.' + firma;
@@ -51,7 +55,7 @@ function validarToken(token) {
 var LOGIN_MAX_FALLOS = 10;
 var LOGIN_VENTANA_SEG = 900;
 
-function login(password) {
+function login(password, recordar) {
   var cache = CacheService.getScriptCache();
   var fallos = Number(cache.get('login_fallos')) || 0;
   if (fallos >= LOGIN_MAX_FALLOS) throw new Error('Demasiados intentos. Probá de nuevo en 15 minutos.');
@@ -62,7 +66,8 @@ function login(password) {
     throw new Error('Contraseña incorrecta');
   }
   cache.remove('login_fallos');
-  return { token: generarToken(), expiraEnHoras: SESSION_HOURS };
+  var horas = recordar ? SESSION_HOURS_RECORDAR : SESSION_HOURS;
+  return { token: generarToken(horas), expiraEnHoras: horas };
 }
 
 // Apps Script no soporta addHeader — se usa JSONP para GET, texto plano para POST
@@ -100,7 +105,7 @@ function doGet(e) {
 
     // Login es la única acción pública — no requiere token
     if (action === 'login') {
-      result = okData(login(e.parameter.password));
+      result = okData(login(e.parameter.password, e.parameter.recordar === '1'));
     }
     else if (!validarToken(token)) {
       result = { ok: false, error: 'AUTH_REQUIRED' };

@@ -34,11 +34,12 @@ function ReglaMotivo() {
 
 export default function Login({ onLogin, error, loading }) {
   const [password, setPassword] = useState('')
+  const [recordar, setRecordar] = useState(true)
   const isMobile = useIsMobile()
 
   const handleSubmit = (e) => {
     e.preventDefault()
-    if (password.trim()) onLogin(password.trim())
+    if (password.trim()) onLogin(password.trim(), recordar)
   }
 
   return (
@@ -105,6 +106,11 @@ export default function Login({ onLogin, error, loading }) {
               {error === 'Contraseña incorrecta' ? 'La contraseña no es correcta. Revisala y probá de nuevo.' : error}
             </div>
           )}
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 14, fontSize: 13.5, color: C.inkSoft, cursor: 'pointer' }}>
+            <input type="checkbox" checked={recordar} onChange={e => setRecordar(e.target.checked)} disabled={loading}
+              style={{ accentColor: C.navy, width: 16, height: 16 }} />
+            Recordar en este dispositivo (no la vuelve a pedir por un año)
+          </label>
           <button
             type="submit"
             disabled={loading || !password.trim()}
